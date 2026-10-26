@@ -1,0 +1,7 @@
+.env
+users.json
+*.log
+*.tmp
+*.pem
+*.key
+*.crt

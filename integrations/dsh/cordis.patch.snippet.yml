@@ -1,0 +1,24 @@
+# Paste under the existing `- id: llm-pi-ai` entry, inside
+# `config:` -> `providers:`, preserving the six-space indentation.
+#
+# The credential reference `HUMAN_PROVIDER_KEY` is resolved through the DSH
+# credentials store (Settings -> Models -> Human Provider -> API key) or
+# `refs:` in `$DSH_HOME/.credentials.yaml`.
+      human-provider:
+        displayName: 能工智人 / Human Provider
+        api: openai-completions
+        baseURL: http://127.0.0.1:7355/v1
+        apiKeyEnv: HUMAN_PROVIDER_KEY
+        timeoutMs: 900000
+        streamIdleTimeoutMs: 900000
+        models:
+          - id: human-1
+            name: Human 1
+            contextWindow: 131072
+            maxTokens: 8192
+            reasoningEfforts: false
+          - id: human-1-fast
+            name: Human 1 Fast
+            contextWindow: 131072
+            maxTokens: 8192
+            reasoningEfforts: false

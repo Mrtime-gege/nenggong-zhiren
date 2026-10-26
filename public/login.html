@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#090d12" />
+    <title>能工智人 · 登录</title>
+    <link rel="stylesheet" href="/login.css" />
+  </head>
+  <body>
+    <main class="login-shell">
+      <section class="login-card" aria-labelledby="login-title">
+        <div class="brand">
+          <span class="brand-mark">能</span>
+          <div>
+            <h1 id="login-title">能工智人</h1>
+            <p class="brand-sub">NENGGONG ZHIREN · HUMAN PROVIDER</p>
+          </div>
+        </div>
+
+        <p class="intro">局域网坐席控制台。登录后，你处理的每张票据都会记录你的用户名。</p>
+
+        <form id="login-form" method="post" action="/auth/login" autocomplete="on">
+          <input type="hidden" name="next" value="{{NEXT}}" />
+          <div class="login-error" role="alert" aria-live="polite">{{ERROR}}</div>
+          <label class="field">
+            <span>用户名</span>
+            <input
+              id="username"
+              name="username"
+              type="text"
+              inputmode="text"
+              autocomplete="username"
+              autocapitalize="none"
+              spellcheck="false"
+              maxlength="32"
+              required
+              autofocus
+            />
+          </label>
+          <label class="field">
+            <span>密码</span>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              maxlength="256"
+              required
+            />
+          </label>
+          <button id="login-submit" type="submit">登录控制台</button>
+        </form>
+
+        <p class="fineprint">仅限授权的局域网用户 · 会话 12 小时有效 · 失败尝试会被限速</p>
+      </section>
+    </main>
+    <script src="/login.js" defer></script>
+  </body>
+</html>

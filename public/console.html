@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0e13" />
+    <title>能工智人 · 坐席控制台</title>
+    <link rel="stylesheet" href="/console.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="brand-name">能工智人</span>
+        <span class="brand-sub">坐席控制台</span>
+      </div>
+      <div class="conn">
+        <span id="userLabel" class="user-label">正在加载…</span>
+        <button id="usersBtn" class="btn ghost hidden" type="button">用户管理</button>
+        <button id="logout" class="btn ghost" type="button">退出</button>
+        <span id="status" class="conn-status">连接中…</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <div class="stats" id="stats"></div>
+        <div class="queue-toolbar">
+          <input id="queueSearch" class="queue-search" type="search" placeholder="搜索票据 / 调用方…" autocomplete="off" />
+          <div class="queue-filters" id="queueFilters">
+            <button class="chip active" type="button" data-filter="all">全部</button>
+            <button class="chip" type="button" data-filter="queued">待认领</button>
+            <button class="chip" type="button" data-filter="active">进行中</button>
+            <button class="chip" type="button" data-filter="recent">最近</button>
+          </div>
+        </div>
+        <div class="auto-row">
+          <label class="switch-label">
+            <input id="autoclaim" type="checkbox" />
+            <span title="队列里有票时，自动认领最旧的一张">自动认领</span>
+          </label>
+          <span class="hint">Ctrl+↵ 完成 · Ctrl+Shift+↵ 推送</span>
+        </div>
+        <div class="queue" id="queue">
+          <div class="queue-group">
+            <div class="queue-group-head"><span>登录</span></div>
+            <div class="qitem-preview">正在验证会话…</div>
+          </div>
+        </div>
+        <div class="sidebar-foot">
+          调用方通过 <code>/v1/chat/completions</code> 发来请求，认领后即可开始“生成”。
+        </div>
+      </aside>
+
+      <section class="detail" id="detail">
+        <div class="empty">
+          <div class="empty-glyph">⌁</div>
+          <p>选择左侧票据开始接待</p>
+          <p class="empty-sub">没有票据时，先用 curl 或任意 OpenAI SDK 发一个请求。</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="commandbar">
+      <div class="command-context">
+        <span id="commandTicket" class="command-ticket">未选择票据</span>
+        <span id="commandState" class="command-state">等待队列</span>
+      </div>
+      <div class="command-actions">
+        <button id="cmdClaim" class="btn" type="button">认领 <kbd data-shortcut="claim"></kbd></button>
+        <button id="cmdPush" class="btn" type="button">推送 <kbd data-shortcut="push"></kbd></button>
+        <button id="cmdFinish" class="btn primary" type="button">完成 <kbd data-shortcut="finish"></kbd></button>
+        <button id="cmdRelease" class="btn ghost" type="button">放回 <kbd data-shortcut="release"></kbd></button>
+        <button id="cmdRefuse" class="btn danger" type="button">拒答 <kbd data-shortcut="refuse"></kbd></button>
+        <button id="cmdCancel" class="btn danger" type="button">取消 <kbd data-shortcut="cancel"></kbd></button>
+        <button id="cmdShortcuts" class="btn ghost" type="button">快捷键 <kbd data-shortcut="help"></kbd></button>
+      </div>
+      <div class="command-hint" id="commandHint">选择票据后启用操作</div>
+    </footer>
+
+    <div id="shortcutModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="shortcutTitle">
+      <section class="modal shortcut-modal">
+        <div class="modal-head">
+          <div>
+            <h2 id="shortcutTitle">键盘快捷键</h2>
+            <p class="hint">点击某个组合键后按下新快捷键；只保存在当前浏览器。</p>
+          </div>
+          <button id="shortcutClose" class="btn ghost" type="button">关闭</button>
+        </div>
+        <div id="shortcutList" class="shortcut-list"></div>
+        <div class="shortcut-actions">
+          <button id="shortcutReset" class="btn ghost" type="button">恢复默认</button>
+          <span class="hint">Mac 上 Mod 为 ⌘，其他系统为 Ctrl</span>
+        </div>
+      </section>
+    </div>
+
+    <div id="usersModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="usersTitle">
+      <section class="modal">
+        <div class="modal-head">
+          <div>
+            <h2 id="usersTitle">用户管理</h2>
+            <p class="hint">仅管理员可见。账号保存在项目根目录 <code>users.json</code>，请勿公开该文件。</p>
+          </div>
+          <button id="usersClose" class="btn ghost" type="button">关闭</button>
+        </div>
+        <form id="userCreateForm" class="user-create">
+          <label class="field">
+            <span>用户名</span>
+            <input id="newUsername" type="text" maxlength="32" autocomplete="off" spellcheck="false" placeholder="3–32 位小写字母/数字/._-" required />
+          </label>
+          <label class="field">
+            <span>初始密码</span>
+            <input id="newPassword" type="password" minlength="12" maxlength="256" autocomplete="new-password" placeholder="至少 12 位" required />
+          </label>
+          <label class="field">
+            <span>角色</span>
+            <select id="newRole">
+              <option value="operator">坐席</option>
+              <option value="admin">管理员</option>
+            </select>
+          </label>
+          <button id="userCreateBtn" class="btn primary" type="submit">添加用户</button>
+        </form>
+        <div id="usersError" class="login-error" role="alert"></div>
+        <div id="userList" class="user-list"></div>
+        <p class="fineprint">重置密码会让该用户现有会话失效；不能删除自己或最后一个管理员。</p>
+      </section>
+    </div>
+
+    <div id="toast" class="toast"></div>
+    <script src="/console.js"></script>
+  </body>
+</html>
