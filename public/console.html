@@ -4,19 +4,21 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0a0e13" />
-    <title>能工智人 · 坐席控制台</title>
+    <title>能工智人 · 网页工作台</title>
     <link rel="stylesheet" href="/console.css" />
+    <link rel="stylesheet" href="/theme.css" />
   </head>
   <body>
     <header class="topbar">
       <div class="brand">
         <span class="status-dot" id="statusDot"></span>
         <span class="brand-name">能工智人</span>
-        <span class="brand-sub">坐席控制台</span>
+        <span class="brand-sub">网页工作台</span>
       </div>
       <div class="conn">
         <span id="userLabel" class="user-label">正在加载…</span>
-        <button id="usersBtn" class="btn ghost hidden" type="button">用户管理</button>
+        <a id="usersBtn" class="btn ghost hidden" href="/console/users">用户管理</a>
+        <a id="keysBtn" class="btn ghost hidden" href="/console/keys">调用密钥</a>
         <button id="logout" class="btn ghost" type="button">退出</button>
         <span id="status" class="conn-status">连接中…</span>
       </div>
@@ -100,7 +102,7 @@
         <div class="modal-head">
           <div>
             <h2 id="usersTitle">用户管理</h2>
-            <p class="hint">仅管理员可见。账号保存在项目根目录 <code>users.json</code>，请勿公开该文件。</p>
+            <p class="hint">仅管理员可见。账号保存在项目根目录 <code>users.json</code>，请妥善保管，不要公开。</p>
           </div>
           <button id="usersClose" class="btn ghost" type="button">关闭</button>
         </div>
@@ -116,7 +118,7 @@
           <label class="field">
             <span>角色</span>
             <select id="newRole">
-              <option value="operator">坐席</option>
+              <option value="operator">人工回复员</option>
               <option value="admin">管理员</option>
             </select>
           </label>
@@ -125,6 +127,59 @@
         <div id="usersError" class="login-error" role="alert"></div>
         <div id="userList" class="user-list"></div>
         <p class="fineprint">重置密码会让该用户现有会话失效；不能删除自己或最后一个管理员。</p>
+      </section>
+    </div>
+
+    <div id="keysModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="keysTitle">
+      <section class="modal">
+        <div class="modal-head">
+          <div>
+            <h2 id="keysTitle">调用密钥</h2>
+            <p class="hint">调用方用这些密钥访问服务。密钥明文只在创建时显示一次，文件里只保存哈希。</p>
+          </div>
+          <button id="keysClose" class="btn ghost" type="button">关闭</button>
+        </div>
+        <form id="keyCreateForm" class="key-create">
+          <label class="field key-name-field">
+            <span>密钥名称</span>
+            <input id="newKeyName" type="text" maxlength="64" autocomplete="off" spellcheck="false" placeholder="例如：演示站、内部工具" required />
+          </label>
+          <label class="field">
+            <span>每分钟请求</span>
+            <input id="newKeyRpm" type="number" min="0" max="1000000" step="1" value="0" />
+          </label>
+          <label class="field">
+            <span>每日请求</span>
+            <input id="newKeyPerDay" type="number" min="0" max="1000000" step="1" value="0" />
+          </label>
+          <label class="field">
+            <span>每月请求</span>
+            <input id="newKeyPerMonth" type="number" min="0" max="1000000" step="1" value="0" />
+          </label>
+          <label class="field">
+            <span>并发上限</span>
+            <input id="newKeyConcurrent" type="number" min="0" max="1000" step="1" value="0" />
+          </label>
+          <label class="field key-models-field">
+            <span>允许模型</span>
+            <input id="newKeyModels" type="text" autocomplete="off" spellcheck="false" placeholder="留空 = 全部，多个用逗号分隔" />
+          </label>
+          <label class="field">
+            <span>过期时间</span>
+            <input id="newKeyExpires" type="datetime-local" />
+          </label>
+          <button id="keyCreateBtn" class="btn primary" type="submit">生成新密钥</button>
+        </form>
+        <div id="keysError" class="login-error" role="alert"></div>
+        <div id="newKeyBox" class="new-key-box hidden">
+          <div class="new-key-label">新密钥（只显示这一次）</div>
+          <div class="new-key-row">
+            <code id="newKeyValue"></code>
+            <button id="copyKeyBtn" class="btn ghost" type="button">复制</button>
+          </div>
+        </div>
+        <div id="keyList" class="key-list"></div>
+        <p class="fineprint">停用后调用方会立即收到 401；删除后不可恢复。请像密码一样保存新密钥。</p>
       </section>
     </div>
 

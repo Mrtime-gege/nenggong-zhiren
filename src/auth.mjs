@@ -17,10 +17,6 @@ const PASSWORD_MAX = 256;
 const SCRYPT_OPTIONS = Object.freeze({ N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
 const HASH_BYTES = 64;
 
-const LOGIN_IP_WINDOW_MS = 5 * 60_000;
-const LOGIN_IP_MAX_FAILURES = 10;
-const LOGIN_USER_WINDOW_MS = 10 * 60_000;
-const LOGIN_USER_MAX_FAILURES = 5;
 
 export class AuthError extends Error {
   constructor(message, code = "auth_error", status = 400) {
@@ -84,6 +80,9 @@ export class AuthService {
     usersFile,
     sessionTtlMs = 12 * 60 * 60_000,
     sessionIdleMs = 2 * 60 * 60_000,
+    loginRateWindowMs = 5 * 60_000,
+    loginIpMaxFailures = 10,
+    loginUserMaxFailures = 5,
     secureCookies = false,
     cookieName = "ngzr_session",
     logger = console,
@@ -95,6 +94,9 @@ export class AuthService {
     this.manageDataDir = Boolean(dataDir);
     this.sessionTtlMs = sessionTtlMs;
     this.sessionIdleMs = sessionIdleMs;
+    this.loginRateWindowMs = loginRateWindowMs;
+    this.loginIpMaxFailures = loginIpMaxFailures;
+    this.loginUserMaxFailures = loginUserMaxFailures;
     this.secureCookies = secureCookies;
     this.cookieName = cookieName;
     this.logger = logger;
@@ -166,7 +168,7 @@ export class AuthService {
         }
       }
       for (const [key, entry] of this.loginFailures) {
-        entry.failures = entry.failures.filter((at) => now - at < LOGIN_USER_WINDOW_MS);
+        entry.failures = entry.failures.filter((at) => now - at < this.loginRateWindowMs);
         if (entry.failures.length === 0) this.loginFailures.delete(key);
       }
     }, 60_000);
@@ -315,14 +317,14 @@ export class AuthService {
     const userEntry = this.loginFailures.get(`user:${normalizeUsernameSafe(username)}`);
     const prune = (entry, windowMs) =>
       entry ? entry.failures.filter((at) => now - at < windowMs) : [];
-    const ipFailures = prune(ipEntry, LOGIN_IP_WINDOW_MS);
-    const userFailures = prune(userEntry, LOGIN_USER_WINDOW_MS);
+    const ipFailures = prune(ipEntry, this.loginRateWindowMs);
+    const userFailures = prune(userEntry, this.loginRateWindowMs);
     let retryAfterMs = 0;
-    if (ipFailures.length >= LOGIN_IP_MAX_FAILURES) {
-      retryAfterMs = Math.max(retryAfterMs, LOGIN_IP_WINDOW_MS - (now - ipFailures[0]));
+    if (ipFailures.length >= this.loginIpMaxFailures) {
+      retryAfterMs = Math.max(retryAfterMs, this.loginRateWindowMs - (now - ipFailures[0]));
     }
-    if (userFailures.length >= LOGIN_USER_MAX_FAILURES) {
-      retryAfterMs = Math.max(retryAfterMs, LOGIN_USER_WINDOW_MS - (now - userFailures[0]));
+    if (userFailures.length >= this.loginUserMaxFailures) {
+      retryAfterMs = Math.max(retryAfterMs, this.loginRateWindowMs - (now - userFailures[0]));
     }
     return { allowed: retryAfterMs <= 0, retryAfterMs: Math.max(0, retryAfterMs) };
   }
@@ -330,8 +332,8 @@ export class AuthService {
   recordLoginFailure(ip, username) {
     const now = this.now();
     for (const [key, windowMs] of [
-      [`ip:${ip}`, LOGIN_IP_WINDOW_MS],
-      [`user:${normalizeUsernameSafe(username)}`, LOGIN_USER_WINDOW_MS],
+      [`ip:${ip}`, this.loginRateWindowMs],
+      [`user:${normalizeUsernameSafe(username)}`, this.loginRateWindowMs],
     ]) {
       const entry = this.loginFailures.get(key) || { failures: [] };
       entry.failures = entry.failures.filter((at) => now - at < windowMs);
@@ -344,7 +346,7 @@ export class AuthService {
     this.loginFailures.delete(`user:${normalizeUsernameSafe(username)}`);
     const ipEntry = this.loginFailures.get(`ip:${ip}`);
     if (ipEntry) {
-      ipEntry.failures = ipEntry.failures.slice(-Math.floor(LOGIN_IP_MAX_FAILURES / 2));
+      ipEntry.failures = ipEntry.failures.slice(-Math.floor(this.loginIpMaxFailures / 2));
       if (ipEntry.failures.length === 0) this.loginFailures.delete(`ip:${ip}`);
     }
   }

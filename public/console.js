@@ -15,6 +15,23 @@ const els = {
   userCreateBtn: $("userCreateBtn"),
   userList: $("userList"),
   usersError: $("usersError"),
+  keysBtn: $("keysBtn"),
+  keysModal: $("keysModal"),
+  keysClose: $("keysClose"),
+  keyCreateForm: $("keyCreateForm"),
+  newKeyName: $("newKeyName"),
+  newKeyRpm: $("newKeyRpm"),
+  newKeyPerDay: $("newKeyPerDay"),
+  newKeyPerMonth: $("newKeyPerMonth"),
+  newKeyConcurrent: $("newKeyConcurrent"),
+  newKeyModels: $("newKeyModels"),
+  newKeyExpires: $("newKeyExpires"),
+  keyCreateBtn: $("keyCreateBtn"),
+  keyList: $("keyList"),
+  keysError: $("keysError"),
+  newKeyBox: $("newKeyBox"),
+  newKeyValue: $("newKeyValue"),
+  copyKeyBtn: $("copyKeyBtn"),
   status: $("status"),
   statusDot: $("statusDot"),
   stats: $("stats"),
@@ -328,8 +345,9 @@ async function loadSession() {
     state.config = me.config || null;
     state.connected = true;
     state.lastQueued = null;
-    els.userLabel.textContent = `${me.user.username} · ${me.user.role === "admin" ? "管理员" : "坐席"}`;
+    els.userLabel.textContent = `${me.user.username} · ${me.user.role === "admin" ? "管理员" : "人工回复员"}`;
     els.usersBtn.classList.toggle("hidden", me.user.role !== "admin");
+    els.keysBtn.classList.toggle("hidden", me.user.role !== "admin");
     setStatus("ok", `${me.user.username} 已登录`);
     clearTimeout(state.pollTimer);
     await pollOnce();
@@ -377,7 +395,7 @@ function renderUsers(users) {
   for (const user of users) {
     const row = el("div", "user-row");
     row.append(el("div", "user-name", user.username));
-    row.append(badge(user.role === "admin" ? "管理员" : "坐席", user.role === "admin" ? "warn" : ""));
+    row.append(badge(user.role === "admin" ? "管理员" : "人工回复员", user.role === "admin" ? "warn" : ""));
     row.append(el("div", "user-created", new Date(user.createdAt).toLocaleString()));
     const actions = el("div", "user-actions");
     const reset = el("button", "btn ghost", "重置密码");
@@ -459,6 +477,213 @@ async function deleteUser(username) {
     await loadUsers();
   } catch (error) {
     setUsersError(error.message);
+  }
+}
+
+function setKeysError(message = "") {
+  els.keysError.textContent = message;
+}
+
+function openKeys() {
+  if (state.role !== "admin") return;
+  setKeysError("");
+  els.newKeyBox.classList.add("hidden");
+  els.keysModal.classList.remove("hidden");
+  loadKeys().catch((error) => setKeysError(error.message));
+}
+
+function closeKeys() {
+  els.keysModal.classList.add("hidden");
+  setKeysError("");
+}
+
+function renderKeys(keys) {
+  els.keyList.replaceChildren();
+  for (const key of keys) {
+    const row = el("div", "key-row");
+    const identity = el("div");
+    identity.append(el("div", "key-name", key.name));
+    identity.append(el("div", "key-hint", key.hint || "—"));
+    row.append(identity);
+    const meta = el("div", "key-meta");
+    meta.append(el("div", "", key.disabled ? "已停用" : "可用"));
+    meta.append(el("div", "", `创建：${new Date(key.createdAt).toLocaleString()}`));
+    meta.append(el("div", "", `最近使用：${key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : "从未"}`));
+    const limits = key.limits || {};
+    meta.append(
+      el(
+        "div",
+        "",
+        `配额：${Number(limits.requestsPerMinute) || "不限"}/分 · ${Number(limits.requestsPerDay) || "不限"}/日 · ${Number(limits.requestsPerMonth) || "不限"}/月 · 并发 ${Number(limits.maxConcurrent) || "继承"}`,
+      ),
+    );
+    if (key.allowedModels?.length) meta.append(el("div", "", `模型：${key.allowedModels.join(", ")}`));
+    if (key.expiresAt) meta.append(el("div", "", `过期：${new Date(key.expiresAt).toLocaleString()}`));
+    if (key.usage) meta.append(el("div", "", `已用：${key.usage.minute}/分 · ${key.usage.day}/日 · ${key.usage.month}/月`));
+    row.append(meta);
+    const actions = el("div", "key-actions");
+    const toggle = el("button", "btn ghost", key.disabled ? "启用" : "停用");
+    toggle.type = "button";
+    toggle.addEventListener("click", () => toggleKey(key));
+    const quota = el("button", "btn ghost", "配额");
+    quota.type = "button";
+    quota.addEventListener("click", () => editKeyQuota(key));
+    const rename = el("button", "btn ghost", "重命名");
+    rename.type = "button";
+    rename.addEventListener("click", () => renameKey(key));
+    const remove = el("button", "btn danger", "删除");
+    remove.type = "button";
+    remove.addEventListener("click", () => deleteKey(key));
+    actions.append(toggle, quota, rename, remove);
+    row.append(actions);
+    els.keyList.append(row);
+  }
+  if (!keys.length) els.keyList.append(el("div", "hint", "（还没有调用密钥，先创建一个）"));
+}
+
+async function loadKeys() {
+  const data = await api("/op/api/keys");
+  renderKeys(Array.isArray(data.keys) ? data.keys : []);
+}
+
+async function createKey(event) {
+  event.preventDefault();
+  if (state.busy) return;
+  setKeysError("");
+  state.busy = true;
+  els.keyCreateBtn.disabled = true;
+  try {
+    const data = await api("/op/api/keys", {
+      method: "POST",
+      body: {
+        name: els.newKeyName.value.trim(),
+        limits: {
+          requestsPerMinute: Number(els.newKeyRpm.value) || 0,
+          requestsPerDay: Number(els.newKeyPerDay.value) || 0,
+          requestsPerMonth: Number(els.newKeyPerMonth.value) || 0,
+          maxConcurrent: Number(els.newKeyConcurrent.value) || 0,
+        },
+        allowedModels: els.newKeyModels.value
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean),
+        expiresAt: els.newKeyExpires.value ? new Date(els.newKeyExpires.value).getTime() : null,
+      },
+    });
+    els.newKeyValue.textContent = data.key;
+    els.newKeyBox.classList.remove("hidden");
+    els.newKeyName.value = "";
+    els.newKeyModels.value = "";
+    els.newKeyExpires.value = "";
+    toast("调用密钥已创建，请现在保存");
+    await loadKeys();
+  } catch (error) {
+    setKeysError(error.message);
+  } finally {
+    state.busy = false;
+    els.keyCreateBtn.disabled = false;
+  }
+}
+
+async function toggleKey(key) {
+  setKeysError("");
+  try {
+    await api(`/op/api/keys/${encodeURIComponent(key.id)}`, {
+      method: "PATCH",
+      body: { disabled: !key.disabled },
+    });
+    toast(key.disabled ? "密钥已启用" : "密钥已停用");
+    await loadKeys();
+  } catch (error) {
+    setKeysError(error.message);
+  }
+}
+
+async function renameKey(key) {
+  const name = window.prompt("给这个调用密钥起个名字：", key.name);
+  if (!name || !name.trim()) return;
+  setKeysError("");
+  try {
+    await api(`/op/api/keys/${encodeURIComponent(key.id)}`, {
+      method: "PATCH",
+      body: { name: name.trim() },
+    });
+    toast("名称已修改");
+    await loadKeys();
+  } catch (error) {
+    setKeysError(error.message);
+  }
+}
+
+async function editKeyQuota(key) {
+  const current = key.limits || {};
+  const rpm = window.prompt("每分钟请求上限（0 = 不限）：", String(current.requestsPerMinute || 0));
+  if (rpm === null) return;
+  const perDay = window.prompt("每日请求上限（0 = 不限）：", String(current.requestsPerDay || 0));
+  if (perDay === null) return;
+  const perMonth = window.prompt("每月请求上限（0 = 不限）：", String(current.requestsPerMonth || 0));
+  if (perMonth === null) return;
+  const concurrent = window.prompt("并发上限（0 = 使用全局默认）：", String(current.maxConcurrent || 0));
+  if (concurrent === null) return;
+  const models = window.prompt("允许的模型（逗号分隔，留空 = 全部）：", (key.allowedModels || []).join(","));
+  if (models === null) return;
+  const expires = window.prompt(
+    "过期时间（ISO 时间或留空 = 不过期）：",
+    key.expiresAt ? new Date(key.expiresAt).toISOString() : "",
+  );
+  if (expires === null) return;
+  const expiresAt = expires.trim() ? Date.parse(expires) : null;
+  if (expires.trim() && !Number.isFinite(expiresAt)) {
+    setKeysError("过期时间格式无法识别，请使用类似 2026-12-31T00:00:00Z。");
+    return;
+  }
+  setKeysError("");
+  try {
+    await api(`/op/api/keys/${encodeURIComponent(key.id)}`, {
+      method: "PATCH",
+      body: {
+        limits: {
+          requestsPerMinute: Number(rpm) || 0,
+          requestsPerDay: Number(perDay) || 0,
+          requestsPerMonth: Number(perMonth) || 0,
+          maxConcurrent: Number(concurrent) || 0,
+        },
+        allowedModels: models.split(",").map((value) => value.trim()).filter(Boolean),
+        expiresAt,
+      },
+    });
+    toast("配额已更新");
+    await loadKeys();
+  } catch (error) {
+    setKeysError(error.message);
+  }
+}
+
+async function deleteKey(key) {
+  if (!window.confirm(`删除调用密钥「${key.name}」？删除后使用它的调用方会立即失败。`)) return;
+  setKeysError("");
+  try {
+    await api(`/op/api/keys/${encodeURIComponent(key.id)}`, { method: "DELETE" });
+    toast("调用密钥已删除");
+    await loadKeys();
+  } catch (error) {
+    setKeysError(error.message);
+  }
+}
+
+async function copyNewKey() {
+  const value = els.newKeyValue.textContent || "";
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+    toast("已复制到剪贴板");
+  } catch {
+    const range = document.createRange();
+    range.selectNodeContents(els.newKeyValue);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    toast("请手动复制选中的密钥");
   }
 }
 
@@ -1031,7 +1256,7 @@ function renderMessages(ticket, d) {
   if (hasTools) {
     d.els.tools.style.display = "";
     const toolsBlock = el("details");
-    toolsBlock.append(el("summary", "", "tools / response_format（供坐席参考）"));
+    toolsBlock.append(el("summary", "", "tools / response_format（供回复员参考）"));
     const pre = el("pre");
     pre.textContent = JSON.stringify(
       { tools: ticket.tools || [], response_format: ticket.responseFormat || null },
@@ -1357,7 +1582,7 @@ function updateComposer(ticket, d) {
         ? "这张票还没有被认领。点击「认领票据」后就可以回复。"
         : ticket.state === "finishing"
           ? "正在把剩余内容按节奏推送给调用方…"
-          : `由 ${ticket.claimedBy || "其他坐席"} 接待中。`;
+          : `由 ${ticket.claimedBy || "其他回复员"} 接待中。`;
   } else if (toolRequired && pending.length === 0) {
     note.classList.remove("hidden");
     note.textContent = "此请求要求返回工具调用：先在下方选择工具并添加，再完成。";
@@ -1662,6 +1887,10 @@ function handleGlobalShortcut(event) {
       closeShortcuts();
       return;
     }
+    if (!els.keysModal.classList.contains("hidden")) {
+      closeKeys();
+      return;
+    }
     if (!els.usersModal.classList.contains("hidden")) {
       closeUsers();
       return;
@@ -1722,8 +1951,13 @@ function init() {
     renderQueue();
   });
   els.logout.addEventListener("click", logout);
-  els.usersBtn.addEventListener("click", openUsers);
   els.usersClose.addEventListener("click", closeUsers);
+  els.keysClose.addEventListener("click", closeKeys);
+  els.keyCreateForm.addEventListener("submit", createKey);
+  els.copyKeyBtn.addEventListener("click", copyNewKey);
+  els.keysModal.addEventListener("click", (event) => {
+    if (event.target === els.keysModal) closeKeys();
+  });
   els.usersModal.addEventListener("click", (event) => {
     if (event.target === els.usersModal) closeUsers();
   });

@@ -8,7 +8,7 @@ DSH 通过 `@deepseek-ai/dsh-llm-pi-ai` 插件接入自定义 OpenAI 兼容网�
 
 ```bash
 cd nenggong-zhiren
-HUMAN_KEYS='<CALLER_KEY>:local-console' \
+# 先在网页 /console/keys 生成调用密钥，再把 key 填到 DSH 配置
 QUEUE_TIMEOUT_MS=7200000 \
 RESPONSE_TIMEOUT_MS=7200000 \
 node server.mjs
@@ -42,7 +42,7 @@ curl -s -H 'Authorization: Bearer <CALLER_KEY>' http://127.0.0.1:7355/v1/models
 ## 3. 保存凭据
 
 推荐在 DSH Web GUI 的 **Settings → Models → Human Provider → API key** 填写
-`<CALLER_KEY>`（与能工智人的 `HUMAN_KEYS` 一致）。
+网页里生成的调用密钥。
 
 也可以直接编辑 `$DSH_HOME/.credentials.yaml`，在 `refs:` 下加入：
 
@@ -61,7 +61,7 @@ DSH 的 `llm-pi-ai` 会把工具 schema、工具结果、`stream_options.include
 `max_completion_tokens` 一起发过来；Human Provider 负责把这些交给坐席控制台，再把坐席的
 文本/工具调用包装成标准 SSE 返回。
 
-## 5. 运行链路
+## 5. 实测链路（已验证）
 
 ```text
 DSH 提示：请用 bash 工具运行 pwd，然后告诉我当前工作目录是什么。
@@ -82,7 +82,7 @@ DSH 提示：请用 bash 工具运行 pwd，然后告诉我当前工作目录是
   或调用 `POST /api/session/modelCatalog`（需要浏览器登录态）查看 `groups` / `failures`。
 - Human Provider 显示但模型不可选：确认 `HUMAN_PROVIDER_KEY` 已配置，且 Human Provider 的
   `/v1/models` 可访问。
-- 模型请求 401：DSH 发出的 key 与 Human Provider 的 `HUMAN_KEYS` 不一致。
+- 模型请求 401：DSH 发出的 key 已在网页里停用、删除或填错。
 - 请求超时：Human Provider 的 `QUEUE_TIMEOUT_MS` / `RESPONSE_TIMEOUT_MS` 和 DSH 路由的
   `timeoutMs` / `streamIdleTimeoutMs` 都要放大。
 - DSH 报工具调用解析失败：确认 Human Provider 发送的是 `tool_calls` delta，并且最后是

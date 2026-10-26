@@ -16,80 +16,66 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { AuthError, AuthService } from "./src/auth.mjs";
+import { ROOT, loadConfig } from "./src/config.mjs";
+import { ApiKeyError, ApiKeyStore } from "./src/data/index.mjs";
+import { QuotaError, StateStore, UsageStore } from "./src/data/index.mjs";
+import {
+  ANTHROPIC_PROTOCOL,
+  OPENAI_PROTOCOL,
+  ProtocolError,
+  normalizeRequest,
+} from "./src/protocol/index.mjs";
+import { anthropicMessageJson } from "./src/protocol/anthropic.mjs";
+import {
+  finishAnthropicStream,
+  startAnthropicStream,
+  appendAnthropicText,
+  appendAnthropicToolCalls,
+} from "./src/protocol/stream.mjs";
 import { validateJsonSchema, formatSchemaErrors } from "./src/schema.mjs";
 
-const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(ROOT, "public");
-const VERSION = "0.3.0";
-
-// Minimal .env loader: zero dependencies, never overrides real environment
-// variables. Keep .env private.
-function loadDotEnv() {
-  const file = path.join(ROOT, ".env");
-  if (!existsSync(file)) return;
-  for (const rawLine of readFileSync(file, "utf8").split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const match = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
-    if (!match || process.env[match[1]] !== undefined) continue;
-    let value = match[2].trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    process.env[match[1]] = value;
+const VERSION = "0.4.0";
+const PUBLIC_CONFIG = (() => {
+  try {
+    return loadConfig();
+  } catch (error) {
+    console.error(`[config] ${error.message}`);
+    process.exit(1);
   }
-}
-
-loadDotEnv();
-
-/* ------------------------------------------------------------------ */
-/* Config                                                             */
-/* ------------------------------------------------------------------ */
-
-function envInt(name, fallback, { min = -Infinity, max = Infinity } = {}) {
-  const raw = process.env[name];
-  if (raw === undefined || raw === "") return fallback;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, Math.trunc(n)));
-}
-
-function parseCallerKeys(raw) {
-  const keys = new Map();
-  for (const item of String(raw).split(",")) {
-    const trimmed = item.trim();
-    if (!trimmed) continue;
-    const at = trimmed.indexOf(":");
-    const key = (at === -1 ? trimmed : trimmed.slice(0, at)).trim();
-    const fallbackLabel = `key-${createHash("sha256").update(key).digest("hex").slice(0, 4)}`;
-    const label = (at === -1 ? "" : trimmed.slice(at + 1)).trim() || fallbackLabel;
-    if (key) keys.set(key, { key, label });
-  }
-  return keys;
-}
+})();
 
 const config = Object.freeze({
-  host: process.env.HOST || "0.0.0.0",
-  port: envInt("PORT", 7355, { min: 0, max: 65535 }),
-  callerKeys: parseCallerKeys(process.env.HUMAN_KEYS || ""),
-  usersFile: process.env.USERS_FILE || path.join(ROOT, "users.json"),
-  sessionTtlMs: envInt("SESSION_TTL_MS", 12 * 60 * 60_000, { min: 60_000, max: 30 * 24 * 60 * 60_000 }),
-  sessionIdleMs: envInt("SESSION_IDLE_MS", 2 * 60 * 60_000, { min: 60_000, max: 7 * 24 * 60 * 60_000 }),
-  cookieSecure: process.env.COOKIE_SECURE === "1",
-  tlsCert: process.env.TLS_CERT || "",
-  tlsKey: process.env.TLS_KEY || "",
-  trustedHosts: String(process.env.TRUSTED_HOSTS || "").split(",").map((v) => v.trim().toLowerCase()).filter(Boolean),
-  loginRateWindowMs: envInt("LOGIN_RATE_WINDOW_MS", 5 * 60_000, { min: 10_000, max: 60 * 60_000 }),
-  queueTimeoutMs: envInt("QUEUE_TIMEOUT_MS", 300_000, { min: 100, max: 86_400_000 }),
-  responseTimeoutMs: envInt("RESPONSE_TIMEOUT_MS", 900_000, { min: 100, max: 86_400_000 }),
-  streamDelayMs: envInt("STREAM_DELAY_MS", 26, { min: 0, max: 5_000 }),
-  maxConcurrentPerKey: envInt("MAX_CONCURRENT_PER_KEY", 4, { min: 1, max: 1_000 }),
-  retentionMs: envInt("RETENTION_MS", 30 * 60_000, { min: 10_000, max: 86_400_000 }),
-  bodyLimitBytes: envInt("BODY_LIMIT_BYTES", 2 * 1024 * 1024, { min: 1024, max: 64 * 1024 * 1024 }),
-  corsOrigin: process.env.CORS_ORIGIN || "*",
-  logContent: process.env.LOG_CONTENT === "1",
+  host: PUBLIC_CONFIG.server.host,
+  port: PUBLIC_CONFIG.server.port,
+  usersFile: PUBLIC_CONFIG.storage.usersFile,
+  apiKeysFile: PUBLIC_CONFIG.storage.apiKeysFile,
+  stateFile: PUBLIC_CONFIG.storage.stateFile,
+  usageFile: PUBLIC_CONFIG.storage.usageFile,
+  sessionTtlMs: PUBLIC_CONFIG.auth.sessionTtlMs,
+  sessionIdleMs: PUBLIC_CONFIG.auth.sessionIdleMs,
+  loginRateWindowMs: PUBLIC_CONFIG.auth.loginRateWindowMs,
+  loginIpMaxFailures: PUBLIC_CONFIG.auth.loginIpMaxFailures,
+  loginUserMaxFailures: PUBLIC_CONFIG.auth.loginUserMaxFailures,
+  cookieSecure: PUBLIC_CONFIG.server.cookieSecure === true,
+  cookieSecureMode: PUBLIC_CONFIG.server.cookieSecure,
+  tlsEnabled: PUBLIC_CONFIG.tls.enabled,
+  tlsCert: PUBLIC_CONFIG.tls.certFile,
+  tlsKey: PUBLIC_CONFIG.tls.keyFile,
+  trustedHosts: PUBLIC_CONFIG.server.trustedHosts,
+  corsOrigins: PUBLIC_CONFIG.server.corsOrigins,
+  queueTimeoutMs: PUBLIC_CONFIG.queue.waitTimeoutMs,
+  responseTimeoutMs: PUBLIC_CONFIG.queue.responseTimeoutMs,
+  streamDelayMs: PUBLIC_CONFIG.queue.streamDelayMs,
+  maxConcurrentPerKey: PUBLIC_CONFIG.limits.maxConcurrentPerKey,
+  retentionMs: PUBLIC_CONFIG.queue.retentionMs,
+  bodyLimitBytes: PUBLIC_CONFIG.limits.bodyLimitBytes,
+  logContent: PUBLIC_CONFIG.logging.content,
+  configFile: PUBLIC_CONFIG.file,
+  modelIds: PUBLIC_CONFIG.models.ids,
+  modelCatalog: PUBLIC_CONFIG.models.catalog,
+  defaultModel: PUBLIC_CONFIG.models.default,
 });
 
 /* ------------------------------------------------------------------ */
@@ -97,24 +83,15 @@ const config = Object.freeze({
 /* ------------------------------------------------------------------ */
 
 const MODELS = new Map();
-for (const raw of (process.env.HUMAN_MODELS || "human-1,human-1-fast").split(",")) {
-  const id = raw.trim();
-  if (!id) continue;
-  MODELS.set(id, {
-    id,
+for (const model of config.modelCatalog) {
+  MODELS.set(model.id, {
+    ...model,
     created: 1767225600, // 2026-01-01, stable fake creation date
     owned_by: "human-backend",
-    speedMs: id.includes("fast")
+    humanInTheLoop: true,
+    speedMs: model.id.includes("fast")
       ? Math.max(2, Math.round(config.streamDelayMs / 4))
       : config.streamDelayMs,
-  });
-}
-if (MODELS.size === 0) {
-  MODELS.set("human-1", {
-    id: "human-1",
-    created: 1767225600,
-    owned_by: "human-backend",
-    speedMs: config.streamDelayMs,
   });
 }
 
@@ -173,7 +150,25 @@ const auth = new AuthService({
   usersFile: config.usersFile,
   sessionTtlMs: config.sessionTtlMs,
   sessionIdleMs: config.sessionIdleMs,
+  loginRateWindowMs: config.loginRateWindowMs,
+  loginIpMaxFailures: config.loginIpMaxFailures,
+  loginUserMaxFailures: config.loginUserMaxFailures,
   secureCookies: config.cookieSecure,
+  logger: console,
+}).init();
+
+const apiKeys = new ApiKeyStore({
+  file: config.apiKeysFile,
+  logger: console,
+}).init();
+
+const usageStore = new UsageStore({
+  file: config.usageFile,
+  logger: console,
+}).init();
+
+const stateStore = new StateStore({
+  file: config.stateFile,
   logger: console,
 }).init();
 
@@ -245,19 +240,26 @@ function isResOpen(res) {
   return Boolean(res) && !res.writableEnded && !res.destroyed;
 }
 
-function corsHeaders() {
+function corsHeaders(req) {
+  const configured = config.corsOrigins;
+  let origin = "null";
+  if (configured.includes("*")) origin = "*";
+  else {
+    const requestOrigin = String(req?.headers?.origin || "");
+    if (requestOrigin && configured.includes(requestOrigin)) origin = requestOrigin;
+  }
   const headers = {
-    "Access-Control-Allow-Origin": config.corsOrigin,
-    "Access-Control-Allow-Headers": "Authorization,Content-Type,Idempotency-Key",
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Headers": "Authorization,Content-Type,Idempotency-Key,X-Api-Key,Anthropic-Version,Anthropic-Beta",
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     "Access-Control-Max-Age": "86400",
   };
-  if (config.corsOrigin !== "*") headers.Vary = "Origin";
+  if (origin !== "*") headers.Vary = "Origin";
   return headers;
 }
 
-function applyCorsTo(res) {
-  for (const [key, value] of Object.entries(corsHeaders())) res.setHeader(key, value);
+function applyCorsTo(req, res) {
+  for (const [key, value] of Object.entries(corsHeaders(req))) res.setHeader(key, value);
 }
 
 function computeAllowedHosts() {
@@ -367,6 +369,7 @@ function applySecurityHeaders(req, res) {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
   res.setHeader("X-Request-Id", `req_${randomBytes(12).toString("hex")}`);
+  res.setHeader("X-NGZR-API-Version", VERSION);
 }
 
 function sendJson(res, status, payload, extraHeaders = {}) {
@@ -431,17 +434,37 @@ async function readJson(req) {
   return (await readJsonWithRaw(req)).body;
 }
 
-function setRateLimitHeaders(res, callerKey) {
-  const used = slots.get(callerKey) || 0;
-  const limit = config.maxConcurrentPerKey;
+function setRateLimitHeaders(res, caller) {
+  const used = slots.get(caller.key) || 0;
+  const limit = Number(caller.limits?.maxConcurrent) || config.maxConcurrentPerKey;
   res.setHeader("x-ratelimit-limit-requests", String(limit));
   res.setHeader("x-ratelimit-remaining-requests", String(Math.max(0, limit - used)));
   res.setHeader("x-ratelimit-reset-requests", "1s");
+  if (caller.limits?.requestsPerMinute) {
+    res.setHeader("x-ratelimit-limit-rpm", String(caller.limits.requestsPerMinute));
+  }
 }
 
 const idempotencyRecords = new Map();
 const IDEMPOTENCY_TTL_MS = 30 * 60_000;
 const IDEMPOTENCY_MAX = 2000;
+
+function persistRuntime() {
+  try {
+    stateStore.snapshot(tickets.values(), idempotencyRecords.entries());
+  } catch (error) {
+    log(`[state] snapshot failed: ${error.message}`);
+  }
+}
+
+const restoredTickets = stateStore.restoreTickets();
+for (const restored of restoredTickets) tickets.set(restored.id, restored);
+for (const record of stateStore.idempotency) {
+  if (record?.key && record?.ticketId) idempotencyRecords.set(record.key, record);
+}
+if (restoredTickets.length) {
+  log(`[state] restored ${restoredTickets.length} tickets (${restoredTickets.filter((t) => t.state === "failed").length} interrupted)`);
+}
 
 function requestIdempotencyKey(req, caller) {
   const raw = String(req.headers["idempotency-key"] || "").trim();
@@ -472,24 +495,78 @@ function sseHeaders() {
   };
 }
 
+function anthropicErrorType(type) {
+  if (type === "authentication_error") return "authentication_error";
+  if (type === "rate_limit_error") return "rate_limit_error";
+  if (type === "not_found_error") return "not_found_error";
+  if (type === "server_error") return "api_error";
+  if (type === "overloaded_error") return "overloaded_error";
+  return "invalid_request_error";
+}
+
+function anthropicErrorBody({ message, type, code }) {
+  return {
+    type: "error",
+    error: {
+      type: anthropicErrorType(type),
+      message: String(message || "The server had an error while processing your request."),
+      ...(code ? { code } : {}),
+    },
+  };
+}
+
+function sendAnthropicError(res, status, error, headers = {}) {
+  return sendJson(res, status, anthropicErrorBody(error), headers);
+}
+
+function sendAnthropicSseError(res, error) {
+  if (!isResOpen(res)) return false;
+  try {
+    return res.write(`event: error\ndata: ${JSON.stringify(anthropicErrorBody(error))}\n\n`);
+  } catch {
+    return false;
+  }
+}
+
+function sendProtocolError(res, status, error, protocol = OPENAI_PROTOCOL, headers = {}) {
+  if (protocol === ANTHROPIC_PROTOCOL) return sendAnthropicError(res, status, error, headers);
+  return sendJson(
+    res,
+    status,
+    {
+      error: {
+        message: error.message,
+        type: error.type || "server_error",
+        param: error.param ?? null,
+        code: error.code ?? null,
+      },
+    },
+    headers,
+  );
+}
+
 function replayTicket(ticket, res) {
   if (ticket.state === "failed" || ticket.state === "cancelled") {
-    return sendJson(res, 409, {
-      error: {
-        message: "The original request did not complete successfully.",
-        type: "server_error",
-        param: null,
-        code: "idempotent_request_failed",
-      },
-    });
+    return sendProtocolError(res, 409, {
+      message: "The original request did not complete successfully.",
+      type: "server_error",
+      code: "idempotent_request_failed",
+    }, ticket.protocol);
   }
   if (ticket.stream) {
     res.writeHead(200, sseHeaders());
     res.flushHeaders?.();
-    for (const payload of ticket.sseLog || []) sendSse(res, payload);
-    res.write("data: [DONE]\n\n");
+    if (ticket.protocol === ANTHROPIC_PROTOCOL) {
+      for (const frame of ticket.anthLog || []) res.write(frame);
+    } else {
+      for (const payload of ticket.sseLog || []) sendSse(res, payload);
+      res.write("data: [DONE]\n\n");
+    }
     res.end();
     return;
+  }
+  if (ticket.protocol === ANTHROPIC_PROTOCOL) {
+    return sendJson(res, 200, anthropicMessageJson(ticket, ticket.usage || usageFor(ticket)));
   }
   return sendJson(res, 200, completionJson(ticket, ticket.usage || usageFor(ticket)));
 }
@@ -508,20 +585,23 @@ function requireSession(req, { csrf = false } = {}) {
 function authenticateCaller(req) {
   const header = req.headers.authorization || "";
   const match = /^Bearer[ \t]+(.+)$/i.exec(String(header).trim());
-  if (!match) {
+  const bearer = match ? match[1].trim() : "";
+  const xApiKey = String(req.headers["x-api-key"] || "").trim();
+  const token = bearer || xApiKey;
+  if (!token) {
     throw new ApiError(
       401,
-      "You didn't provide an API key. You need to provide your API key in an Authorization header using Bearer auth.",
-      "invalid_request_error",
+      "You didn't provide an API key. Use Authorization: Bearer <key> or x-api-key: <key>.",
+      "authentication_error",
       "missing_api_key",
     );
   }
-  const entry = config.callerKeys.get(match[1].trim());
+  const entry = apiKeys.authenticate(token);
   if (!entry) {
     throw new ApiError(
       401,
       "Incorrect API key provided. Please check your API key and try again.",
-      "invalid_request_error",
+      "authentication_error",
       "invalid_api_key",
     );
   }
@@ -927,49 +1007,70 @@ function promptTokensFor(messages) {
 /* Tickets                                                           */
 /* ------------------------------------------------------------------ */
 
-function takeSlot(callerKey) {
-  const used = slots.get(callerKey) || 0;
-  if (used >= config.maxConcurrentPerKey) return null;
-  slots.set(callerKey, used + 1);
+function consumeQuota(caller) {
+  try {
+    usageStore.consume(caller.id, caller.limits || {});
+  } catch (error) {
+    if (error instanceof QuotaError) {
+      throw new ApiError(429, error.message, "rate_limit_error", error.code, null, {
+        "Retry-After": String(Math.max(1, Math.ceil(error.retryAfterMs / 1000))),
+      });
+    }
+    throw error;
+  }
+}
+
+function takeSlot(caller) {
+  const key = caller.key;
+  const used = slots.get(key) || 0;
+  const limit = Number(caller.limits?.maxConcurrent) || config.maxConcurrentPerKey;
+  if (used >= limit) return null;
+  slots.set(key, used + 1);
   return () => {
-    const current = slots.get(callerKey) || 0;
-    if (current <= 1) slots.delete(callerKey);
-    else slots.set(callerKey, current - 1);
+    const current = slots.get(key) || 0;
+    if (current <= 1) slots.delete(key);
+    else slots.set(key, current - 1);
   };
 }
 
-function createTicket({ body, messages, attachments, caller, releaseSlot }) {
+function createTicket({ request, caller, releaseSlot }) {
   const created = Date.now();
-  const tools = normalizeTools(body.tools);
   let resolveDone;
   const donePromise = new Promise((resolve) => {
     resolveDone = resolve;
   });
+  const protocol = request.protocol || OPENAI_PROTOCOL;
+  const idPrefix = protocol === ANTHROPIC_PROTOCOL ? "msg_" : "chatcmpl-";
   return {
-    id: `chatcmpl-${randomUUID().replaceAll("-", "").slice(0, 24)}`,
+    id: `${idPrefix}${randomUUID().replaceAll("-", "").slice(0, 24)}`,
+    protocol,
     created,
     createdSec: Math.floor(created / 1000),
-    model: body.model,
-    stream: body.stream === true,
-    includeUsage: body.stream_options?.include_usage === true,
-    messages,
-    attachments,
+    model: request.model,
+    stream: request.stream === true,
+    includeUsage: request.includeUsage === true,
+    messages: request.messages,
+    attachments: request.attachments,
     callerKey: caller.key,
     callerLabel: caller.label,
-    promptTokens: promptTokensFor(messages),
-    maxTokens: normalizeMaxTokens(body),
-    stops: normalizeStops(body.stop),
-    tools,
-    toolChoice: normalizeToolChoice(body.tool_choice, tools),
-    parallelToolCalls: body.parallel_tool_calls !== false,
+    promptTokens: promptTokensFor(request.messages),
+    maxTokens: request.maxTokens,
+    stops: request.stops,
+    tools: request.tools,
+    toolChoice: request.toolChoice,
+    parallelToolCalls: request.parallelToolCalls !== false,
     toolCalls: [],
-    responseFormat: normalizeResponseFormat(body.response_format),
+    responseFormat: request.responseFormat,
     reasoning: "",
     refusal: null,
-    clientUser: typeof body.user === "string" ? body.user.slice(0, 256) : undefined,
+    clientUser: request.clientUser,
     donePromise,
     resolveDone,
     sseLog: [],
+    anthLog: [],
+    anthStarted: false,
+    anthTextOpen: false,
+    anthBlockIndex: 0,
     state: "queued",
     claimedBy: null,
     claimedAt: null,
@@ -986,7 +1087,7 @@ function createTicket({ body, messages, attachments, caller, releaseSlot }) {
     heartbeat: null,
     sendChain: Promise.resolve(),
     timers: {},
-    speedMs: MODELS.get(body.model)?.speedMs ?? config.streamDelayMs,
+    speedMs: MODELS.get(request.model)?.speedMs ?? config.streamDelayMs,
     releaseSlot,
   };
 }
@@ -1018,7 +1119,10 @@ function releaseTicketSlot(ticket) {
 }
 
 function scheduleRetention(ticket) {
-  ticket.timers.retention = setTimeout(() => tickets.delete(ticket.id), config.retentionMs);
+  ticket.timers.retention = setTimeout(() => {
+    tickets.delete(ticket.id);
+    persistRuntime();
+  }, config.retentionMs);
   ticket.timers.retention.unref?.();
 }
 
@@ -1116,7 +1220,8 @@ function beginStream(ticket) {
     "X-Accel-Buffering": "no",
   });
   res.flushHeaders?.();
-  emitSse(ticket, chunkPayload(ticket, { role: "assistant", content: "" }));
+  if (ticket.protocol === ANTHROPIC_PROTOCOL) startAnthropicStream(ticket);
+  else emitSse(ticket, chunkPayload(ticket, { role: "assistant", content: "" }));
   ticket.heartbeat = setInterval(() => {
     if (!isResOpen(res)) return;
     try {
@@ -1178,6 +1283,10 @@ function completionJson(ticket, usage) {
 }
 
 function writeToolCallDeltas(ticket) {
+  if (ticket.protocol === ANTHROPIC_PROTOCOL) {
+    appendAnthropicToolCalls(ticket);
+    return;
+  }
   for (const [index, call] of ticket.toolCalls.entries()) {
     emitSse(
       ticket,
@@ -1206,7 +1315,7 @@ function writeToolCallDeltas(ticket) {
 }
 
 function writeReasoning(ticket) {
-  if (!ticket.reasoning) return;
+  if (!ticket.reasoning || ticket.protocol === ANTHROPIC_PROTOCOL) return;
   ticket.reasoningSent = true;
   const parts = splitForStream(ticket.reasoning);
   for (const part of parts) {
@@ -1216,6 +1325,10 @@ function writeReasoning(ticket) {
 
 function writeRefusal(ticket) {
   if (!ticket.refusal) return;
+  if (ticket.protocol === ANTHROPIC_PROTOCOL) {
+    appendAnthropicText(ticket, ticket.refusal);
+    return;
+  }
   const parts = splitForStream(ticket.refusal);
   for (const part of parts) {
     emitSse(ticket, chunkPayload(ticket, { refusal: part }));
@@ -1227,6 +1340,17 @@ function writeStreamFinal(ticket, usage) {
   if (ticket.heartbeat) {
     clearInterval(ticket.heartbeat);
     ticket.heartbeat = null;
+  }
+  if (ticket.protocol === ANTHROPIC_PROTOCOL) {
+    if (ticket.refusal) appendAnthropicText(ticket, ticket.refusal);
+    else if (ticket.text.length > ticket.delivered) {
+      appendAnthropicText(ticket, ticket.text.slice(ticket.delivered));
+      ticket.delivered = ticket.text.length;
+    }
+    if (ticket.toolCalls.length) appendAnthropicToolCalls(ticket);
+    finishAnthropicStream(ticket, usage);
+    res.end();
+    return;
   }
   if (ticket.refusal) writeRefusal(ticket);
   else if (ticket.reasoning && !ticket.reasoningSent) writeReasoning(ticket);
@@ -1259,7 +1383,11 @@ async function flushPending(ticket, paced) {
 
   for (const part of parts) {
     if (ticket.clientGone || ticket.finished) return;
-    if (!emitSse(ticket, chunkPayload(ticket, { content: part }))) return;
+    if (ticket.protocol === ANTHROPIC_PROTOCOL) {
+      appendAnthropicText(ticket, part);
+    } else if (!emitSse(ticket, chunkPayload(ticket, { content: part }))) {
+      return;
+    }
     if (paced && config.streamDelayMs > 0) {
       const delay = Math.max(0, Math.round(ticket.speedMs * (0.6 + Math.random() * 0.8)));
       if (delay > 0) await sleep(delay);
@@ -1294,6 +1422,7 @@ function finalize(ticket, finishReason) {
 
   const usage = usageFor(ticket);
   ticket.usage = usage;
+  usageStore.addTokens(ticket.callerKey, usage.completion_tokens);
   stats.completed += 1;
   stats.completionTokens += usage.completion_tokens;
   if (ticket.claimedAt) {
@@ -1306,16 +1435,25 @@ function finalize(ticket, finishReason) {
       writeStreamFinal(ticket, usage);
     } else if (!ticket.headersSent && !ticket.clientGone && isResOpen(ticket.res)) {
       // Defensive: a stream that was finalized before headers were flushed.
-      sendJson(ticket.res, 200, completionJson(ticket, usage));
+      if (ticket.protocol === ANTHROPIC_PROTOCOL) {
+        sendJson(ticket.res, 200, anthropicMessageJson(ticket, usage));
+      } else {
+        sendJson(ticket.res, 200, completionJson(ticket, usage));
+      }
     }
   } else if (!ticket.clientGone && isResOpen(ticket.res)) {
-    sendJson(ticket.res, 200, completionJson(ticket, usage));
+    if (ticket.protocol === ANTHROPIC_PROTOCOL) {
+      sendJson(ticket.res, 200, anthropicMessageJson(ticket, usage));
+    } else {
+      sendJson(ticket.res, 200, completionJson(ticket, usage));
+    }
   }
 
   log(
     `[done] ${ticket.id} reason=${ticket.finishReason} chars=${ticket.text.length} tokens=${usage.completion_tokens} operator=${ticket.claimedBy || "-"}`,
   );
   ticket.resolveDone?.(ticket);
+  persistRuntime();
   scheduleRetention(ticket);
 }
 
@@ -1330,15 +1468,20 @@ function finalizeError(ticket, status, message, type, code, headers = {}) {
   stats.failed += 1;
 
   if (ticket.stream && ticket.headersSent && !ticket.clientGone && isResOpen(ticket.res)) {
-    sendSse(ticket.res, { error: { message, type, param: null, code } });
-    ticket.res.write("data: [DONE]\n\n");
+    if (ticket.protocol === ANTHROPIC_PROTOCOL) {
+      sendAnthropicSseError(ticket.res, { message, type, code });
+    } else {
+      sendSse(ticket.res, { error: { message, type, param: null, code } });
+      ticket.res.write("data: [DONE]\n\n");
+    }
     ticket.res.end();
   } else if (!ticket.clientGone && isResOpen(ticket.res)) {
-    sendJson(ticket.res, status, { error: { message, type, param: null, code } }, headers);
+    sendProtocolError(ticket.res, status, { message, type, code }, ticket.protocol, headers);
   }
 
   log(`[error] ${ticket.id} status=${status} code=${code} ${message}`);
   ticket.resolveDone?.(ticket);
+  persistRuntime();
   scheduleRetention(ticket);
 }
 
@@ -1353,6 +1496,7 @@ function abandonTicket(ticket) {
   stats.cancelled += 1;
   log(`[client-gone] ${ticket.id}`);
   ticket.resolveDone?.(ticket);
+  persistRuntime();
   scheduleRetention(ticket);
 }
 
@@ -1364,6 +1508,7 @@ function publicTicket(ticket) {
   const end = ticket.finishedAt || Date.now();
   return {
     id: ticket.id,
+    protocol: ticket.protocol || OPENAI_PROTOCOL,
     model: ticket.model,
     stream: ticket.stream,
     state: ticket.state,
@@ -1424,59 +1569,91 @@ function publicStats() {
 /* ------------------------------------------------------------------ */
 
 function modelJson(def) {
-  return { id: def.id, object: "model", created: def.created, owned_by: def.owned_by };
+  return {
+    id: def.id,
+    object: "model",
+    created: def.created,
+    owned_by: def.owned_by,
+    name: def.name || def.id,
+    description: def.description || "",
+    context_window: def.contextWindow,
+    max_output_tokens: def.maxOutputTokens,
+    capabilities: def.capabilities || ["text"],
+    deprecated: def.deprecated === true,
+    human_in_the_loop: true,
+  };
+}
+
+function providerJson() {
+  return {
+    object: "provider",
+    name: "nenggong-zhiren",
+    display_name: "能工智人",
+    version: VERSION,
+    mode: "human-in-the-loop",
+    disclosure: "Responses are produced by human responders, not by a trained model.",
+    protocols: ["openai-chat-completions", "anthropic-messages"],
+    default_model: config.defaultModel,
+    models: [...MODELS.values()].map(modelJson),
+    limits: {
+      max_concurrent_per_key: config.maxConcurrentPerKey,
+      body_limit_bytes: config.bodyLimitBytes,
+      queue_timeout_ms: config.queueTimeoutMs,
+      response_timeout_ms: config.responseTimeoutMs,
+    },
+  };
 }
 
 function handleModels(req, res, url) {
   const caller = authenticateCaller(req);
-  setRateLimitHeaders(res, caller.key);
+  setRateLimitHeaders(res, caller);
+  consumeQuota(caller);
+  const allowed = caller.allowedModels?.length ? new Set(caller.allowedModels) : null;
   const prefix = "/v1/models/";
   if (url.pathname.startsWith(prefix)) {
     const id = decodeURIComponent(url.pathname.slice(prefix.length));
     const model = MODELS.get(id);
-    if (!model) {
+    if (!model || (allowed && !allowed.has(id))) {
       throw new ApiError(404, `The model '${id}' does not exist.`, "invalid_request_error", "model_not_found", "model");
     }
     return sendJson(res, 200, modelJson(model));
   }
   return sendJson(res, 200, {
     object: "list",
-    data: [...MODELS.values()].map(modelJson),
+    data: [...MODELS.values()].filter((model) => !allowed || allowed.has(model.id)).map(modelJson),
   });
 }
 
-async function handleChat(req, res) {
+function protocolToApiError(error) {
+  if (error instanceof ProtocolError) {
+    const type = error.status === 404 ? "not_found_error" : "invalid_request_error";
+    return new ApiError(error.status, error.message, type, error.code, error.param);
+  }
+  return error;
+}
+
+async function handleChatRequest(req, res, protocol) {
+  res.ngzrProtocol = protocol;
   const caller = authenticateCaller(req);
-  setRateLimitHeaders(res, caller.key);
+  setRateLimitHeaders(res, caller);
   const { body, raw } = await readJsonWithRaw(req);
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    throw new ApiError(400, "Request body must be a JSON object.", "invalid_request_error", "invalid_body");
+  let request;
+  try {
+    request = normalizeRequest(protocol, body, { models: MODELS });
+  } catch (error) {
+    throw protocolToApiError(error);
   }
-  const model = typeof body.model === "string" ? body.model.trim() : "";
-  if (!model) {
-    throw new ApiError(400, "You must provide a model parameter.", "invalid_request_error", "missing_model", "model");
-  }
-  if (!MODELS.has(model)) {
+
+  if (caller.allowedModels?.length && !caller.allowedModels.includes(request.model)) {
     throw new ApiError(
-      404,
-      `The model '${model}' does not exist or you do not have access to it.`,
+      403,
+      `This API key is not allowed to use model '${request.model}'.`,
       "invalid_request_error",
-      "model_not_found",
+      "model_not_allowed",
       "model",
     );
   }
-  if (body.n !== undefined && body.n !== 1) {
-    throw new ApiError(400, "n>1 is not supported by this provider.", "invalid_request_error", "unsupported_n", "n");
-  }
-  if (body.logprobs === true || body.top_logprobs !== undefined) {
-    throw new ApiError(
-      400,
-      "logprobs are not supported by this provider.",
-      "invalid_request_error",
-      "unsupported_logprobs",
-      "logprobs",
-    );
-  }
+  consumeQuota(caller);
 
   const idempotencyKey = requestIdempotencyKey(req, caller);
   const bodyHash = createHash("sha256").update(raw).digest("hex");
@@ -1492,30 +1669,20 @@ async function handleChat(req, res) {
           "idempotency_key_conflict",
         );
       }
-      const ticket = tickets.get(existing.ticketId);
-      if (!ticket) {
+      const existingTicket = tickets.get(existing.ticketId);
+      if (!existingTicket) {
         throw new ApiError(410, "The idempotent request has expired.", "invalid_request_error", "idempotency_expired");
       }
-      if (!ticket.finished) {
-        log(`[idempotency-wait] ${ticket.id} caller=${caller.label}`);
-        await ticket.donePromise;
+      if (!existingTicket.finished) {
+        log(`[idempotency-wait] ${existingTicket.id} caller=${caller.label}`);
+        await existingTicket.donePromise;
       }
-      log(`[idempotency-replay] ${ticket.id} caller=${caller.label}`);
-      return replayTicket(ticket, res);
+      log(`[idempotency-replay] ${existingTicket.id} caller=${caller.label}`);
+      return replayTicket(existingTicket, res);
     }
   }
-  if (body.stream !== undefined && typeof body.stream !== "boolean") {
-    throw new ApiError(400, "stream must be a boolean.", "invalid_request_error", "invalid_stream", "stream");
-  }
-  if (body.n !== undefined && Number(body.n) !== 1) {
-    throw new ApiError(400, "Only n=1 is supported by this endpoint.", "invalid_request_error", "unsupported_value", "n");
-  }
-  if (body.stream_options !== undefined && (typeof body.stream_options !== "object" || body.stream_options === null)) {
-    throw new ApiError(400, "stream_options must be an object.", "invalid_request_error", "invalid_stream_options", "stream_options");
-  }
 
-  const { messages, attachments } = extractMessages(body.messages);
-  const releaseSlot = takeSlot(caller.key);
+  const releaseSlot = takeSlot(caller);
   if (!releaseSlot) {
     throw new ApiError(
       429,
@@ -1529,7 +1696,7 @@ async function handleChat(req, res) {
 
   let ticket;
   try {
-    ticket = createTicket({ body, messages, attachments, caller, releaseSlot });
+    ticket = createTicket({ request, caller, releaseSlot });
   } catch (error) {
     releaseSlot();
     throw error;
@@ -1538,12 +1705,14 @@ async function handleChat(req, res) {
   ticket.res = res;
   tickets.set(ticket.id, ticket);
   stats.created += 1;
+  persistRuntime();
   if (idempotencyKey) {
     idempotencyRecords.set(idempotencyKey, {
       bodyHash,
       ticketId: ticket.id,
       createdAt: Date.now(),
     });
+    persistRuntime();
   }
 
   res.on("close", () => {
@@ -1553,12 +1722,20 @@ async function handleChat(req, res) {
   armQueueTimeout(ticket);
 
   log(
-    `[request] ${ticket.id} model=${model} stream=${ticket.stream} caller=${caller.label} messages=${messages.length} tokens≈${ticket.promptTokens}`,
+    `[request] ${ticket.id} protocol=${protocol} model=${request.model} stream=${ticket.stream} caller=${caller.label} messages=${request.messages.length} tokens≈${ticket.promptTokens}`,
   );
   if (config.logContent) {
-    log(`[content] ${ticket.id} ${JSON.stringify(messages).slice(0, 2000)}`);
+    log(`[content] ${ticket.id} ${JSON.stringify(request.messages).slice(0, 2000)}`);
   }
-  // The response stays open until an operator claims/finishes, or a timeout fires.
+  // The response stays open until an operator finishes, or a timeout fires.
+}
+
+async function handleChat(req, res) {
+  return handleChatRequest(req, res, OPENAI_PROTOCOL);
+}
+
+async function handleMessages(req, res) {
+  return handleChatRequest(req, res, ANTHROPIC_PROTOCOL);
 }
 
 function requireAdmin(session) {
@@ -1575,6 +1752,57 @@ async function handleOperator(req, res, url, session) {
   const pathname = url.pathname;
   const body = ["POST", "PATCH"].includes(req.method) ? await readJson(req) : {};
   const operator = session.username;
+
+  if (pathname === "/op/api/keys") {
+    requireAdmin(session);
+    if (req.method === "GET") {
+      return sendJson(res, 200, {
+        ok: true,
+        keys: apiKeys.list().map((key) => ({ ...key, usage: usageStore.get(key.id) })),
+      });
+    }
+    if (req.method === "POST") {
+      const created = apiKeys.create({
+        name: body.name,
+        value: body.value,
+        limits: body.limits,
+        allowedModels: body.allowedModels,
+        expiresAt: body.expiresAt,
+      });
+      log(`[admin] api key created id=${created.record.id} name=${created.record.name} by=${session.username}`);
+      return sendJson(res, 201, {
+        ok: true,
+        key: created.token,
+        record: created.record,
+        warning: "这个密钥只显示一次，请现在保存。",
+      });
+    }
+    throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+  }
+
+  const keyMatch = /^\/op\/api\/keys\/([^/]+)$/.exec(pathname);
+  if (keyMatch) {
+    requireAdmin(session);
+    const keyId = decodeURIComponent(keyMatch[1]);
+    if (req.method === "PATCH") {
+      const record = apiKeys.update(keyId, {
+        name: body.name,
+        value: body.value,
+        limits: body.limits,
+        allowedModels: body.allowedModels,
+        expiresAt: body.expiresAt,
+        disabled: body.disabled,
+      });
+      log(`[admin] api key updated id=${keyId} by=${session.username}`);
+      return sendJson(res, 200, { ok: true, record: { ...record, usage: usageStore.get(keyId) } });
+    }
+    if (req.method === "DELETE") {
+      apiKeys.remove(keyId);
+      log(`[admin] api key removed id=${keyId} by=${session.username}`);
+      return sendJson(res, 200, { ok: true });
+    }
+    throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+  }
 
   if (pathname === "/op/api/users") {
     requireAdmin(session);
@@ -1697,6 +1925,7 @@ async function handleOperator(req, res, url, session) {
     ticket.timers.queue = null;
     armResponseTimeout(ticket);
     if (ticket.stream) beginStream(ticket);
+    persistRuntime();
     log(`[claim] ${ticket.id} operator=${operator} wait=${ticket.claimedAt - ticket.created}ms`);
     return sendJson(res, 200, { ok: true, ticket: publicTicket(ticket) });
   }
@@ -1728,6 +1957,7 @@ async function handleOperator(req, res, url, session) {
     } else if (ticket.stream) {
       queueFlush(ticket, false);
     }
+    persistRuntime();
     log(`[chunk] ${ticket.id} +${result.added} chars total=${result.total}${result.forced ? ` forced=${result.forced}` : ""}`);
     return sendJson(res, 200, {
       ok: true,
@@ -1852,6 +2082,7 @@ async function handleOperator(req, res, url, session) {
     ticket.claimedBy = null;
     ticket.claimedAt = null;
     armQueueTimeout(ticket);
+    persistRuntime();
     log(`[release] ${ticket.id} operator=${operator}`);
     return sendJson(res, 200, { ok: true, ticket: publicTicket(ticket) });
   }
@@ -1883,6 +2114,10 @@ const PUBLIC_FILES = new Map([
   ["/login.js", { file: "login.js", type: "text/javascript; charset=utf-8" }],
   ["/console.css", { file: "console.css", type: "text/css; charset=utf-8" }],
   ["/console.js", { file: "console.js", type: "text/javascript; charset=utf-8" }],
+  ["/admin.css", { file: "admin.css", type: "text/css; charset=utf-8" }],
+  ["/theme.css", { file: "theme.css", type: "text/css; charset=utf-8" }],
+  ["/admin-users.js", { file: "admin-users.js", type: "text/javascript; charset=utf-8" }],
+  ["/admin-keys.js", { file: "admin-keys.js", type: "text/javascript; charset=utf-8" }],
 ]);
 
 function escapeHtml(value) {
@@ -1933,16 +2168,35 @@ async function serveLoginPage(res, { status = 200, error = "", next = "/console"
   sendRaw(res, status, "text/html; charset=utf-8", html, headers);
 }
 
-async function serveConsole(req, res) {
+async function servePage(req, res, filename, fallback) {
   try {
-    const body = await readFile(path.join(PUBLIC_DIR, "console.html"));
+    const body = await readFile(path.join(PUBLIC_DIR, filename));
     sendRaw(res, 200, "text/html; charset=utf-8", req.method === "HEAD" ? "" : body, {
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
     });
   } catch {
-    throw new ApiError(404, "Console not found.", "invalid_request_error", "not_found");
+    throw new ApiError(404, fallback || "Page not found.", "invalid_request_error", "not_found");
   }
+}
+
+async function serveConsole(req, res) {
+  return servePage(req, res, "console.html", "Console not found.");
+}
+
+async function serveAdminPage(req, res, filename) {
+  const session = auth.getSession(req);
+  if (!session) {
+    res.writeHead(302, { Location: `/login?next=${encodeURIComponent(req.url || "/console")}` });
+    res.end();
+    return;
+  }
+  if (session.role !== "admin") {
+    res.writeHead(302, { Location: "/console" });
+    res.end();
+    return;
+  }
+  return servePage(req, res, filename);
 }
 
 function parseLoginBody(raw, contentType) {
@@ -2048,12 +2302,30 @@ async function route(req, res) {
 
     if (req.method === "OPTIONS") {
       if (pathname.startsWith("/v1/")) {
-        applyCorsTo(res);
+        applyCorsTo(req, res);
         res.writeHead(204);
         res.end();
         return;
       }
       throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    }
+
+    if ((pathname === "/provider" || pathname === "/v1/provider") && req.method === "GET") {
+      return sendJson(res, 200, providerJson());
+    }
+
+    if (pathname === "/openapi.json" && req.method === "GET") {
+      try {
+        const spec = readFileSync(path.join(ROOT, "docs", "openapi.json"), "utf8");
+        res.writeHead(200, {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        });
+        res.end(spec);
+        return;
+      } catch {
+        throw new ApiError(404, "OpenAPI document not found.", "invalid_request_error", "not_found");
+      }
     }
 
     if (pathname === "/healthz" && req.method === "GET") {
@@ -2105,11 +2377,25 @@ async function route(req, res) {
       return serveConsole(req, res);
     }
 
+    if (pathname === "/console/users" || pathname === "/console/users/") {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      }
+      return serveAdminPage(req, res, "users.html");
+    }
+
+    if (pathname === "/console/keys" || pathname === "/console/keys/") {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      }
+      return serveAdminPage(req, res, "keys.html");
+    }
+
     const publicFile = PUBLIC_FILES.get(pathname);
     if (publicFile) return serveStatic(req, res, publicFile);
 
     if (pathname === "/v1/models" || pathname.startsWith("/v1/models/")) {
-      applyCorsTo(res);
+      applyCorsTo(req, res);
       if (req.method !== "GET") {
         throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
       }
@@ -2117,13 +2403,22 @@ async function route(req, res) {
     }
 
     if (pathname === "/v1/chat/completions") {
-      applyCorsTo(res);
+      applyCorsTo(req, res);
       if (req.method !== "POST") {
         throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
       }
-      // /v1 authenticates with a Bearer key, not a cookie, so it is not a
-      // CSRF surface. CORSOrigin only controls browser readability.
+      // /v1 authenticates with an API key, not a cookie, so it is not a
+      // CSRF surface. CORS only controls browser readability.
       return handleChat(req, res);
+    }
+
+    if (pathname === "/v1/messages") {
+      res.ngzrProtocol = ANTHROPIC_PROTOCOL;
+      applyCorsTo(req, res);
+      if (req.method !== "POST") {
+        throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      }
+      return handleMessages(req, res);
     }
 
     if (pathname.startsWith("/op/api/")) {
@@ -2143,30 +2438,39 @@ function handleError(res, error) {
   const apiError =
     error instanceof ApiError
       ? error
-      : error instanceof AuthError
+      : error instanceof AuthError || error instanceof ApiKeyError
         ? new ApiError(error.status, error.message, "invalid_request_error", error.code)
         : new ApiError(500, "The server had an error while processing your request.", "server_error", "internal_error");
 
-  if (!(error instanceof ApiError) && !(error instanceof AuthError)) {
+  if (!(error instanceof ApiError) && !(error instanceof AuthError) && !(error instanceof ApiKeyError)) {
     console.error(nowIso(), "[unhandled]", error);
   }
 
   if (isResOpen(res)) {
     if (!res.headersSent) {
-      sendJson(
-        res,
-        apiError.status,
-        {
-          error: {
-            message: apiError.message,
-            type: apiError.type,
-            param: apiError.param,
-            code: apiError.code,
-            ...(apiError.details ? { details: apiError.details } : {}),
+      if (res.ngzrProtocol === ANTHROPIC_PROTOCOL) {
+        sendAnthropicError(
+          res,
+          apiError.status,
+          { message: apiError.message, type: apiError.type, code: apiError.code },
+          apiError.headers,
+        );
+      } else {
+        sendJson(
+          res,
+          apiError.status,
+          {
+            error: {
+              message: apiError.message,
+              type: apiError.type,
+              param: apiError.param,
+              code: apiError.code,
+              ...(apiError.details ? { details: apiError.details } : {}),
+            },
           },
-        },
-        apiError.headers,
-      );
+          apiError.headers,
+        );
+      }
     } else {
       res.end();
     }
@@ -2178,7 +2482,7 @@ const requestHandler = (req, res) => {
 };
 
 const server =
-  config.tlsCert && config.tlsKey
+  config.tlsEnabled && config.tlsCert && config.tlsKey
     ? https.createServer(
         {
           cert: readFileSync(config.tlsCert),
@@ -2187,7 +2491,7 @@ const server =
         requestHandler,
       )
     : http.createServer(requestHandler);
-const scheme = config.tlsCert && config.tlsKey ? "https" : "http";
+const scheme = config.tlsEnabled && config.tlsCert && config.tlsKey ? "https" : "http";
 
 server.requestTimeout = 30_000;
 server.headersTimeout = 15_000;
@@ -2211,23 +2515,29 @@ server.listen(config.port, config.host, () => {
       }
     }
   }
-  const maskedKeys = [...config.callerKeys.keys()].map((key) => `${key.slice(0, 6)}…${key.slice(-4)}`);
+  const configuredKeys = apiKeys.list();
   log(`能工智人 (nenggong-zhiren) v${VERSION} listening on ${config.host}:${address.port}`);
   log(`  login       ${base}/login`);
   log(`  console     ${base}/console`);
   for (const url of lanUrls) log(`  LAN         ${url}/login`);
-  log(`  caller keys ${maskedKeys.join(", ")} (${config.callerKeys.size})`);
+  log(`  caller keys ${configuredKeys.length} configured (${configuredKeys.map((key) => key.name).join(", ") || "none"})`);
+  log(`  config      ${path.basename(config.configFile)}`);
+  log(`  keys file   ${path.basename(config.apiKeysFile)}`);
   log(`  models      ${[...MODELS.keys()].join(", ")}`);
   log(`  users       ${auth.listUsers().length} (${auth.listUsers().map((user) => user.username).join(", ")})`);
   const relativeUsers = path.relative(ROOT, config.usersFile);
-  log(`  users file  ${relativeUsers && !relativeUsers.startsWith("..") ? relativeUsers : "<external USERS_FILE>"}`);
-  if (config.callerKeys.size === 0) log("  WARNING     no HUMAN_KEYS configured; /v1 will reject all callers");
+  log(`  users file  ${relativeUsers && !relativeUsers.startsWith("..") ? relativeUsers : "<external users file>"}`);
+  if (configuredKeys.length === 0) log("  WARNING     no API keys configured; add one in the admin console");
   log(`  timeouts    queue=${config.queueTimeoutMs}ms response=${config.responseTimeoutMs}ms`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
     log(`received ${signal}, shutting down`);
+    stateStore.close();
+    usageStore.close();
+    apiKeys.close();
+    auth.close();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3_000).unref();
   });

@@ -1,0 +1,141 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "能工智人 API",
+    "version": "0.4.0",
+    "description": "人工回复服务。响应由登录后的人工回复员产生，不是训练出来的模型。支持 OpenAI Chat Completions 和 Anthropic Messages 两种请求格式。",
+    "license": { "name": "MIT" }
+  },
+  "servers": [
+    { "url": "http://127.0.0.1:7355", "description": "本机默认地址" }
+  ],
+  "security": [{ "bearerAuth": [] }, { "apiKeyAuth": [] }],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "summary": "健康检查",
+        "security": [],
+        "responses": { "200": { "description": "服务正常" } }
+      }
+    },
+    "/provider": {
+      "get": {
+        "summary": "服务与模型元数据",
+        "security": [],
+        "responses": { "200": { "description": "服务信息、模型卡与限制" } }
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "summary": "模型列表",
+        "responses": { "200": { "description": "模型列表" } }
+      }
+    },
+    "/v1/models/{model}": {
+      "get": {
+        "summary": "单个模型信息",
+        "parameters": [
+          { "name": "model", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "模型信息" }, "404": { "description": "模型不存在" } }
+      }
+    },
+    "/v1/chat/completions": {
+      "post": {
+        "summary": "OpenAI Chat Completions",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChatRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "完整回复或逐段事件流" },
+          "401": { "description": "调用密钥无效" },
+          "429": { "description": "频率或配额限制" }
+        }
+      }
+    },
+    "/v1/messages": {
+      "post": {
+        "summary": "Anthropic Messages",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AnthropicRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Anthropic message 或事件流" },
+          "400": { "description": "请求格式错误" },
+          "401": { "description": "调用密钥无效" },
+          "429": { "description": "频率或配额限制" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer" },
+      "apiKeyAuth": { "type": "apiKey", "in": "header", "name": "x-api-key" }
+    },
+    "schemas": {
+      "ChatRequest": {
+        "type": "object",
+        "required": ["model", "messages"],
+        "properties": {
+          "model": { "type": "string", "example": "human-1" },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["role"],
+              "properties": {
+                "role": { "type": "string", "enum": ["system", "user", "assistant", "tool"] },
+                "content": {},
+                "name": { "type": "string" },
+                "tool_call_id": { "type": "string" }
+              }
+            }
+          },
+          "stream": { "type": "boolean", "default": false },
+          "max_tokens": { "type": "integer", "minimum": 1 },
+          "temperature": { "type": "number" },
+          "tools": { "type": "array", "items": { "type": "object" } },
+          "tool_choice": {},
+          "response_format": { "type": "object" },
+          "user": { "type": "string" }
+        }
+      },
+      "AnthropicRequest": {
+        "type": "object",
+        "required": ["model", "max_tokens", "messages"],
+        "properties": {
+          "model": { "type": "string", "example": "human-1" },
+          "max_tokens": { "type": "integer", "minimum": 1 },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["role", "content"],
+              "properties": {
+                "role": { "type": "string", "enum": ["user", "assistant"] },
+                "content": {}
+              }
+            }
+          },
+          "system": {},
+          "stream": { "type": "boolean", "default": false },
+          "tools": { "type": "array", "items": { "type": "object" } },
+          "tool_choice": {},
+          "stop_sequences": { "type": "array", "items": { "type": "string" } },
+          "metadata": { "type": "object" }
+        }
+      }
+    }
+  }
+}

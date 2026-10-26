@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0e13" />
+    <title>能工智人 · 用户管理</title>
+    <link rel="stylesheet" href="/console.css" />
+    <link rel="stylesheet" href="/admin.css" />
+    <link rel="stylesheet" href="/theme.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="status-dot ok"></span>
+        <span class="brand-name">能工智人</span>
+        <span class="brand-sub">管理后台</span>
+      </div>
+      <div class="conn">
+        <span id="userLabel" class="user-label">正在加载…</span>
+        <a class="btn ghost" href="/console">返回工作台</a>
+        <button id="logout" class="btn ghost" type="button">退出</button>
+        <span id="status" class="conn-status">连接中…</span>
+      </div>
+    </header>
+
+    <main class="admin-layout">
+      <aside class="admin-nav">
+        <div class="admin-nav-title">控制台</div>
+        <a href="/console">工作台</a>
+        <a class="active" href="/console/users">用户管理</a>
+        <a href="/console/keys">调用密钥</a>
+        <a class="nav-back" href="/console">← 返回工作台</a>
+      </aside>
+
+      <section class="admin-main">
+        <div class="admin-head">
+          <div>
+            <h1>用户管理</h1>
+            <p>创建回复员和管理员、修改角色、重置密码。密码只保存哈希。</p>
+          </div>
+        </div>
+
+        <div class="admin-card">
+          <div class="admin-card-title"><span id="userFormTitle">添加用户</span></div>
+          <form id="userCreateForm" class="admin-form">
+            <label class="field">
+              <span class="field-label">用户名 <em class="req">必填</em></span>
+              <input id="newUsername" type="text" maxlength="32" autocomplete="off" spellcheck="false" placeholder="3–32 位小写字母/数字/._-" required />
+            </label>
+            <label class="field">
+              <span class="field-label">密码 <em id="passwordFlag" class="req">必填</em></span>
+              <input id="newPassword" type="password" minlength="12" maxlength="256" autocomplete="new-password" placeholder="至少 12 位" required />
+            </label>
+            <label class="field">
+              <span class="field-label">角色 <em class="req">必填</em></span>
+              <select id="newRole" required>
+                <option value="operator">人工回复员</option>
+                <option value="admin">管理员</option>
+              </select>
+            </label>
+            <div class="form-actions">
+              <button id="userCreateBtn" class="btn primary" type="submit">添加用户</button>
+              <button id="userCancelBtn" class="btn ghost hidden" type="button">取消编辑</button>
+            </div>
+          </form>
+          <div id="usersError" class="form-error" role="alert"></div>
+        </div>
+
+        <div class="admin-card">
+          <div class="admin-card-title">用户列表 <span id="userCount" class="admin-hint"></span></div>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>用户</th>
+                  <th>角色</th>
+                  <th>创建时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="userTable"></tbody>
+            </table>
+          </div>
+          <div id="usersEmpty" class="admin-empty hidden">还没有用户。</div>
+          <p class="admin-hint">不能删除自己，也不能删除最后一个管理员；修改自己的密码后需要重新登录。</p>
+        </div>
+      </section>
+    </main>
+    <script src="/admin-users.js"></script>
+  </body>
+</html>

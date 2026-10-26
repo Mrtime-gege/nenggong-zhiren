@@ -6,7 +6,7 @@
 ## 1. 先决条件
 
 - Linux / macOS / WSL；Windows 原生环境建议使用 WSL。
-- Node.js **≥ 20**（使用 Node 24 运行）。
+- Node.js **≥ 20**（验证使用 Node 24）。
 - 不需要 `npm install`，项目没有第三方运行时依赖。
 - 默认端口 **7355**；启动前确认没有被其他程序占用。
 
@@ -17,16 +17,15 @@ node -v
 ## 2. 最短启动流程
 
 ```bash
-cd nenggong-zhiren-0.3.0
-cp .env.example .env
+cd nenggong-zhiren
+cp config.example.jsonc config.jsonc
 ```
 
-编辑 `.env`，至少修改：
+编辑 `config.jsonc`，至少确认：
 
-```ini
-HOST=0.0.0.0
-PORT=7355
-HUMAN_KEYS=change-me-to-a-long-random-key:local
+```jsonc
+"host": "0.0.0.0",
+"port": 7355
 ```
 
 然后：
@@ -36,16 +35,13 @@ npm start
 # 等价于 node server.mjs
 ```
 
-也可以不创建 `.env`，直接在命令行传环境变量：
-
-```bash
-HUMAN_KEYS='a-long-random-caller-key:local' HOST=0.0.0.0 PORT=7355 node server.mjs
-```
+程序只读取 `config.jsonc`。调用密钥不写在这里；启动并登录后，在网页右上角「调用密钥」
+生成一个，再交给调用方。
 
 启动成功时终端会显示：
 
 ```text
-能工智人 (nenggong-zhiren) v0.3.0 listening on 0.0.0.0:7355
+能工智人 (nenggong-zhiren) v0.4.0 listening on 0.0.0.0:7355
   login       http://127.0.0.1:7355/login
   console     http://127.0.0.1:7355/console
   LAN         http://<LAN-IP>:7355/login
@@ -65,17 +61,23 @@ HUMAN_KEYS='a-long-random-caller-key:local' HOST=0.0.0.0 PORT=7355 node server.m
 ============================================================
 ```
 
-保存密码后登录，在右上角「用户管理」添加坐席即可。
+保存密码后登录。用户和密钥现在有独立页面：
 
-> `HUMAN_KEYS` 是**调用方 API key**，不是坐席登录密码。不设置它时服务仍能启动，
-> 但 `/v1/*` 会拒绝所有调用方；生产环境必须设置。
+- `/console/users`：添加回复员/管理员、改角色、重置密码；
+- `/console/keys`：生成调用密钥，可指定自定义密钥，并设置过期时间、允许的模型、
+  分钟/日/月请求配额和并发上限。
+
+> 还没有调用密钥时服务仍能启动，但 `/v1/*` 会拒绝所有调用方；先生成一个密钥即可。
 
 ## 3. 首次启动会创建什么
 
 | 文件/目录 | 内容 | 是否随包发布 |
 | --- | --- | --- |
-| `users.json` | 管理员/坐席的 scrypt 哈希、角色、创建时间 | 否，仅保留本机 |
-| `.env` | 端口、调用方 key、可选 TLS 等 | 否，仅保留本机 |
+| `config.jsonc` | 监听地址、端口、超时、模型名等运行配置 | 可以，不含密钥 |
+| `users.json` | 管理员/回复员的密码哈希、角色、创建时间 | 否，仅保留本机 |
+| `api-keys.json` | 调用密钥哈希、名称、配额和使用时间 | 否，仅保留本机 |
+| `state.json` | 已完成请求和幂等记录，用于重启恢复 | 否，仅保留本机 |
+| `usage.json` | 各密钥的分钟/日/月请求计数 | 否，仅保留本机 |
 | 日志 | 默认 stdout；建议重定向到项目目录外 | 否 |
 
 票据、登录会话和幂等记录都在内存里；**重启进程会丢未完成票据和会话**，但用户文件保留。
@@ -83,7 +85,7 @@ HUMAN_KEYS='a-long-random-caller-key:local' HOST=0.0.0.0 PORT=7355 node server.m
 管理员密码只保存哈希。忘记密码时用 CLI 重置：
 
 ```bash
-NGZR_USER_PASSWORD='a-new-long-password' node scripts/user.mjs passwd admin
+node scripts/user.mjs passwd admin
 ```
 
 如果服务正在运行，文件变化会被热重载；该账号旧会话失效，重新登录即可。
@@ -119,7 +121,7 @@ tail -f "$HOME/.local/state/nenggong-zhiren/server.log"
 kill "$(cat "$HOME/.local/state/nenggong-zhiren/server.pid")"
 ```
 
-> 后台启动前确保 `.env` 已配置；nohup 不会替你注入 `HUMAN_KEYS`。
+> 后台启动前确认 `config.jsonc` 已保存；程序不会从环境变量或启动参数读取运行配置。
 
 ### 4.3 systemd（生产推荐）
 
@@ -136,7 +138,6 @@ Type=simple
 User=nenggong
 Group=nenggong
 WorkingDirectory=/opt/nenggong-zhiren
-EnvironmentFile=/opt/nenggong-zhiren/.env
 ExecStart=/usr/bin/node /opt/nenggong-zhiren/server.mjs
 Restart=on-failure
 RestartSec=2
@@ -176,7 +177,7 @@ curl -fsS http://127.0.0.1:7355/healthz
 # 3. 登录页可访问
 curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7355/login
 
-# 4. 调用方 key 有效（把示例 key 换成 HUMAN_KEYS 里的）
+# 4. 调用方 key 有效（在网页「调用密钥」里生成）
 curl -fsS http://127.0.0.1:7355/v1/models \
   -H 'Authorization: Bearer <CALLER_KEY>'
 ```
@@ -197,7 +198,7 @@ curl -N http://127.0.0.1:7355/v1/chat/completions \
 ```
 
 请求会停在队列里，直到坐席在 `/console` 认领并完成。没有坐席回答时，
-`QUEUE_TIMEOUT_MS` 后返回超时错误。
+`queue.waitTimeoutMs` 后返回超时错误。
 
 ## 7. 停止与重启
 
@@ -217,18 +218,18 @@ curl -N http://127.0.0.1:7355/v1/chat/completions \
 ss -ltnp | grep 7355
 ```
 
-改 `.env` 的 `PORT`，或停止占用端口的进程。不要用 `kill -9` 解决所有问题，先确认进程归属。
+改 `config.jsonc` 的 `server.port`，或停止占用端口的进程。不要用 `kill -9` 解决所有问题，先确认进程归属。
 
 ### 启动后 `/v1` 全部 401
 
-- 检查 `HUMAN_KEYS` 是否有值；
-- 请求头必须是 `Authorization: Bearer <key>`；
-- key 要与 `.env` 完全一致，注意冒号后的 label 不参与认证。
+- 先在网页「调用密钥」里生成密钥；
+- OpenAI 格式用 `Authorization: Bearer <key>`，Anthropic 格式用 `x-api-key: <key>`；
+- 确认密钥没有在网页里被停用或删除。
 
 ### 登录页要求账号，但不知道密码
 
 - `users.json` 存在时，首次随机密码不会再次打印；
-- 用管理员 CLI 重置：`NGZR_USER_PASSWORD='...' node scripts/user.mjs passwd admin`；
+- 用管理员 CLI 重置：`node scripts/user.mjs passwd admin`；
 - 如果忘记了全部管理员密码，停止服务、备份 `users.json`，用 CLI 新建一个管理员
   （例如 `recovery-admin`），再用它登录并重置原管理员；不要直接删除用户文件，否则会
   丢失所有账号哈希。
@@ -236,11 +237,11 @@ ss -ltnp | grep 7355
 ### 登录被拒绝 `invalid_origin`
 
 - 直接访问 `http://<LAN-IP>:7355/login` 并刷新页面；
-- 通过反向代理时，把实际 Host 加到 `TRUSTED_HOSTS=<domain>:<port>`；
+- 通过前置代理时，把实际 Host 加到 `config.jsonc` 的 `server.trustedHosts`；
 
 ### DSH 报 401 / 模型不可用
 
-- DSH 的 `HUMAN_PROVIDER_KEY` 必须等于 `HUMAN_KEYS` 中的某个 key；
+- DSH 的 `HUMAN_PROVIDER_KEY` 必须等于网页里生成的某个调用密钥；
 - `baseURL` 必须是 `http://127.0.0.1:7355/v1`（包含 `/v1`）；
 - 改完 DSH 配置后刷新模型选择器；详见 [DSH 集成](../integrations/dsh/README.md)。
 
@@ -255,8 +256,8 @@ chmod 600 users.json
 
 ## 9. 安全提醒
 
-- 默认是 **HTTP**；登录密码在局域网明文传输。公开使用前必须启用项目内置 TLS
-  或反向代理 HTTPS。
+- 默认是 **HTTP**；登录密码在局域网明文传输。公开使用前在 `config.jsonc` 的 `tls`
+  里启用 HTTPS，或在前面放一层 HTTPS 代理。
 - `users.json` 含密码哈希，仍按敏感文件处理；不要提交、不要打包公开。
 - 调用方 key 和坐席密码分开管理；上线前替换所有示例值。
 - 不要把 `7355` 直接暴露到公网；至少加防火墙、TLS 和访问控制。

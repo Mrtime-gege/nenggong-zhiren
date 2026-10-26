@@ -1,158 +1,285 @@
 # 能工智人 · nenggong-zhiren
 
-> 一个 OpenAI 兼容的「大模型」服务。模型权重不存在，真正生成回复的是登录后的坐席。
+> 一个按 OpenAI 聊天接口格式对外提供服务的「人工回复」项目。
+> 这里没有模型权重，真正动脑子的是一群会喝咖啡、会手抖、会在群里问“这个需求到底什么意思”的真人。
 
 ## 先说人话
 
-能工智人是一套**碳基推理后端**：前面假装自己是 OpenAI，后面坐着一排会喝咖啡、会手抖、
-会在群里问“这个需求到底什么意思”的人类。`POST /v1/chat/completions` 进来，票据进队列，
-坐席认领、敲字、点完成，调用方收到标准的 `chat.completion` / SSE。工具调用、JSON、拒答、
-思考内容、图片附件都能走，**但算力来自工位，不来自显卡**。
+能工智人是一套**碳基回复服务**：前面看起来像常见的 AI 接口，后面坐着值班的人。调用方把
+请求发进来，请求进入等待列表；真人接单、看上下文、写回复、点发送；调用方最后收到的是一份
+正常的聊天回复，格式和普通大模型服务差不多。
 
-它的参数规模取决于今天几个人值班，推理速度取决于奶茶配送，上下文窗口取决于交班记录写得
-清不清楚，幻觉率取决于坐席昨晚睡得好不好。唯一确定的是：**这不是 AI，别让它在生产环境装 AI。**
+它的“参数规模”取决于今天几个人值班，“推理速度”取决于奶茶配送，“上下文窗口”取决于交班
+记录写得清不清楚，“幻觉率”取决于值班的人昨晚睡得好不好。**它不是 AI，也不应该在真实生产
+环境里冒充 AI。**
 
-> ⚠️ **严肃警告，不是段子**
->
-> - 本项目是局域网、教学和「人在环」实验，不是生产级模型服务；不要在真实生产环境使用。
-> - **不要**把它包装成真实大模型供应商，也不要用它冒充 OpenAI 等模型对外提供服务。
-> - 工具调用不是装饰：客户端执行工具时，工具通常拥有**和发起请求的程序相同的权限**。
->   恶意或有误的操作者/服务商可以精心构造看似正常的响应和工具调用，让客户端读文件、跑命令、
->   改数据。把它接到有权限的 Agent 上之前，先把权限关进笼子。
-> - 只在你信任操作者、能限制工具权限、能接受人工延迟的环境里使用。
+## 先读警告，不是段子
 
-能工智人把 `POST /v1/chat/completions` 接到带账号、队列、流式输出和工具调用编辑器的人工
-坐席控制台。调用方拿到标准 `chat.completion` / SSE，坐席在 Web 工作台里认领票据、输入回复
-并完成请求。
+- 本项目适合局域网、教学演示、内部工具和「人在环」实验，**不适合真实生产环境**。
+- **不要**把它包装成真实大模型供应商，也不要用它冒充任何模型服务对外提供能力。
+- 让程序执行工具时，工具通常拥有**和发起请求的程序相同的权限**。一个恶意或有误的
+  操作者/服务商，可以精心构造看起来正常的回复和工具调用，让程序读文件、执行命令、修改数据。
+- 只在你信任操作者、能限制工具权限、能接受人工延迟的环境里使用。
+- 不要用来源不明的服务地址、密钥或“模型”，也不要把有权限的程序随随便便接到陌生服务上。
 
-发布包只包含运行所需程序、配置样例、账号管理工具和部署文档。
+## 能做什么
 
-## 环境要求
+| 能力 | 状态 | 用大白话说 |
+| --- | --- | --- |
+| 聊天回复 | 支持 | 一次返回完整回复，或者边写边发 |
+| 工具调用 | 支持 | 让调用程序执行外部操作，参数会按约定格式检查 |
+| 结构化输出 | 支持 | 要求回复必须是带固定字段的数据，不合格就不会发出去 |
+| 拒答 | 支持 | 明确表示不能回答，并告诉调用方原因类型 |
+| 思考内容 | 支持 | 另存一段“给自己看”的内容，不混进正式回复 |
+| 图片输入 | 支持 | 图片会显示在网页工作台，方便真人查看 |
+| 重复请求 | 支持 | 同一个请求编号再次发来，可以拿回原来的结果 |
+| 用量与频率提示 | 支持 | 返回本次请求的用量和频率限制信息 |
+| 多人登录 | 支持 | 管理员可以在网页里添加、重置、删除账号 |
+| 局域网访问 | 支持 | 默认监听所有网卡，同网段浏览器可以打开 |
+| 模型列表 | 支持 | 调用方可以查询当前声明的模型名 |
+| `/v1/responses` | 不支持 | 本项目只做聊天接口，不扩展另一套接口 |
+| `logprobs` / `n>1` | 不支持 | 不提供逐词概率，也不支持一次返回多份候选 |
 
-- Node.js ≥ 20（使用 Node 24 运行）
-- Linux、macOS 或 WSL
-- 无需 `npm install`，没有第三方运行时依赖
+## 安装和启动
+
+### 需要什么
+
+- Node.js 20 或更高版本；
+- Linux、macOS 或 Windows 的 WSL；
+- 不需要安装第三方库，不需要先执行 `npm install`。
+
+检查版本：
 
 ```bash
 node -v
 ```
 
-## 最短启动
-
-解压发布包后进入目录：
+### 最短启动
 
 ```bash
-cd nenggong-zhiren-0.3.0
-cp .env.example .env
+cd nenggong-zhiren
+cp config.example.jsonc config.jsonc
 ```
 
-编辑 `.env`，至少设置一个调用方 key：
+打开 `config.jsonc`，按里面的注释改监听地址和端口。**不要把调用密钥写进配置文件**：
+启动后登录网页，在右上角「调用密钥」里生成。
 
-```ini
-HOST=0.0.0.0
-PORT=7355
-HUMAN_KEYS=replace-with-a-long-random-key:web
-```
-
-启动：
+然后启动：
 
 ```bash
 npm start
 ```
 
-也可以直接在命令行传变量：
+第一次启动时，如果目录里还没有 `users.json`，程序会自动创建一个管理员，并在终端里显示
+一次随机密码。把它保存好；这个密码之后不会再显示。登录后先生成一个调用密钥，再把它交给
+调用方或填到 DSH 的配置里。
 
-```bash
-HUMAN_KEYS='replace-with-a-long-random-key:web' node server.mjs
-```
-
-首次启动会在项目根目录创建 `users.json`，并打印一次随机管理员密码：
-
-```text
-username: admin
-password: XXXXXXXXXXXXXXXXXXXXXXX
-```
-
-保存密码，打开：
+打开浏览器：
 
 ```text
 http://127.0.0.1:7355/login
 ```
 
-登录后在右上角「用户管理」添加坐席或管理员。
+登录后可以进入独立的管理页面：
 
-更完整的启动、后台运行、systemd、健康检查、停止重启和排错见
-[docs/quickstart.md](docs/quickstart.md)。
+- `/console/users`：添加和编辑回复员/管理员、修改角色、重置密码、删除账号；
+- `/console/keys`：生成和编辑调用密钥、设置名称/自定义密钥/配额/模型范围/过期时间；
+- 两个页面均使用完整表格展示数据，不再是弹窗。
 
-## 运行方式
+更完整的启动、后台运行、开机自启和排错说明见 [docs/quickstart.md](docs/quickstart.md)。
 
-```bash
-# 前台
-npm start
+### 放到局域网里
 
-# 后台
-mkdir -p "$HOME/.local/state/nenggong-zhiren"
-nohup node server.mjs >"$HOME/.local/state/nenggong-zhiren/server.log" 2>&1 &
-echo $! >"$HOME/.local/state/nenggong-zhiren/server.pid"
+默认会监听 `0.0.0.0:7355`，也就是同一网段的人可以用下面这种地址访问：
+
+```text
+http://你的局域网地址:7355/login
 ```
 
-生产环境推荐 systemd，unit、权限和反向代理示例见
-[docs/deployment.md](docs/deployment.md)。
+如果只想本机使用，把 `config.jsonc` 的 `server.host` 改成：
 
-启动后检查：
-
-```bash
-curl -fsS http://127.0.0.1:7355/healthz
-curl -fsS http://127.0.0.1:7355/v1/models \
-  -H 'Authorization: Bearer replace-with-a-long-random-key'
+```jsonc
+"host": "127.0.0.1"
 ```
+
+默认是普通 HTTP，不是 HTTPS。局域网里也不要随便把端口暴露到公网；正式一些的环境请配置
+HTTPS，具体做法见 [docs/deployment.md](docs/deployment.md)。
+
+## 一次请求是怎么走完的
+
+1. 调用程序把请求发到 `/v1/chat/completions`。
+2. 请求进入网页工作台的等待列表，带上调用方、模型名、聊天内容和可用的工具。
+3. 一位人工回复员点「接单」，其他人就不会再看到同一张单。
+4. 回复员可以边写边发，也可以写完一次性发送；需要时还能添加工具调用。
+5. 回复完成后，调用程序收到结果；如果对方断开，这张单会结束。
+
+等待太久或回复太久，都有超时设置。已完成的请求和幂等记录会写入运行状态文件，进程重启后
+仍可按 `Idempotency-Key` 回放；重启时仍未完成的请求无法恢复原来的网络连接，会显示为
+“服务重启中断”。账号和调用密钥也会保留。
+
+## 网页工作台怎么用
+
+- **左边等待列表**：按“等待中 / 进行中 / 最近结束”分组，可以搜索调用方和内容，也可以只看
+  某一类请求。
+- **中间聊天记录**：看调用方发来的内容、系统提示、可用工具和历史上下文。
+- **右边信息区**：看或修改工具调用，填写“思考内容”。只有接单后，工具编辑才会打开。
+- **底部操作栏**：接单、分段发送、完成、放回、拒答、取消一直显示在底部，不用滑到页面底部找按钮。
+- **快捷键**：点击底部「快捷键」或按 `Ctrl+/` 可以自己录制组合键，保存在当前浏览器。
+
+第一次用建议按这个顺序：
+
+1. 等列表里出现请求；
+2. 点底部「接单」；
+3. 在回复框里写内容；
+4. 想边写边发就点「分段发送」，想直接结束就点「完成」。
 
 ## 账号管理
 
-- 账号保存在项目根目录 `users.json`，只保存 scrypt 哈希，文件权限 `0600`。
-- 管理员可在 Web 控制台添加、重置密码、删除账号。
-- 也可以通过 CLI 管理：
+管理员登录后，可以直接在网页里操作：
+
+- 添加普通回复员或管理员；
+- 重置密码；
+- 删除账号。
+
+账号保存在项目根目录的 `users.json`，只保存加密后的密码，不保存明文；文件权限是 `0600`。
+调用密钥保存在 `api-keys.json`，只保存哈希和名称，明文只在创建时显示一次；两个文件都只留在
+本机，不要上传到公开位置。管理员可以在密钥上设置过期时间、允许的模型、每分钟/日/月请求
+配额和并发上限，也可以随时停用或删除。
+
+也可以在命令行里管理：
 
 ```bash
 node scripts/user.mjs list
-NGZR_USER_PASSWORD='another-long-password' node scripts/user.mjs add alice --role operator
-NGZR_USER_PASSWORD='new-long-password' node scripts/user.mjs passwd alice
+
+node scripts/user.mjs add alice --role operator
+
+node scripts/user.mjs passwd alice
+
 node scripts/user.mjs remove alice
 ```
 
-`users.json` 和 `.env` 只保留在本机，不要放进公开目录。
+用户名只能用 3–32 位小写字母、数字、下划线、点和连字符，并且以字母或数字开头。密码至少
+12 位。不能删除自己，也不能把最后一个管理员删掉。
 
-## 调用方 API
+## 调用方式
+
+### 地址和密钥
+
+```text
+http://127.0.0.1:7355/v1/chat/completions
+```
+
+调用方需要先在网页工作台的「调用密钥」里生成一个密钥。请求头带上它：
 
 ```http
-Authorization: Bearer <HUMAN_KEYS 中的 key>
+Authorization: Bearer 你的调用密钥
 ```
+
+一个密钥对应一个名称，方便区分调用方。停用后，使用它的请求会立即收到 401；删除后不可恢复。
+
+### 普通回复
+
+```bash
+curl -s http://127.0.0.1:7355/v1/chat/completions \
+  -H 'Authorization: Bearer 你的调用密钥' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "human-1",
+    "messages": [{"role": "user", "content": "你好，请介绍一下你自己"}]
+  }'
+```
+
+请求会停在等待列表里，直到有人接单并完成。
+
+### 边写边发
+
+在请求里加 `"stream": true`，回复会一段一段返回。如果只想看一次完整结果，就用默认的
+一次性完整返回方式：
 
 ```bash
 curl -N http://127.0.0.1:7355/v1/chat/completions \
-  -H 'Authorization: Bearer replace-with-a-long-random-key' \
+  -H 'Authorization: Bearer 你的调用密钥' \
   -H 'Content-Type: application/json' \
   -d '{
     "model": "human-1",
     "stream": true,
+    "messages": [{"role": "user", "content": "写一句欢迎语"}]
+  }'
+```
+
+### 工具调用
+
+调用方可以在请求里列出可用工具和参数格式。网页工作台会显示这些工具，人工回复员可以选择
+一个，填好参数后发送。服务端会检查参数是否符合约定格式。
+
+> 工具不是装饰。调用程序决定工具能做什么；如果它有文件、命令或网络权限，执行结果就可能
+> 影响真实环境。不要把高权限程序接到不受信任的人或服务上。
+
+完整字段和响应格式见 [docs/protocol.md](docs/protocol.md)。
+
+### 结构化回复
+
+如果希望回复一定是某个固定格式，可以在请求里要求结构化输出。服务端会在完成时检查；不合格
+的回复不会直接发给调用方，而是留在控制台让人修改。
+
+### 拒答
+
+人工回复员可以选择拒答。调用程序会收到明确的拒答标记和结束原因，而不是一段假装正常的回答。
+
+### Anthropic 格式
+
+同一个服务也接受 Anthropic Messages 格式：
+
+```bash
+curl -s http://127.0.0.1:7355/v1/messages \
+  -H 'x-api-key: 你的调用密钥' \
+  -H 'anthropic-version: 2023-06-01' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "human-1",
+    "max_tokens": 256,
     "messages": [{"role": "user", "content": "你好"}]
   }'
 ```
 
-主要能力：
+加 `"stream": true` 后会使用 Anthropic 的事件格式返回。Anthropic 的工具、图片和
+`tool_result` 也会先转成统一的消息结构，再显示在网页工作台。
 
-- 流式 / 非流式对话；
-- 工具调用、`tool_choice`、JSON Schema 参数校验；
-- `response_format` JSON 对象/JSON Schema；
-- 拒答、思考内容、图片输入；
-- `Idempotency-Key` 回放；
-- usage、`x-request-id`、限速响应头。
+### 模型列表
 
-完整协议见 [docs/protocol.md](docs/protocol.md)。
+```bash
+curl -s http://127.0.0.1:7355/v1/models \
+  -H 'Authorization: Bearer 你的调用密钥'
+```
 
-## 接入 DSH
+模型名由 `config.jsonc` 的 `models.ids` 声明，默认是 `human-1` 和 `human-1-fast`。
 
-项目附带 DSH 的 `llm-pi-ai` 路由示例：
+## 配置项
+
+大部分情况下只需要改这几个：
+
+| 配置 | 默认值 | 作用 |
+| --- | --- | --- |
+| `server.host` | `0.0.0.0` | 监听的地址；只想本机用就改成 `127.0.0.1` |
+| `server.port` | `7355` | 网页和接口共用的端口 |
+| `server.cookieSecure` | `"auto"` | 登录凭证是否只走 HTTPS；可选 `"auto"`、`true`、`false` |
+| `queue.waitTimeoutMs` | `7200000` | 请求在等待列表里最多待多久（毫秒） |
+| `queue.responseTimeoutMs` | `7200000` | 接单后最多等多久回复（毫秒） |
+| `limits.maxConcurrentPerKey` | `4` | 每个调用密钥最多同时进行几个请求 |
+| `models.ids` | `["human-1","human-1-fast"]` | 对外显示的模型名列表 |
+| `tls.enabled` | `false` | 是否由本程序直接提供 HTTPS |
+| `tls.certFile` / `tls.keyFile` | 空 | 开启 HTTPS 时的证书和私钥路径 |
+| `server.trustedHosts` | `[]` | 通过前置代理访问时额外允许的域名 |
+| `storage.stateFile` | `state.json` | 已完成请求和幂等记录的运行快照 |
+| `storage.usageFile` | `usage.json` | 各调用密钥的分钟/日/月用量计数 |
+| `models.catalog` | 内置模型卡 | 能力、上下文容量、最大输出和弃用标记 |
+
+每一项允许的取值和效果都写在 [config.example.jsonc](config.example.jsonc) 的注释里。
+真实密钥不写进配置文件，而是由管理员在网页里生成。
+
+## 接到 DSH
+
+DSH 可以用“兼容 OpenAI 的接口”方式接入。一个最小配置长这样：
 
 ```yaml
 human-provider:
@@ -168,32 +295,44 @@ human-provider:
       reasoningEfforts: false
 ```
 
-把 `HUMAN_PROVIDER_KEY` 配成 `HUMAN_KEYS` 中的 key。详见
+在网页里生成一个调用密钥，把 `HUMAN_PROVIDER_KEY` 配成它。更完整的说明见
 [integrations/dsh/README.md](integrations/dsh/README.md)。
 
-## 安全与运行边界
+## 哪些事情不要做
 
-- 默认 HTTP 不加密传输；公开部署必须启用项目内置 TLS 或反向代理 HTTPS。
-- `users.json` 和 `.env` 包含敏感信息，只保留本机。
-- 调用方 key 与坐席密码分开管理，不要使用示例值。
-- 票据、会话和幂等记录在内存中，进程重启会丢失未完成请求。
-- 没有 MFA/SSO、细粒度 RBAC、持久化队列或高可用。
+- 不要在公开生产环境把它当成真实模型服务；
+- 不要用别人的密钥，也不要把密钥发到群里；
+- 不要在回复里写密码、身份证号、私钥等敏感内容；
+- 不要让高权限程序自动执行来源不明的工具调用；
+- 不要把默认 HTTP 直接暴露到公网；
+- 不要期待它像真正的模型一样稳定、快速，能同时接待很多人。
 
-安全模型和残余风险见 [docs/security.md](docs/security.md)，部署建议见
-[docs/deployment.md](docs/deployment.md)。
+## 已知限制
 
-## 项目结构
+- 没有 `/v1/responses`、`logprobs`，也不支持一次给多份候选回复；
+- 等待列表、登录状态和重复请求记录只放在程序里，重启后会丢；
+- 没有短信或手机动态码二次确认，也没有企业统一登录或很细的权限分级；
+- 没有多台机器自动接管；
+- 默认只运行一个程序，适合小团队和局域网，不适合很多人同时使用；
+- 图片只检查地址和大小，不负责检查文件内容是否安全。
 
-```text
-server.mjs              HTTP / 票据 / SSE / 协议入口
-src/auth.mjs            账号、密码哈希、会话与 CSRF
-src/schema.mjs          JSON Schema 子集校验
-public/                 登录页与坐席控制台
-scripts/user.mjs        账号管理 CLI
-docs/                   启动、协议、安全、部署文档
-integrations/dsh/       DSH 路由示例
-```
+## 开发者资料
 
-## License
+- [OpenAPI 描述](docs/openapi.json)：可直接导入 Swagger Editor、Postman 或生成客户端。
+- [OpenAI 请求示例](examples/curl-openai.sh)
+- [Anthropic 请求示例](examples/curl-anthropic.sh)
+- [更新记录](CHANGELOG.md)
+- `GET /provider`：服务模式、模型卡、协议和限制；明确标注 `human-in-the-loop`。
+- `/v1/models` 返回 `capabilities`、上下文容量、最大输出等模型卡字段。
+- 每个响应都带 `X-NGZR-API-Version` 和 `X-Request-Id`。
 
-MIT，见 [LICENSE](LICENSE)。
+## 文档和许可
+
+- [启动与运行](docs/quickstart.md)
+- [协议说明](docs/protocol.md)
+- [安全说明](docs/security.md)
+- [部署方式](docs/deployment.md)
+- [项目结构](docs/architecture.md)
+- [DSH 接入](integrations/dsh/README.md)
+
+MIT License，详见 [LICENSE](LICENSE)。

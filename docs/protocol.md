@@ -15,7 +15,8 @@ OpenAI 官方服务。
 | GET | `/console` | Cookie | 坐席控制台 |
 | GET | `/v1/models` | Bearer | 模型列表 |
 | GET | `/v1/models/{id}` | Bearer | 单模型 |
-| POST | `/v1/chat/completions` | Bearer | 对话补全 |
+| POST | `/v1/chat/completions` | Bearer / x-api-key | OpenAI 对话补全 |
+| POST | `/v1/messages` | x-api-key / Bearer | Anthropic Messages 格式 |
 | GET | `/op/api/tickets` | Cookie | 票据列表 |
 | POST | `/op/api/tickets/{id}/claim` | Cookie + CSRF | 认领 |
 | POST | `/op/api/tickets/{id}/chunk` | Cookie + CSRF | 推送文本 |
@@ -25,13 +26,41 @@ OpenAI 官方服务。
 
 `/v1/responses` 未实现，返回 404。
 
+调用密钥由管理员在网页「调用密钥」里生成，保存在数据文件中，不来自环境变量。
+
+## `POST /v1/messages`
+
+Anthropic Messages 请求：
+
+```json
+{
+  "model": "human-1",
+  "max_tokens": 256,
+  "system": "可选系统提示",
+  "stream": false,
+  "messages": [
+    {"role": "user", "content": "你好"}
+  ],
+  "tools": [
+    {"name": "get_weather", "description": "查天气", "input_schema": {"type": "object"}}
+  ]
+}
+```
+
+- 认证头：`x-api-key: <调用密钥>` 或 `Authorization: Bearer <调用密钥>`。
+- 非流式返回 `type: "message"`、`content` 区块、`stop_reason` 和 `usage.input_tokens/output_tokens`。
+- `stream: true` 返回 Anthropic 事件：`message_start`、`content_block_start`、
+  `content_block_delta`、`content_block_stop`、`message_delta`、`message_stop`。
+- 工具调用在响应中表示为 `content: [{type:"tool_use", ...}]`，`stop_reason` 为 `tool_use`。
+- 图片支持 `source.type: "base64"` 和 `source.type: "url"`。
+
 ## `POST /v1/chat/completions`
 
 ### 请求字段
 
 | 字段 | 支持 | 备注 |
 | --- | --- | --- |
-| `model` | ✅ | 必须在 `HUMAN_MODELS` 中 |
+| `model` | ✅ | 必须在 `config.jsonc` 的 `models.ids` 中 |
 | `messages` | ✅ | system/user/assistant/tool；支持文本和图片 |
 | `stream` | ✅ | SSE |
 | `stream_options.include_usage` | ✅ | 最后一个 chunk 带 usage |

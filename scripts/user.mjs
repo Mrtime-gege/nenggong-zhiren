@@ -1,34 +1,29 @@
 #!/usr/bin/env node
 /**
- * 能工智人 · user administration CLI.
+ * 能工智人 · 账号管理命令行。
  *
- * Usage:
- *   node scripts/user.mjs list
- *   NGZR_USER_PASSWORD='...' node scripts/user.mjs add alice --role operator
- *   NGZR_USER_PASSWORD='...' node scripts/user.mjs passwd alice
- *   node scripts/user.mjs remove alice
- *
- * Web admin is the primary path; the CLI is for local administration/recovery.
- * `--password` is accepted for automation but lands in shell history.
+ * 所有路径来自 config.jsonc；不读取环境变量，也不从命令行接收密码。
+ * 密码只在终端提示后输入；非交互运行时从标准输入读取。
  */
 
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { loadConfig } from "../src/config.mjs";
 import { AuthService, AuthError } from "../src/auth.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const usersFile = process.env.USERS_FILE || path.join(ROOT, "users.json");
 
 function usage() {
   console.log(`能工智人 · 用户管理
 
   node scripts/user.mjs list
-  NGZR_USER_PASSWORD='...' node scripts/user.mjs add <username> [--role operator|admin]
-  NGZR_USER_PASSWORD='...' node scripts/user.mjs passwd <username>
+  node scripts/user.mjs add <username> [--role operator|admin]
+  node scripts/user.mjs passwd <username>
   node scripts/user.mjs remove <username>
 
-凭据文件：默认项目根目录 users.json（可用 USERS_FILE 覆盖路径）。
-密码输入：NGZR_USER_PASSWORD 或 --password（Web 用户管理不需要命令行）。
+路径来自项目根目录 config.jsonc 的 storage.usersFile。
+执行 add/passwd 时会提示输入密码；密码不会出现在命令历史里。
 `);
 }
 
@@ -43,16 +38,57 @@ function takeFlag(args, name) {
   return value;
 }
 
-function passwordFrom(args) {
-  const direct = takeFlag(args, "--password");
-  const password = direct ?? process.env.NGZR_USER_PASSWORD;
-  if (!password) {
-    throw new Error("缺少密码：设置 NGZR_USER_PASSWORD，或传 --password（不推荐）。");
+function readStdinPassword() {
+  try {
+    return readFileSync(0, "utf8").trim();
+  } catch {
+    return "";
   }
-  return password;
 }
 
-function main() {
+function promptPassword(label) {
+  if (!process.stdin.isTTY) return Promise.resolve(readStdinPassword());
+  return new Promise((resolve, reject) => {
+    process.stdout.write(label);
+    const stdin = process.stdin;
+    const previousRaw = stdin.isRaw;
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding("utf8");
+    let value = "";
+
+    const cleanup = () => {
+      stdin.setRawMode(Boolean(previousRaw));
+      stdin.pause();
+      stdin.removeListener("data", onData);
+    };
+    const onData = (chunk) => {
+      for (const char of chunk) {
+        if (char === "\u0003") {
+          cleanup();
+          process.stdout.write("\n");
+          reject(new Error("已取消。"));
+          return;
+        }
+        if (char === "\r" || char === "\n") {
+          cleanup();
+          process.stdout.write("\n");
+          resolve(value);
+          return;
+        }
+        if (char === "\u007f" || char === "\b") {
+          value = value.slice(0, -1);
+          continue;
+        }
+        if (char >= " ") value += char;
+      }
+    };
+    stdin.on("data", onData);
+  });
+}
+
+async function main() {
+  const config = loadConfig();
   const args = process.argv.slice(2);
   const command = args.shift();
   if (!command || command === "-h" || command === "--help") {
@@ -60,7 +96,15 @@ function main() {
     return;
   }
 
-  const auth = new AuthService({ usersFile, secureCookies: false });
+  const auth = new AuthService({
+    usersFile: config.storage.usersFile,
+    sessionTtlMs: config.auth.sessionTtlMs,
+    sessionIdleMs: config.auth.sessionIdleMs,
+    loginRateWindowMs: config.auth.loginRateWindowMs,
+    loginIpMaxFailures: config.auth.loginIpMaxFailures,
+    loginUserMaxFailures: config.auth.loginUserMaxFailures,
+    secureCookies: false,
+  });
   auth.init();
 
   try {
@@ -71,9 +115,7 @@ function main() {
         return;
       }
       for (const user of users) {
-        console.log(
-          `${user.username}\t${user.role}\t${new Date(user.createdAt).toISOString()}`,
-        );
+        console.log(`${user.username}\t${user.role}\t${new Date(user.createdAt).toISOString()}`);
       }
       return;
     }
@@ -82,7 +124,7 @@ function main() {
       const role = takeFlag(args, "--role") || "operator";
       const username = args[0];
       if (!username) throw new Error("用法：add <username> [--role operator|admin]");
-      const password = passwordFrom(args);
+      const password = await promptPassword(`为 ${username} 输入密码（至少 12 位）：`);
       const user = auth.addUser(username, password, role);
       console.log(`已创建用户 ${user.username}（${user.role}）`);
       return;
@@ -91,7 +133,7 @@ function main() {
     if (command === "passwd") {
       const username = args[0];
       if (!username) throw new Error("用法：passwd <username>");
-      const password = passwordFrom(args);
+      const password = await promptPassword(`为 ${username} 输入新密码（至少 12 位）：`);
       auth.setPassword(username, password);
       console.log(`已更新 ${username} 的密码，现有会话已失效。`);
       return;
@@ -105,14 +147,14 @@ function main() {
       return;
     }
 
-    throw new Error(`未知命令：${command}`);
+    throw new Error(`未知命令：${command}。可用命令：list/add/passwd/remove。`);
   } finally {
     auth.close();
   }
 }
 
 try {
-  main();
+  await main();
 } catch (error) {
   if (error instanceof AuthError) {
     console.error(`错误（${error.code}）：${error.message}`);

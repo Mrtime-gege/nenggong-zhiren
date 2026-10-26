@@ -10,7 +10,7 @@
 LAN browser ──HTTPS/HTTP──► 能工智人 :7355 ──HTTP(loopback)──► DSH
 ```
 
-- 坐席通过浏览器访问 `http://<LAN-IP>:7355/login`（或 HTTPS 域名）。
+- 回复员通过浏览器访问 `http://<LAN-IP>:7355/login`（或 HTTPS 域名）。
 - DSH/调用方访问 `http://127.0.0.1:7355/v1`。
 - 账号/密码哈希保存在项目根目录 `users.json`，文件权限 `0600`，仅保留在本机，
   不要随项目公开。
@@ -20,17 +20,16 @@ LAN browser ──HTTPS/HTTP──► 能工智人 :7355 ──HTTP(loopback)─
 
 ```bash
 cd /opt/nenggong-zhiren
-cp .env.example .env
-chmod 600 .env
-# 编辑 .env：至少改 HUMAN_KEYS
+cp config.example.jsonc config.jsonc
+# 编辑 config.jsonc：监听地址、端口、超时、模型名等
 node server.mjs
 
-# 或让 npm 读取同一份 .env
+# 或
 npm start
 ```
 
 首次启动若还没有 `users.json`，终端会打印一次随机管理员密码。把它保存到密码管理器，
-登录后可在 Web「用户管理」里添加坐席或改密。
+登录后可在 Web「用户管理」里添加回复员或改密，并在「调用密钥」里生成调用密钥。
 
 ### systemd
 
@@ -46,7 +45,6 @@ Type=simple
 User=nenggong
 Group=nenggong
 WorkingDirectory=/opt/nenggong-zhiren
-EnvironmentFile=/opt/nenggong-zhiren/.env
 ExecStart=/usr/bin/node /opt/nenggong-zhiren/server.mjs
 Restart=on-failure
 RestartSec=2
@@ -70,7 +68,6 @@ WantedBy=multi-user.target
 ```bash
 sudo useradd --system --home /opt/nenggong-zhiren --shell /usr/sbin/nologin nenggong
 sudo chown -R nenggong:nenggong /opt/nenggong-zhiren
-sudo chmod 600 /opt/nenggong-zhiren/.env
 sudo systemctl daemon-reload
 sudo systemctl enable --now nenggong-zhiren
 sudo systemctl status nenggong-zhiren --no-pager
@@ -93,10 +90,14 @@ journalctl -u nenggong-zhiren -f
 
 ### 2.1 Node 直接 TLS
 
-```bash
-TLS_CERT=/etc/letsencrypt/live/ai.example.internal/fullchain.pem \
-TLS_KEY=/etc/letsencrypt/live/ai.example.internal/privkey.pem \
-HOST=0.0.0.0 PORT=7355 node server.mjs
+编辑 `config.jsonc` 的 `tls` 段：
+
+```jsonc
+"tls": {
+  "enabled": true,
+  "certFile": "/etc/letsencrypt/live/ai.example.internal/fullchain.pem",
+  "keyFile": "/etc/letsencrypt/live/ai.example.internal/privkey.pem"
+}
 ```
 
 启动日志会显示 `https://...`，Cookie 自动加 `Secure`，响应带 HSTS。
@@ -135,12 +136,12 @@ server {
 
 ```ini
 COOKIE_SECURE=1
-TRUSTED_HOSTS=ai.example.internal:443
+把 `ai.example.internal:443` 加入 `server.trustedHosts`
 ```
 
 > 注意：`proxy_set_header Host $host:$server_port;` 在 443 端口可能产生
 > `ai.example.internal:443`；如果反代用 80/443 默认端口，也可以用 `$host`，但要确保
-> `TRUSTED_HOSTS` 与实际 Host 完全一致。
+> `server.trustedHosts` 要与实际 Host 完全一致。
 
 防火墙只放行 443（以及必要的 80 用于 ACME），不要放行 7355：
 
@@ -153,13 +154,11 @@ sudo ufw deny 7355/tcp
 ## 3. 账号
 
 ```bash
-# 添加坐席
-NGZR_USER_PASSWORD='a-long-password-123' \
-  node scripts/user.mjs add alice --role operator
+# 添加回复员（会提示输入密码）
+node scripts/user.mjs add alice --role operator
 
 # 改密（会让该用户旧会话以及所有会话失效）
-NGZR_USER_PASSWORD='new-long-password-123' \
-  node scripts/user.mjs passwd alice
+node scripts/user.mjs passwd alice
 
 # 列表 / 删除
 node scripts/user.mjs list
@@ -171,14 +170,10 @@ node scripts/user.mjs remove alice
 
 ## 4. 调用方 key
 
-`HUMAN_KEYS` 格式：
-
-```ini
-HUMAN_KEYS=sk-prod-web:web,sk-prod-batch:batch
-```
+调用密钥由管理员在网页「调用密钥」里生成。生成后复制给调用方；服务端只保存哈希。
 
 - 不要使用示例 key、默认 key 或团队成员共用的 key 上生产。
-- 轮换：改 `.env` → 重启 → 通知调用方。
+- 轮换：在网页「调用密钥」创建新密钥，通知调用方切换，再停用旧密钥。
 - key 会以掩码形式出现在启动日志，不会完整打印。
 - 每个 key 的并发上限是 `MAX_CONCURRENT_PER_KEY`。
 
@@ -230,7 +225,7 @@ journalctl -u nenggong-zhiren -f
 - 备份项目根目录 `users.json`（包含哈希，仍应按敏感文件处理）。
 - 票据/会话在内存，不备份；重启后调用方需重试。
 - 恢复用户文件后重启，或让文件热重载生效（会清空会话）。
-- 不要备份 `.env` 到公共位置；其中含调用方 key。
+- 不要备份 `api-keys.json` 到公共位置；其中含密钥哈希。
 
 ## 8. 端口与网络
 
@@ -240,5 +235,5 @@ journalctl -u nenggong-zhiren -f
 | 443 | 反代 TLS | LAN/公网按需 |
 | 80 | ACME | 仅证书签发 |
 
-如果坐席和 DSH 不在同一台机器，`HOST=0.0.0.0` 是必要的；此时务必启用 TLS 和防火墙。
-如果全部在本机，建议 `HOST=127.0.0.1`，通过 SSH 隧道/反代访问，进一步缩小暴露面。
+如果回复员和 DSH 不在同一台机器，`server.host` 需要监听局域网地址；此时务必启用 TLS 和防火墙。
+如果全部在本机，建议 `server.host` 使用 `127.0.0.1`，通过 SSH 隧道/反代访问，进一步缩小暴露面。

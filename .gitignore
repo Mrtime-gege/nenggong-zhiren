@@ -1,7 +1,12 @@
-.env
-users.json
+node_modules/
+/data/
 *.log
 *.tmp
+docs/screenshots/*.tmp
 *.pem
 *.key
 *.crt
+/users.json
+/api-keys.json
+/state.json
+/usage.json
