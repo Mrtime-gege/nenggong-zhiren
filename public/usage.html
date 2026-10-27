@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0e13" />
+    <title>能工智人 · 用量</title>
+    <link rel="stylesheet" href="/console.css" />
+    <link rel="stylesheet" href="/admin.css" />
+    <link rel="stylesheet" href="/theme.css" />
+  </head>
+  <body data-page="usage">
+    <header class="topbar">
+      <div class="brand"><span class="status-dot ok"></span><span class="brand-name">能工智人</span><span class="brand-sub">管理后台</span></div>
+      <nav id="topnav" class="topnav" aria-label="主导航"></nav>
+      <div class="conn"><span id="userLabel" class="user-label">正在加载…</span><button id="logout" class="btn ghost" type="button">退出</button><span id="status" class="conn-status">连接中…</span></div>
+    </header>
+    <main class="admin-main">
+      <div class="admin-head"><div><h1>用量</h1><p>按调用密钥查看分钟、日、月用量和最近 30 天趋势。计数按 UTC 日期归档。</p></div><a class="btn" href="/op/api/usage.csv" download="usage.csv">导出 CSV</a></div>
+      <div class="stat-row" id="usageStats"></div>
+      <div class="admin-card">
+        <div class="admin-card-title">最近 30 天</div>
+        <div id="usageChart" class="usage-chart"></div>
+      </div>
+      <div class="admin-card">
+        <div class="admin-card-title">按密钥统计</div>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead><tr><th>密钥</th><th>分钟</th><th>今日</th><th>本月</th><th>累计请求</th><th>累计 tokens</th><th>配额</th></tr></thead>
+            <tbody id="usageTable"></tbody>
+          </table>
+        </div>
+        <div id="usageEmpty" class="admin-empty hidden">还没有调用记录。</div>
+      </div>
+    </main>
+    <script src="/navigation.js"></script>
+    <script src="/admin-usage.js"></script>
+  </body>
+</html>

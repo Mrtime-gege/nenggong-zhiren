@@ -1,11 +1,11 @@
 # 架构
 
-## 0.4.0 分层
+## 0.5.0 分层
 
 - **配置层**：`src/config.mjs` 只读取根目录 `config.jsonc`；不读取环境变量，也不接受运行参数。
-- **数据层**：`src/data/api-keys.mjs` 管理调用密钥、配额和模型范围；`src/data/usage.mjs` 保存分钟/日/月用量；`src/data/state.mjs` 保存完成请求和幂等快照；`src/auth.mjs` 负责人事账号与会话。
+- **数据层**：`src/data/api-keys.mjs` 管理调用密钥、配额和模型范围；`src/data/usage.mjs` 保存分钟/日/月用量和每日历史；`src/data/state.mjs` 保存完成请求和幂等快照；`src/data/settings.mjs` 保存设置页覆盖值；`src/data/audit.mjs` 追加审计事件；`src/auth.mjs` 负责账号、会话、MFA 和登录限速；`src/totp.mjs` 提供 TOTP。
 - **协议层**：`src/protocol/common.mjs` 把不同接口的消息统一成 `{role, content, parts}`，新增消息类型只需增加 part 归一化/序列化逻辑；`openai.mjs` 和 `anthropic.mjs` 只负责各自协议。
-- **业务层**：`server.mjs` 继续维护等待列表、接单、流式发送和操作接口，不直接理解两种协议的原始字段。
+- **业务层**：`server.mjs` 维护等待列表、接单、流式发送、票据动作授权和操作接口，不直接理解两种协议的原始字段。
 
 ## 一句话
 
@@ -32,12 +32,13 @@
 ## 进程与模块
 
 - `server.mjs`：HTTP 路由、票据状态机、SSE、协议校验、安全中间件。
-- `src/auth.mjs`：用户文件、scrypt 哈希、内存会话、CSRF、登录失败限速、热重载。
+- `src/auth.mjs`：用户文件、scrypt 哈希、内存会话、CSRF、TOTP MFA、登录失败限速、热重载。
 - `src/schema.mjs`：零依赖 JSON Schema 子集校验器。
-- `public/console.*`：网页工作台（无构建步骤，原生 ES modules）。
+- `public/console.*`：网页工作台（无构建步骤的原生 JavaScript）。
 - `public/login.*`：登录页。
+- `public/navigation.js`：顶部页面清单。
+- `public/settings.html`、`usage.html`、`audit.html`、`status.html`：管理页面。
 - `scripts/user.mjs`：账号 CLI。
-- `scripts/demo.mjs`：不需要第二个人的端到端演示。
 
 ## 请求生命周期
 
@@ -51,7 +52,7 @@
    - 工具调用：参数按 schema 校验；
    - 拒答：设置 `refusal`，不发送 content。
 6. `finish` 后状态 `done`，写 `finish_reason`、usage、`[DONE]`，释放并发槽。
-7. 票据保留 `RETENTION_MS` 供控制台查看和幂等回放。
+7. 票据保留 `queue.retentionMs` 供控制台查看和幂等回放。
 
 ## 状态机
 
@@ -62,13 +63,14 @@ queued ──claim──► claimed ──chunk/finish──► streaming ──
   └── queue timeout / cancel ──► failed
 ```
 
+- 票据写操作只允许当前认领人；管理员可以取消或转交，但不会绕过认领人直接编辑。
 - `content_filter` 是 `finish_reason`，不是 ticket 状态。
 - `claimed` 可以一直不发送文本；`streaming` 表示至少推送过一个 SSE 数据块（或已开始流）。
 - 客户端断开时，服务端会取消或丢弃票据，避免继续占用回复员。
 
 ## 并发与资源
 
-- 每个调用方 key 最多 `MAX_CONCURRENT_PER_KEY` 个未完成票据。
+- 每个调用方 key 最多 `limits.maxConcurrentPerKey` 个未完成票据。
 - 等待超时来自 `config.jsonc` 的 `queue.waitTimeoutMs`；接单后超时来自 `queue.responseTimeoutMs`。
 - 每个票据的 SSE 发送串行化，避免并发写乱序。
 - 心跳每 15 秒，防止反代把长连接当空闲连接断开。
@@ -88,11 +90,27 @@ queued ──claim──► claimed ──chunk/finish──► streaming ──
 
 ## 持久化边界
 
-当前持久化两类数据：`users.json`（账号哈希）和 `api-keys.json`（调用密钥哈希/名称/状态）。票据、会话、登录失败计数、幂等记录仍在内存。
-这使实现简单、无外部依赖，但也意味着：
+当前写入本地文件的数据：
+
+- `users.json`：账号哈希、角色、MFA 状态；
+- `api-keys.json`：调用密钥哈希、名称、配额和过期时间；
+- `state.json`：已完成票据、运行状态和幂等记录快照；
+- `usage.json`：分钟/日/月计数和每日历史；
+- `settings.json`：设置页覆盖值；
+- `audit.log`：登录、账号、密钥、设置和票据事件。
+
+仍在内存中的数据：
+
+- 活动等待队列、认领状态和正在发送的 SSE；
+- 登录会话、CSRF token、登录失败计数；
+- 当前进程内的并发占用。
+
+因此：
 
 - 不能在多实例间共享队列；
-- 重启后调用方会收到连接错误；
-- 会话需要重新登录。
+- 重启后活动请求会中断，调用方需要重试；
+- 已完成请求和幂等记录可以恢复；
+- 会话需要重新登录；
+- 单进程运行，没有 HA。
 
 生产化方向：SQLite/Postgres 票据表、Redis 会话、对象存储附件、反向代理限流。

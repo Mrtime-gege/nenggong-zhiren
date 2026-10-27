@@ -50,7 +50,13 @@
     "stateFile": "state.json",
 
     // 每个调用密钥的分钟/日/月配额计数，重启后保留。
-    "usageFile": "usage.json"
+    "usageFile": "usage.json",
+
+    // 管理设置在网页保存后的覆盖值；不存在会自动创建。
+    "settingsFile": "settings.json",
+
+    // 管理操作、登录和密钥变更的审计记录文件；按行追加。
+    "auditFile": "audit.log"
   },
 
   "auth": {
@@ -85,7 +91,7 @@
     "responseTimeoutMs": 7200000,
 
     // 已结束请求在内存里保留多久，单位毫秒。
-    // 范围 10000–86400000；便于查看最近记录，不写入磁盘。
+    // 范围 10000–86400000；便于查看最近记录。状态快照会写入 state.json。
     "retentionMs": 1800000,
 
     // 逐段发送时每小段的基础停顿，单位毫秒。
@@ -155,6 +161,26 @@
 
     // 私钥文件路径；启用 TLS 时必填，支持 .pem/.key。
     "keyFile": ""
+  },
+
+  "features": {
+    // 默认是否启用浏览器通知；管理员可在设置页覆盖。
+    "browserNotifications": true,
+
+    // 新请求到来时是否播放提示音；管理员可在设置页覆盖。
+    "notificationSound": true,
+
+    // 新坐席第一次进入工作台时是否默认勾选自动接单。
+    "autoClaimDefault": false,
+
+    // 是否记录登录、账号、密钥和设置变更。
+    "auditLog": true,
+
+    // 是否在顶部导航显示用量页面。
+    "usageDashboard": true,
+
+    // 请求等待超过多少秒时提醒回复员（设置页可覆盖）。
+    "queueAlertSeconds": 120
   },
 
   "logging": {

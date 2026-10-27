@@ -35,6 +35,7 @@ function blank(keyId) {
     monthCount: 0,
     totalRequests: 0,
     totalTokens: 0,
+    history: {},
   };
 }
 
@@ -46,6 +47,9 @@ function publicUsage(entry) {
     month: entry.monthCount,
     totalRequests: entry.totalRequests,
     totalTokens: entry.totalTokens,
+    history: Object.entries(entry.history || {})
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, value]) => ({ date, requests: value.requests || 0, tokens: value.tokens || 0 })),
   };
 }
 
@@ -97,6 +101,18 @@ export class UsageStore {
         monthCount: Number(raw.monthCount) || 0,
         totalRequests: Number(raw.totalRequests) || 0,
         totalTokens: Number(raw.totalTokens) || 0,
+        history:
+          raw.history && typeof raw.history === "object" && !Array.isArray(raw.history)
+            ? Object.fromEntries(
+                Object.entries(raw.history)
+                  .filter(([date, value]) => /^\d{4}-\d{2}-\d{2}$/.test(date) && value && typeof value === "object")
+                  .slice(-60)
+                  .map(([date, value]) => [
+                    date,
+                    { requests: Number(value.requests) || 0, tokens: Number(value.tokens) || 0 },
+                  ]),
+              )
+            : {},
       });
     }
   }
@@ -115,6 +131,7 @@ export class UsageStore {
         monthCount: entry.monthCount,
         totalRequests: entry.totalRequests,
         totalTokens: entry.totalTokens,
+        history: entry.history,
       })),
     };
     const temp = path.join(
@@ -191,6 +208,11 @@ export class UsageStore {
     entry.dayCount += 1;
     entry.monthCount += 1;
     entry.totalRequests += 1;
+    const dayHistory = entry.history[day] || { requests: 0, tokens: 0 };
+    dayHistory.requests += 1;
+    entry.history[day] = dayHistory;
+    const dates = Object.keys(entry.history).sort();
+    while (dates.length > 60) delete entry.history[dates.shift()];
     this.entries.set(keyId, entry);
     this.dirty = true;
     this.schedule();
@@ -202,13 +224,19 @@ export class UsageStore {
     if (!count) return;
     const entry = this.entries.get(keyId) || blank(keyId);
     entry.totalTokens += count;
+    const day = utcDay(this.now());
+    const dayHistory = entry.history[day] || { requests: 0, tokens: 0 };
+    dayHistory.tokens += count;
+    entry.history[day] = dayHistory;
+    const dates = Object.keys(entry.history).sort();
+    while (dates.length > 60) delete entry.history[dates.shift()];
     this.entries.set(keyId, entry);
     this.dirty = true;
     this.schedule();
   }
 
   get(keyId) {
-    return publicUsage(this.entries.get(keyId));
+    return publicUsage(this.entries.get(keyId) || blank(keyId));
   }
 
   close() {

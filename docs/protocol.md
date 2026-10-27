@@ -48,6 +48,8 @@ Anthropic Messages 请求：
 ```
 
 - 认证头：`x-api-key: <调用密钥>` 或 `Authorization: Bearer <调用密钥>`。
+- `reasoning_effort`：可选字符串；对人工回复没有推理预算，会作为回复员的
+  “工作深度”提示显示在票据上（DSH 里配置为 low / high / max）。
 - 非流式返回 `type: "message"`、`content` 区块、`stop_reason` 和 `usage.input_tokens/output_tokens`。
 - `stream: true` 返回 Anthropic 事件：`message_start`、`content_block_start`、
   `content_block_delta`、`content_block_stop`、`message_delta`、`message_stop`。

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0e13" />
+    <title>能工智人 · 设置</title>
+    <link rel="stylesheet" href="/console.css" />
+    <link rel="stylesheet" href="/admin.css" />
+    <link rel="stylesheet" href="/theme.css" />
+  </head>
+  <body data-page="settings">
+    <header class="topbar">
+      <div class="brand"><span class="status-dot ok"></span><span class="brand-name">能工智人</span><span class="brand-sub">管理后台</span></div>
+      <nav id="topnav" class="topnav" aria-label="主导航"></nav>
+      <div class="conn"><span id="userLabel" class="user-label">正在加载…</span><button id="logout" class="btn ghost" type="button">退出</button><span id="status" class="conn-status">连接中…</span></div>
+    </header>
+    <main class="admin-main">
+      <div class="admin-head"><div><h1>设置</h1><p>运行参数和功能开关在这里统一管理。服务器地址、端口和 TLS 属于启动配置，需要编辑 config.jsonc 后重启。</p></div></div>
+
+      <div class="admin-card">
+        <div class="admin-card-title">运行参数</div>
+        <form id="runtimeForm" class="admin-form">
+          <label class="field"><span class="field-label">等待超时（毫秒） <em class="req">必填</em></span><input id="setWait" type="number" min="100" max="86400000" required /></label>
+          <label class="field"><span class="field-label">回复超时（毫秒） <em class="req">必填</em></span><input id="setResponse" type="number" min="100" max="86400000" required /></label>
+          <label class="field"><span class="field-label">完成记录保留（毫秒） <em class="req">必填</em></span><input id="setRetention" type="number" min="10000" max="86400000" required /></label>
+          <label class="field"><span class="field-label">逐段发送停顿（毫秒） <em class="opt">选填</em></span><input id="setStream" type="number" min="0" max="5000" /></label>
+          <label class="field"><span class="field-label">每密钥并发上限 <em class="req">必填</em></span><input id="setConcurrent" type="number" min="1" max="1000" required /></label>
+          <label class="field"><span class="field-label">请求体上限（字节） <em class="req">必填</em></span><input id="setBody" type="number" min="1024" max="67108864" required /></label>
+          <div class="form-actions"><button id="runtimeSave" class="btn primary" type="submit">保存运行参数</button><span class="admin-hint">保存后对新请求立即生效。</span></div>
+        </form>
+        <div id="settingsError" class="form-error" role="alert"></div>
+      </div>
+
+      <div class="admin-card">
+        <div class="admin-card-title">功能开关</div>
+        <form id="featureForm" class="admin-form">
+          <label class="switch-line"><input id="setBrowserNotify" type="checkbox" /><span>浏览器通知</span></label>
+          <label class="switch-line"><input id="setSound" type="checkbox" /><span>新请求提示音</span></label>
+          <label class="switch-line"><input id="setAutoClaim" type="checkbox" /><span>默认自动接单</span></label>
+          <label class="switch-line"><input id="setAudit" type="checkbox" /><span>记录审计日志</span></label>
+          <label class="switch-line"><input id="setUsage" type="checkbox" /><span>显示用量页面</span></label>
+          <label class="field"><span class="field-label">排队提醒（秒） <em class="opt">选填</em></span><input id="setQueueAlert" type="number" min="10" max="86400" /></label>
+          <div class="form-actions"><button id="featureSave" class="btn primary" type="submit">保存功能开关</button><button id="notifyPermission" class="btn ghost" type="button">请求浏览器通知权限</button><span id="notifyState" class="admin-hint">未请求权限</span></div>
+        </form>
+        <div id="featureError" class="form-error" role="alert"></div>
+      </div>
+
+      <div class="admin-card">
+        <div class="admin-card-title">管理员 MFA</div>
+        <p class="admin-hint">启用后登录需要密码 + 6 位动态验证码。密钥只保存在本机 users.json。</p>
+        <div id="mfaStatus" class="admin-hint">正在读取…</div>
+        <div id="mfaSetupBox" class="hidden">
+          <div class="mfa-secret-row"><span>密钥</span><code id="mfaSecret"></code></div>
+          <p class="admin-hint">在验证器里手动输入上面的密钥，或使用：</p>
+          <code id="mfaUri" class="mfa-uri"></code>
+          <form id="mfaEnableForm" class="admin-form">
+            <label class="field"><span class="field-label">6 位验证码 <em class="req">必填</em></span><input id="mfaCode" type="text" inputmode="numeric" maxlength="6" placeholder="000000" required /></label>
+            <div class="form-actions"><button id="mfaEnableBtn" class="btn primary" type="submit">启用 MFA</button><button id="mfaCancelSetup" class="btn ghost" type="button">取消</button></div>
+          </form>
+        </div>
+        <div id="mfaDisableBox" class="hidden">
+          <form id="mfaDisableForm" class="admin-form">
+            <label class="field"><span class="field-label">当前密码 <em class="req">必填</em></span><input id="mfaPassword" type="password" autocomplete="current-password" required /></label>
+            <div class="form-actions"><button id="mfaDisableBtn" class="btn danger" type="submit">关闭 MFA</button></div>
+          </form>
+        </div>
+        <div id="mfaError" class="form-error" role="alert"></div>
+        <div class="form-actions"><button id="mfaSetupBtn" class="btn" type="button">生成 MFA 密钥</button></div>
+      </div>
+
+      <div class="admin-card">
+        <div class="admin-card-title">只读启动配置</div>
+        <div id="readonly" class="readonly-grid"></div>
+        <p class="admin-hint">这些值来自 config.jsonc，修改后需要重启服务。密钥、账号和状态文件路径见配置。</p>
+      </div>
+    </main>
+    <script src="/navigation.js"></script>
+    <script src="/admin-settings.js"></script>
+  </body>
+</html>

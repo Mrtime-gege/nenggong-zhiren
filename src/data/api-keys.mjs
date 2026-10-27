@@ -320,6 +320,23 @@ export class ApiKeyStore {
     return publicRecord(record);
   }
 
+  rotate(id) {
+    const record = this.records.get(String(id));
+    if (!record) throw new ApiKeyError("调用密钥不存在。", "key_not_found", 404);
+    const token = `${KEY_PREFIX}${randomBytes(32).toString("base64url")}`;
+    const hash = hashToken(token);
+    for (const other of this.records.values()) {
+      if (other.id !== record.id && safeEqualHex(other.hash, hash)) {
+        throw new ApiKeyError("生成的新密钥与现有密钥冲突，请重试。", "key_exists", 409);
+      }
+    }
+    record.hash = hash;
+    record.hint = `${token.slice(0, 8)}…${token.slice(-4)}`;
+    record.lastUsedAt = null;
+    this.persist();
+    return { token, record: publicRecord(record) };
+  }
+
   remove(id) {
     const key = String(id);
     if (!this.records.has(key)) {

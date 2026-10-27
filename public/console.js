@@ -4,7 +4,6 @@ const $ = (id) => document.getElementById(id);
 
 const els = {
   userLabel: $("userLabel"),
-  usersBtn: $("usersBtn"),
   logout: $("logout"),
   usersModal: $("usersModal"),
   usersClose: $("usersClose"),
@@ -15,7 +14,6 @@ const els = {
   userCreateBtn: $("userCreateBtn"),
   userList: $("userList"),
   usersError: $("usersError"),
-  keysBtn: $("keysBtn"),
   keysModal: $("keysModal"),
   keysClose: $("keysClose"),
   keyCreateForm: $("keyCreateForm"),
@@ -45,6 +43,23 @@ const els = {
   commandState: $("commandState"),
   commandHint: $("commandHint"),
   cmdClaim: $("cmdClaim"),
+  cmdTemplates: $("cmdTemplates"),
+  cmdTransfer: $("cmdTransfer"),
+  templateModal: $("templateModal"),
+  templateClose: $("templateClose"),
+  templateList: $("templateList"),
+  templateForm: $("templateForm"),
+  templateName: $("templateName"),
+  templateContent: $("templateContent"),
+  templateFormTitle: $("templateFormTitle"),
+  templateReset: $("templateReset"),
+  templateError: $("templateError"),
+  transferModal: $("transferModal"),
+  transferClose: $("transferClose"),
+  transferTarget: $("transferTarget"),
+  transferConfirm: $("transferConfirm"),
+  transferCancel: $("transferCancel"),
+  transferError: $("transferError"),
   cmdPush: $("cmdPush"),
   cmdFinish: $("cmdFinish"),
   cmdRelease: $("cmdRelease"),
@@ -65,6 +80,7 @@ const state = {
   connected: false,
   me: null,
   config: null,
+  features: null,
   tickets: [],
   stats: null,
   selectedId: null,
@@ -74,6 +90,7 @@ const state = {
   busy: false,
   pollTimer: null,
   lastQueued: null,
+  alertedTickets: new Set(),
   queueQuery: "",
   queueFilter: "all",
   shortcuts: null,
@@ -115,6 +132,114 @@ function el(tag, className = "", text = null) {
   if (className) node.className = className;
   if (text !== null && text !== undefined) node.textContent = String(text);
   return node;
+}
+
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function applySavedSplits(workspace, panes) {
+  const inspectorWidth = Number(localStorage.getItem("ngzr.inspectorWidth"));
+  if (Number.isFinite(inspectorWidth) && inspectorWidth >= 260) {
+    workspace.style.setProperty("--inspector-width", `${inspectorWidth}px`);
+  }
+  const paneWidth = Number(localStorage.getItem("ngzr.paneWidth"));
+  if (Number.isFinite(paneWidth) && paneWidth >= 260) {
+    panes.style.setProperty("--pane-width", `${paneWidth}px`);
+    requestAnimationFrame(() => {
+      const total = panes.getBoundingClientRect().width;
+      const max = Math.max(260, total - 260);
+      if (paneWidth > max) panes.style.setProperty("--pane-width", `${Math.round(max)}px`);
+    });
+  }
+}
+
+function createSplitter(kind) {
+  const inspectorSplit = kind === "inspector";
+  const handle = el("div", `splitter splitter-${kind}`);
+  handle.tabIndex = 0;
+  handle.setAttribute("role", "separator");
+  handle.setAttribute("aria-orientation", "vertical");
+  handle.title = inspectorSplit
+    ? "拖动调整工具区宽度，双击恢复默认"
+    : "拖动调整对话/输出宽度，双击恢复默认";
+
+  handle.addEventListener("dblclick", () => {
+    if (inspectorSplit) {
+      handle.parentElement.style.removeProperty("--inspector-width");
+      localStorage.removeItem("ngzr.inspectorWidth");
+    } else {
+      handle.parentElement.style.removeProperty("--pane-width");
+      localStorage.removeItem("ngzr.paneWidth");
+    }
+  });
+
+  handle.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    if (inspectorSplit) {
+      const workspace = handle.parentElement;
+      const inspector = workspace.lastElementChild;
+      const next = clampNumber(inspector.getBoundingClientRect().width - direction * 20, 260, 720);
+      workspace.style.setProperty("--inspector-width", `${Math.round(next)}px`);
+      localStorage.setItem("ngzr.inspectorWidth", String(Math.round(next)));
+    } else {
+      const panes = handle.parentElement;
+      const current = panes.firstElementChild.getBoundingClientRect().width;
+      const total = panes.getBoundingClientRect().width;
+      const next = clampNumber(current + direction * 24, 260, Math.max(260, total - 260));
+      panes.style.setProperty("--pane-width", `${Math.round(next)}px`);
+      localStorage.setItem("ngzr.paneWidth", String(Math.round(next)));
+    }
+  });
+
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    handle.setPointerCapture(event.pointerId);
+    const startX = event.clientX;
+    let move;
+    let end;
+    if (inspectorSplit) {
+      const workspace = handle.parentElement;
+      const inspector = workspace.lastElementChild;
+      const startWidth = inspector.getBoundingClientRect().width;
+      const maxWidth = Math.max(280, Math.min(720, workspace.getBoundingClientRect().width - 360));
+      move = (moveEvent) => {
+        const width = clampNumber(startWidth - (moveEvent.clientX - startX), 260, maxWidth);
+        workspace.style.setProperty("--inspector-width", `${Math.round(width)}px`);
+      };
+      end = () => {
+        const width = Math.round(inspector.getBoundingClientRect().width);
+        localStorage.setItem("ngzr.inspectorWidth", String(width));
+      };
+    } else {
+      const panes = handle.parentElement;
+      const left = panes.firstElementChild.getBoundingClientRect().width;
+      const total = panes.getBoundingClientRect().width;
+      move = (moveEvent) => {
+        const width = clampNumber(left + moveEvent.clientX - startX, 260, Math.max(260, total - 260));
+        panes.style.setProperty("--pane-width", `${Math.round(width)}px`);
+      };
+      end = () => {
+        const width = Math.round(panes.firstElementChild.getBoundingClientRect().width);
+        localStorage.setItem("ngzr.paneWidth", String(width));
+      };
+    }
+    const finish = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", finish);
+      handle.removeEventListener("pointercancel", finish);
+      if (handle.hasPointerCapture?.(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+      end();
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", finish);
+    handle.addEventListener("pointercancel", finish);
+  });
+
+  return handle;
 }
 
 function badge(text, tone, extra = "") {
@@ -288,9 +413,36 @@ function beep() {
   }
 }
 
+function browserNotify(title, body, tag) {
+  if ("Notification" in window && Notification.permission === "granted") {
+    new Notification(title, { body, tag });
+  }
+}
+
 function maybeBeep() {
-  const queued = state.stats?.queued ?? state.tickets.filter((ticket) => ticket.state === "queued").length;
-  if (state.lastQueued !== null && queued > state.lastQueued) beep();
+  const queuedTickets = state.tickets.filter((ticket) => ticket.state === "queued");
+  const queued = state.stats?.queued ?? queuedTickets.length;
+  const features = state.features || {};
+  const oldest = queuedTickets.sort((a, b) => a.createdAt - b.createdAt)[0];
+  const waited = oldest ? Math.max(0, Math.round((Date.now() - oldest.createdAt) / 1000)) : 0;
+  if (state.lastQueued !== null && queued > state.lastQueued) {
+    if (features.notificationSound !== false) beep();
+    if (features.browserNotifications !== false) {
+      browserNotify("有新的请求等待接单", `队列 ${queued} 个，最早已等待 ${waited} 秒`, "ngzr-new-ticket");
+    }
+  }
+  if (
+    oldest &&
+    features.browserNotifications !== false &&
+    Number(features.queueAlertSeconds) > 0 &&
+    waited >= Number(features.queueAlertSeconds) &&
+    !state.alertedTickets.has(oldest.id)
+  ) {
+    state.alertedTickets.add(oldest.id);
+    browserNotify("请求排队超时提醒", `已等待 ${waited} 秒，队列 ${queued} 个`, "ngzr-queue-alert");
+  }
+  if (!queued) state.alertedTickets.clear();
+  document.title = queued > 0 ? `(${queued}) 新请求 · 能工智人` : "能工智人 · 网页工作台";
   state.lastQueued = queued;
 }
 
@@ -343,11 +495,14 @@ async function loadSession() {
     state.role = me.user.role;
     state.csrfToken = me.csrfToken;
     state.config = me.config || null;
+    state.features = me.features || null;
     state.connected = true;
     state.lastQueued = null;
+    if (state.features?.autoClaimDefault && localStorage.getItem("ngzr.autoclaim") === null) {
+      els.autoclaim.checked = true;
+    }
     els.userLabel.textContent = `${me.user.username} · ${me.user.role === "admin" ? "管理员" : "人工回复员"}`;
-    els.usersBtn.classList.toggle("hidden", me.user.role !== "admin");
-    els.keysBtn.classList.toggle("hidden", me.user.role !== "admin");
+    window.NGZRNAV?.render(me.user.role, me.features);
     setStatus("ok", `${me.user.username} 已登录`);
     clearTimeout(state.pollTimer);
     await pollOnce();
@@ -992,7 +1147,7 @@ function buildDetail(ticket) {
   const inspector = el("aside", "inspector");
   const inspectorHead = el("div", "inspector-head");
   inspectorHead.append(el("span", "", "检查器"));
-  inspectorHead.append(el("span", "inspector-hint", "工具 / 思考"));
+  inspectorHead.append(el("span", "inspector-hint", "工具 / 思考 · 拖边缘调宽"));
   const inspectorBody = el("div", "inspector-body");
   const toolEmpty = el("div", "inspector-empty", "");
   inspectorBody.append(toolPanel, toolEmpty, thinkingPanel);
@@ -1003,9 +1158,12 @@ function buildDetail(ticket) {
   composer.append(composerMain);
   outputPane.append(outputHead, transcript, sentTools);
 
-  panes.append(inputPane, outputPane);
+  const paneSplitter = createSplitter("pane");
+  const inspectorSplitter = createSplitter("inspector");
+  panes.append(inputPane, paneSplitter, outputPane);
   const workspace = el("div", "workspace");
-  workspace.append(panes, inspector);
+  workspace.append(panes, inspectorSplitter, inspector);
+  applySavedSplits(workspace, panes);
   wrap.append(head, meta, purposeHint, workspace, composer);
   els.detail.append(wrap);
 
@@ -1106,6 +1264,7 @@ function renderBadges(ticket, container) {
   const purpose = purposeOf(ticket);
   items.push(badge(STATE_LABELS[ticket.state] || ticket.state, stateTone(ticket.state)));
   items.push(badge(ticket.stream ? "stream" : "non-stream", ""));
+  if (ticket.effort) items.push(badge(`effort:${ticket.effort}`, "warn"));
   if (purpose.id !== "chat") {
     items.push(badge(purpose.detailLabel, purpose.tone));
   }
@@ -1140,9 +1299,6 @@ function renderPurposeHint(ticket, d) {
   if (purpose.id === "session_title") {
     text =
       "这是 DSH 自动发起的会话标题生成请求，不是用户重复提问。回复一句短标题即可，例如「北京天气」或「查看工作目录」。";
-  } else if (purpose.id === "tool_result") {
-    text =
-      "这是工具执行后的续跑请求：最后一条 tool 消息是工具输出。基于该结果继续回答用户即可；需要时可以再次调用工具。";
   }
   d.els.purposeHint.classList.toggle("hidden", !text);
   d.els.purposeHint.textContent = text;
@@ -1685,6 +1841,9 @@ function syncCommandbar() {
       ? "等待队列"
       : "连接中";
   els.cmdClaim.disabled = state.busy || !ticket || ticket.state !== "queued";
+  els.cmdTemplates.disabled = state.busy || !ticket || !detail || detail.els.draft.disabled;
+  els.cmdTransfer.disabled =
+    state.busy || !ticket || ticket.state !== "claimed" || !(mine || state.role === "admin");
   els.cmdPush.disabled = state.busy || !editable;
   els.cmdFinish.disabled = state.busy || !editable || (toolRequired && pending.length === 0);
   els.cmdFinish.title =
@@ -1693,7 +1852,9 @@ function syncCommandbar() {
     state.busy || !(editable && ticket.state === "claimed" && !ticket.stream && !ticket.text);
   els.cmdRefuse.disabled = state.busy || !editable;
   els.cmdCancel.disabled =
-    state.busy || !active || !(mine || ticket.state === "queued" || ticket.state === "finishing");
+    state.busy ||
+    !active ||
+    !(mine || ticket.state === "queued" || (state.role === "admin"));
   els.commandHint.textContent = ticket
     ? `${prettyShortcut("finish")} 完成 · ${prettyShortcut("push")} 推送 · ${prettyShortcut("help")} 快捷键`
     : "选择票据后启用操作";
@@ -1701,7 +1862,7 @@ function syncCommandbar() {
 }
 
 function setButtonsDisabled(flag) {
-  for (const button of [els.cmdClaim, els.cmdPush, els.cmdFinish, els.cmdRelease, els.cmdRefuse, els.cmdCancel]) {
+  for (const button of [els.cmdClaim, els.cmdTemplates, els.cmdTransfer, els.cmdPush, els.cmdFinish, els.cmdRelease, els.cmdRefuse, els.cmdCancel]) {
     button.disabled = flag;
   }
   if (detail?.els) {
@@ -1712,6 +1873,198 @@ function setButtonsDisabled(flag) {
     const ticket = currentTicket();
     if (ticket && detail) updateComposer(ticket, detail);
     else syncCommandbar();
+  }
+}
+
+/* --------------------------- quick replies --------------------------- */
+
+const TEMPLATE_KEY = "ngzr.templates";
+const DEFAULT_TEMPLATES = [
+  { name: "收到", content: "收到，我先查看一下，稍后回复你。" },
+  { name: "处理中", content: "正在处理中，预计还需要一点时间。" },
+  { name: "请补充信息", content: "为了准确处理，请补充更多信息，谢谢。" },
+  { name: "已完成", content: "已处理完成，请查收。" },
+];
+let templates = loadTemplates();
+let editingTemplate = -1;
+
+function loadTemplates() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(TEMPLATE_KEY) || "null");
+    if (Array.isArray(stored) && stored.every((item) => item && typeof item.name === "string" && typeof item.content === "string")) {
+      return stored;
+    }
+  } catch { /* fall through */ }
+  return DEFAULT_TEMPLATES.map((item) => ({ ...item }));
+}
+
+function saveTemplates() {
+  localStorage.setItem(TEMPLATE_KEY, JSON.stringify(templates));
+}
+
+function templateVariables(ticket) {
+  const now = new Date();
+  return {
+    caller: ticket?.caller || "调用方",
+    model: ticket?.model || "human-1",
+    ticket: ticket ? shortId(ticket.id) : "",
+    operator: state.operator || "",
+    date: now.toLocaleDateString("zh-CN"),
+    time: now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
+  };
+}
+
+function renderTemplateText(text, ticket) {
+  const vars = templateVariables(ticket);
+  return String(text).replace(/\{\{\s*([a-zA-Z]+)\s*\}\}/g, (match, key) => vars[key] ?? match);
+}
+
+function renderTemplateList() {
+  els.templateList.replaceChildren();
+  if (!templates.length) {
+    els.templateList.append(el("div", "admin-empty", "还没有模板，先在右侧保存一个。"));
+    return;
+  }
+  templates.forEach((template, index) => {
+    const row = el("div", "template-item");
+    const copy = el("div", "template-copy");
+    copy.append(el("strong", "", template.name));
+    const preview = el("div", "template-preview", template.content);
+    copy.append(preview);
+    const actions = el("div", "template-actions");
+    const insert = el("button", "btn primary", "插入");
+    insert.type = "button";
+    insert.addEventListener("click", () => insertTemplate(template));
+    const edit = el("button", "btn ghost", "编辑");
+    edit.type = "button";
+    edit.addEventListener("click", () => beginEditTemplate(index));
+    const remove = el("button", "btn danger", "删除");
+    remove.type = "button";
+    remove.addEventListener("click", () => {
+      if (!window.confirm(`删除模板「${template.name}」？`)) return;
+      templates.splice(index, 1);
+      saveTemplates();
+      renderTemplateList();
+      resetTemplateForm();
+    });
+    actions.append(insert, edit, remove);
+    row.append(copy, actions);
+    els.templateList.append(row);
+  });
+}
+
+function insertTemplate(template) {
+  const ticket = currentTicket();
+  if (!ticket || !detail || detail.id !== ticket.id || detail.els.draft.disabled) {
+    toast("当前票据没有可编辑的回复草稿。");
+    return;
+  }
+  const draft = detail.els.draft;
+  const start = draft.selectionStart ?? draft.value.length;
+  const end = draft.selectionEnd ?? start;
+  const text = renderTemplateText(template.content, ticket);
+  draft.setRangeText(text, start, end, "end");
+  draft.dispatchEvent(new Event("input", { bubbles: true }));
+  draft.focus();
+  closeTemplateModal();
+}
+
+function beginEditTemplate(index) {
+  editingTemplate = index;
+  const template = templates[index];
+  els.templateName.value = template.name;
+  els.templateContent.value = template.content;
+  els.templateFormTitle.textContent = "编辑模板";
+  els.templateError.textContent = "";
+  els.templateName.focus();
+}
+
+function resetTemplateForm() {
+  editingTemplate = -1;
+  els.templateForm.reset();
+  els.templateFormTitle.textContent = "新建模板";
+  els.templateError.textContent = "";
+}
+
+function saveTemplate(event) {
+  event.preventDefault();
+  const name = els.templateName.value.trim();
+  const content = els.templateContent.value.trim();
+  if (!name || !content) {
+    els.templateError.textContent = "名称和内容都不能为空。";
+    return;
+  }
+  if (editingTemplate >= 0) {
+    templates[editingTemplate] = { name, content };
+  } else {
+    templates.push({ name, content });
+  }
+  saveTemplates();
+  renderTemplateList();
+  resetTemplateForm();
+}
+
+function openTemplateModal() {
+  renderTemplateList();
+  resetTemplateForm();
+  els.templateModal.classList.remove("hidden");
+  window.setTimeout(() => els.templateName.focus(), 30);
+}
+
+function closeTemplateModal() {
+  els.templateModal.classList.add("hidden");
+}
+
+/* ------------------------------ transfer ------------------------------ */
+
+async function openTransfer() {
+  const ticket = currentTicket();
+  if (!ticket) return;
+  els.transferError.textContent = "";
+  els.transferTarget.replaceChildren();
+  els.transferTarget.disabled = true;
+  els.transferModal.classList.remove("hidden");
+  try {
+    const data = await api("/op/api/operators");
+    const choices = (data.operators || []).filter((item) => item.username !== state.operator);
+    if (!choices.length) {
+      els.transferError.textContent = "没有其他可转交的用户。";
+      return;
+    }
+    for (const item of choices) {
+      const option = document.createElement("option");
+      option.value = item.username;
+      option.textContent = `${item.username} · ${item.role === "admin" ? "管理员" : "人工回复员"}${item.online ? " · 在线" : " · 离线"}`;
+      els.transferTarget.append(option);
+    }
+    els.transferTarget.disabled = false;
+  } catch (error) {
+    els.transferError.textContent = error.message;
+  }
+}
+
+function closeTransfer() {
+  els.transferModal.classList.add("hidden");
+}
+
+async function confirmTransfer() {
+  const ticket = currentTicket();
+  const to = els.transferTarget.value;
+  if (!ticket || !to) return;
+  els.transferConfirm.disabled = true;
+  els.transferError.textContent = "";
+  try {
+    await api(`/op/api/tickets/${encodeURIComponent(ticket.id)}/transfer`, {
+      method: "POST",
+      body: { to },
+    });
+    closeTransfer();
+    toast(`票据已转交给 ${to}`);
+    await pollOnce();
+  } catch (error) {
+    els.transferError.textContent = error.message;
+  } finally {
+    els.transferConfirm.disabled = false;
   }
 }
 
@@ -1963,12 +2316,26 @@ function init() {
   });
   els.userCreateForm.addEventListener("submit", createUser);
   els.cmdClaim.addEventListener("click", () => doAction("claim"));
+  els.cmdTemplates.addEventListener("click", openTemplateModal);
+  els.cmdTransfer.addEventListener("click", openTransfer);
   els.cmdPush.addEventListener("click", () => doAction("push"));
   els.cmdFinish.addEventListener("click", () => doAction("finish"));
   els.cmdRelease.addEventListener("click", () => doAction("release"));
   els.cmdRefuse.addEventListener("click", () => doAction("refuse"));
   els.cmdCancel.addEventListener("click", () => doAction("cancel"));
   els.cmdShortcuts.addEventListener("click", openShortcuts);
+  els.templateForm.addEventListener("submit", saveTemplate);
+  els.templateReset.addEventListener("click", resetTemplateForm);
+  els.templateClose.addEventListener("click", closeTemplateModal);
+  els.templateModal.addEventListener("click", (event) => {
+    if (event.target === els.templateModal) closeTemplateModal();
+  });
+  els.transferConfirm.addEventListener("click", confirmTransfer);
+  els.transferCancel.addEventListener("click", closeTransfer);
+  els.transferClose.addEventListener("click", closeTransfer);
+  els.transferModal.addEventListener("click", (event) => {
+    if (event.target === els.transferModal) closeTransfer();
+  });
   els.shortcutClose.addEventListener("click", closeShortcuts);
   els.shortcutReset.addEventListener("click", resetShortcuts);
   els.shortcutModal.addEventListener("click", (event) => {

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0e13" />
+    <title>能工智人 · 状态</title>
+    <link rel="stylesheet" href="/console.css" />
+    <link rel="stylesheet" href="/admin.css" />
+    <link rel="stylesheet" href="/theme.css" />
+  </head>
+  <body data-page="status">
+    <header class="topbar">
+      <div class="brand"><span class="status-dot ok"></span><span class="brand-name">能工智人</span><span class="brand-sub">管理后台</span></div>
+      <nav id="topnav" class="topnav" aria-label="主导航"></nav>
+      <div class="conn"><span id="userLabel" class="user-label">正在加载…</span><button id="logout" class="btn ghost" type="button">退出</button><span id="status" class="conn-status">连接中…</span></div>
+    </header>
+    <main class="admin-main">
+      <div class="admin-head"><div><h1>状态</h1><p>服务进程、队列、存储和最近审计事件。刷新页面获取最新快照。</p></div><button id="refresh" class="btn" type="button">刷新</button></div>
+      <div class="stat-row" id="statusStats"></div>
+      <div class="admin-card">
+        <div class="admin-card-title">运行配置</div>
+        <div id="statusReadonly" class="readonly-grid"></div>
+      </div>
+      <div class="admin-card">
+        <div class="admin-card-title">存储文件</div>
+        <div class="admin-table-wrap">
+          <table class="admin-table"><thead><tr><th>文件</th><th>存在</th><th>大小</th><th>权限</th></tr></thead><tbody id="storageTable"></tbody></table>
+        </div>
+      </div>
+      <div class="admin-card">
+        <div class="admin-card-title">最近审计</div>
+        <div class="admin-table-wrap">
+          <table class="admin-table"><thead><tr><th>时间</th><th>操作者</th><th>动作</th><th>对象</th></tr></thead><tbody id="recentAudit"></tbody></table>
+        </div>
+      </div>
+    </main>
+    <script src="/navigation.js"></script>
+    <script src="/admin-status.js"></script>
+  </body>
+</html>

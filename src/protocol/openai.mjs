@@ -148,6 +148,10 @@ export function normalizeOpenAIRequest(body, { models } = {}) {
     stream: body.stream === true,
     includeUsage: body.stream_options?.include_usage === true,
     clientUser: typeof body.user === "string" ? body.user.slice(0, 256) : undefined,
+    effort:
+      typeof body.reasoning_effort === "string"
+        ? body.reasoning_effort.trim().toLowerCase().slice(0, 16)
+        : undefined,
     rawBody: body,
   };
 }

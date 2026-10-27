@@ -160,6 +160,10 @@ export function loadConfig(file = CONFIG_FILE) {
   const models = objectAt(raw, "models", "models");
   const tls = objectAt(raw, "tls", "tls");
   const logging = objectAt(raw, "logging", "logging");
+  const features = raw.features ?? {};
+  if (!features || typeof features !== "object" || Array.isArray(features)) {
+    throw new ConfigError("features must be an object.");
+  }
 
   const host = stringAt(server, "host", "server.host", "0.0.0.0");
   const port = integerAt(server, "port", "server.port", { fallback: 7355, min: 0, max: 65535 });
@@ -172,6 +176,8 @@ export function loadConfig(file = CONFIG_FILE) {
   const apiKeysFile = resolvePath(stringAt(storage, "apiKeysFile", "storage.apiKeysFile", "api-keys.json"));
   const stateFile = resolvePath(stringAt(storage, "stateFile", "storage.stateFile", "state.json"));
   const usageFile = resolvePath(stringAt(storage, "usageFile", "storage.usageFile", "usage.json"));
+  const settingsFile = resolvePath(stringAt(storage, "settingsFile", "storage.settingsFile", "settings.json"));
+  const auditFile = resolvePath(stringAt(storage, "auditFile", "storage.auditFile", "audit.log"));
   const modelIds = stringArrayAt(models, "ids", "models.ids", ["human-1", "human-1-fast"]);
   if (!modelIds.length) throw new ConfigError("models.ids must contain at least one model name.");
   const defaultModel = stringAt(models, "default", "models.default", modelIds[0]);
@@ -263,7 +269,7 @@ export function loadConfig(file = CONFIG_FILE) {
       ),
       corsOrigins: stringArrayAt(server, "corsOrigins", "server.corsOrigins", ["*"]),
     }),
-    storage: Object.freeze({ usersFile, apiKeysFile, stateFile, usageFile }),
+    storage: Object.freeze({ usersFile, apiKeysFile, stateFile, usageFile, settingsFile, auditFile }),
     auth: Object.freeze({
       sessionTtlMs: integerAt(auth, "sessionTtlMs", "auth.sessionTtlMs", {
         fallback: 12 * 60 * 60_000,
@@ -332,6 +338,18 @@ export function loadConfig(file = CONFIG_FILE) {
     }),
     tls: Object.freeze({ enabled: tlsEnabled, certFile, keyFile }),
     logging: Object.freeze({ content: booleanAt(logging, "content", "logging.content", false) }),
+    features: Object.freeze({
+      browserNotifications: booleanAt(features, "browserNotifications", "features.browserNotifications", true),
+      notificationSound: booleanAt(features, "notificationSound", "features.notificationSound", true),
+      autoClaimDefault: booleanAt(features, "autoClaimDefault", "features.autoClaimDefault", false),
+      auditLog: booleanAt(features, "auditLog", "features.auditLog", true),
+      usageDashboard: booleanAt(features, "usageDashboard", "features.usageDashboard", true),
+      queueAlertSeconds: integerAt(features, "queueAlertSeconds", "features.queueAlertSeconds", {
+        fallback: 120,
+        min: 10,
+        max: 86_400,
+      }),
+    }),
     allowNullOrigin: false,
   });
 }

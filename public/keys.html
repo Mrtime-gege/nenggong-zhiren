@@ -9,31 +9,22 @@
     <link rel="stylesheet" href="/admin.css" />
     <link rel="stylesheet" href="/theme.css" />
   </head>
-  <body>
+  <body data-page="keys">
     <header class="topbar">
       <div class="brand">
         <span class="status-dot ok"></span>
         <span class="brand-name">能工智人</span>
         <span class="brand-sub">管理后台</span>
       </div>
+      <nav id="topnav" class="topnav" aria-label="主导航"></nav>
       <div class="conn">
         <span id="userLabel" class="user-label">正在加载…</span>
-        <a class="btn ghost" href="/console">返回工作台</a>
         <button id="logout" class="btn ghost" type="button">退出</button>
         <span id="status" class="conn-status">连接中…</span>
       </div>
     </header>
 
-    <main class="admin-layout">
-      <aside class="admin-nav">
-        <div class="admin-nav-title">控制台</div>
-        <a href="/console">工作台</a>
-        <a href="/console/users">用户管理</a>
-        <a class="active" href="/console/keys">调用密钥</a>
-        <a class="nav-back" href="/console">← 返回工作台</a>
-      </aside>
-
-      <section class="admin-main">
+    <main class="admin-main">
         <div class="admin-head">
           <div>
             <h1>调用密钥</h1>
@@ -114,8 +105,8 @@
           <div id="keysEmpty" class="admin-empty hidden">还没有调用密钥。</div>
           <p class="admin-hint">停用后调用方立即收到 401；删除不可恢复。配额按 UTC 的分钟、日、月统计。</p>
         </div>
-      </section>
     </main>
+    <script src="/navigation.js"></script>
     <script src="/admin-keys.js"></script>
   </body>
 </html>

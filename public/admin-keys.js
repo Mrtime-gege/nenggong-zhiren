@@ -75,6 +75,7 @@ async function loadMe() {
     return;
   }
   $("userLabel").textContent = `${operator} · 管理员`;
+  window.NGZRNAV?.render(role, me.features);
   setStatus("已登录");
 }
 
@@ -186,6 +187,11 @@ function renderKeys() {
     edit.type = "button";
     edit.textContent = "编辑";
     edit.addEventListener("click", () => beginEdit(key));
+    const rotate = document.createElement("button");
+    rotate.className = "btn ghost";
+    rotate.type = "button";
+    rotate.textContent = "轮换";
+    rotate.addEventListener("click", () => rotateKey(key));
     const toggle = document.createElement("button");
     toggle.className = "btn ghost";
     toggle.type = "button";
@@ -196,7 +202,7 @@ function renderKeys() {
     remove.type = "button";
     remove.textContent = "删除";
     remove.addEventListener("click", () => deleteKey(key));
-    wrap.append(edit, toggle, remove);
+    wrap.append(edit, rotate, toggle, remove);
     actions.append(wrap);
     row.append(actions);
     tbody.append(row);
@@ -281,6 +287,21 @@ async function submitKey(event) {
     setError(error.message);
   } finally {
     $("keyCreateBtn").disabled = false;
+  }
+}
+
+async function rotateKey(key) {
+  if (!window.confirm(`轮换「${key.name}」？旧密钥会立即失效，新密钥只显示一次。`)) return;
+  setError("");
+  try {
+    const data = await api(`/op/api/keys/${encodeURIComponent(key.id)}/rotate`, { method: "POST" });
+    resetForm();
+    $("newKeyValueDisplay").textContent = data.key;
+    $("newKeyBox").classList.remove("hidden");
+    setStatus("密钥已轮换，旧密钥立即失效");
+    await loadKeys();
+  } catch (error) {
+    setError(error.message);
   }
 }
 

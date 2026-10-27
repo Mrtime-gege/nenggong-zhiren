@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { verifyTotp } from "./totp.mjs";
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9_.-]{2,31}$/;
 const ROLES = new Set(["admin", "operator"]);
@@ -202,6 +203,8 @@ export class AuthService {
         salt: raw.salt,
         hash: raw.hash,
         createdAt: Number(raw.createdAt) || this.now(),
+        totpSecret: typeof raw.totpSecret === "string" ? raw.totpSecret : "",
+        mfaEnabled: raw.mfaEnabled === true && typeof raw.totpSecret === "string" && raw.totpSecret.length > 0,
       });
     }
   }
@@ -216,6 +219,8 @@ export class AuthService {
         salt: user.salt,
         hash: user.hash,
         createdAt: user.createdAt,
+        totpSecret: user.totpSecret || undefined,
+        mfaEnabled: user.mfaEnabled === true,
       })),
     };
     const tmp = path.join(
@@ -230,8 +235,64 @@ export class AuthService {
 
   listUsers() {
     return [...this.users.values()]
-      .map(({ username, role, createdAt }) => ({ username, role, createdAt }))
+      .map(({ username, role, createdAt, mfaEnabled }) => ({ username, role, createdAt, mfaEnabled: mfaEnabled === true }))
       .sort((a, b) => a.username.localeCompare(b.username));
+  }
+
+  mfaEnabled(username) {
+    const user = this.users.get(normalizeUsername(username));
+    return Boolean(user?.mfaEnabled && user.totpSecret);
+  }
+
+  setMfaSecret(username, secret) {
+    const normalized = normalizeUsername(username);
+    const user = this.users.get(normalized);
+    if (!user) throw new AuthError("用户不存在。", "user_not_found", 404);
+    user.totpSecret = String(secret || "");
+    user.mfaEnabled = false;
+    this.users.set(normalized, user);
+    this.persistUsers();
+  }
+
+  enableMfa(username) {
+    const normalized = normalizeUsername(username);
+    const user = this.users.get(normalized);
+    if (!user || !user.totpSecret) throw new AuthError("请先生成 MFA 密钥。", "mfa_not_setup");
+    user.mfaEnabled = true;
+    this.users.set(normalized, user);
+    this.persistUsers();
+  }
+
+  disableMfa(username) {
+    const normalized = normalizeUsername(username);
+    const user = this.users.get(normalized);
+    if (!user) throw new AuthError("用户不存在。", "user_not_found", 404);
+    user.mfaEnabled = false;
+    user.totpSecret = "";
+    this.users.set(normalized, user);
+    this.persistUsers();
+  }
+
+  verifyMfaSetup(username, code, at = this.now()) {
+    const user = this.users.get(normalizeUsername(username));
+    if (!user?.totpSecret) return false;
+    return verifyTotp(user.totpSecret, code, at, 1);
+  }
+
+  verifyMfa(username, code, at = this.now()) {
+    const user = this.users.get(normalizeUsername(username));
+    if (!user?.mfaEnabled || !user.totpSecret) return true;
+    return verifyTotp(user.totpSecret, code, at, 1);
+  }
+
+  onlineUsers() {
+    const online = new Set();
+    for (const session of this.sessions.values()) online.add(session.username);
+    return online;
+  }
+
+  hasUser(username) {
+    return this.users.has(normalizeUsername(username));
   }
 
   hasUsers() {

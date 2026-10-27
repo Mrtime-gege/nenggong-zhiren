@@ -134,10 +134,14 @@ server {
 
 服务端配置：
 
-```ini
-COOKIE_SECURE=1
-把 `ai.example.internal:443` 加入 `server.trustedHosts`
+```jsonc
+"server": {
+  "cookieSecure": true,
+  "trustedHosts": ["ai.example.internal:443"]
+}
 ```
+
+`cookieSecure` 也可以保持 `"auto"`：只有在直接启用 TLS 或反代正确传递 HTTPS 时才会加 `Secure`。
 
 > 注意：`proxy_set_header Host $host:$server_port;` 在 443 端口可能产生
 > `ai.example.internal:443`；如果反代用 80/443 默认端口，也可以用 `$host`，但要确保
@@ -173,9 +177,9 @@ node scripts/user.mjs remove alice
 调用密钥由管理员在网页「调用密钥」里生成。生成后复制给调用方；服务端只保存哈希。
 
 - 不要使用示例 key、默认 key 或团队成员共用的 key 上生产。
-- 轮换：在网页「调用密钥」创建新密钥，通知调用方切换，再停用旧密钥。
+- 轮换：在网页「API 密钥」创建新密钥，通知调用方切换，再停用旧密钥。
 - key 会以掩码形式出现在启动日志，不会完整打印。
-- 每个 key 的并发上限是 `MAX_CONCURRENT_PER_KEY`。
+- 每个 key 的并发上限是 `limits.maxConcurrentPerKey`，不是全局并发数。
 
 ## 5. DSH
 
@@ -194,8 +198,9 @@ HUMAN_PROVIDER_KEY: sk-prod-web
 
 DSH 会热重载。然后在模型选择器里选 Human 1（或 Human 1 Fast）。
 
-DSH 会同时发“主请求”和“会话标题”请求；控制台会分别标注目的。工具续跑会再发一次
-带 tool result 的请求。
+人工模型可以声明 `low` / `high` / `max` 工作深度；能工智人把 `reasoning_effort` 显示在票据上，
+但不会伪造模型推理。DSH 会同时发“主请求”和“会话标题”请求；控制台会分别标注目的。
+工具续跑会再发一次带 tool result 的请求。
 
 ## 6. 健康检查与监控
 
@@ -218,14 +223,16 @@ curl -fsS http://127.0.0.1:7355/healthz
 journalctl -u nenggong-zhiren -f
 ```
 
-`LOG_CONTENT=1` 会记录 prompt 内容，默认关闭；开启前确认隐私合规。
+`logging.content: true` 会记录 prompt 内容，默认关闭；开启前确认隐私合规。
 
 ## 7. 备份与恢复
 
-- 备份项目根目录 `users.json`（包含哈希，仍应按敏感文件处理）。
-- 票据/会话在内存，不备份；重启后调用方需重试。
-- 恢复用户文件后重启，或让文件热重载生效（会清空会话）。
-- 不要备份 `api-keys.json` 到公共位置；其中含密钥哈希。
+- 备份 `users.json`（密码哈希/角色/MFA 状态，按敏感文件处理）；
+- 备份 `api-keys.json`（密钥哈希、配额、过期时间）；
+- 备份 `state.json`、`usage.json`、`settings.json`、`audit.log`；
+- 活动队列和会话在内存，不备份；重启后活动请求中断，调用方需重试；
+- 已完成请求和幂等记录会从 `state.json` 恢复；
+- 恢复账号/密钥文件后重启，或让用户文件热重载生效（会清空受影响账号的会话）。
 
 ## 8. 端口与网络
 

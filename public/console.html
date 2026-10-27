@@ -8,17 +8,16 @@
     <link rel="stylesheet" href="/console.css" />
     <link rel="stylesheet" href="/theme.css" />
   </head>
-  <body>
+  <body data-page="workbench">
     <header class="topbar">
       <div class="brand">
         <span class="status-dot" id="statusDot"></span>
         <span class="brand-name">能工智人</span>
         <span class="brand-sub">网页工作台</span>
       </div>
+      <nav id="topnav" class="topnav" aria-label="主导航"></nav>
       <div class="conn">
         <span id="userLabel" class="user-label">正在加载…</span>
-        <a id="usersBtn" class="btn ghost hidden" href="/console/users">用户管理</a>
-        <a id="keysBtn" class="btn ghost hidden" href="/console/keys">调用密钥</a>
         <button id="logout" class="btn ghost" type="button">退出</button>
         <span id="status" class="conn-status">连接中…</span>
       </div>
@@ -70,6 +69,8 @@
       </div>
       <div class="command-actions">
         <button id="cmdClaim" class="btn" type="button">认领 <kbd data-shortcut="claim"></kbd></button>
+        <button id="cmdTemplates" class="btn ghost" type="button">快捷回复</button>
+        <button id="cmdTransfer" class="btn ghost" type="button">转交</button>
         <button id="cmdPush" class="btn" type="button">推送 <kbd data-shortcut="push"></kbd></button>
         <button id="cmdFinish" class="btn primary" type="button">完成 <kbd data-shortcut="finish"></kbd></button>
         <button id="cmdRelease" class="btn ghost" type="button">放回 <kbd data-shortcut="release"></kbd></button>
@@ -183,7 +184,43 @@
       </section>
     </div>
 
+
+    <div id="templateModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="templateTitle">
+      <section class="modal template-modal">
+        <div class="modal-head">
+          <div>
+            <h2 id="templateTitle">快捷回复</h2>
+            <p class="hint">模板只保存在当前浏览器；插入时替换变量。可点击“编辑”修改模板。</p>
+          </div>
+          <button id="templateClose" class="btn ghost" type="button">关闭</button>
+        </div>
+        <div class="template-layout">
+          <div id="templateList" class="template-list"></div>
+          <form id="templateForm" class="template-editor">
+              <div class="template-form-head"><span id="templateFormTitle">新建模板</span><button id="templateReset" class="btn ghost" type="button">清空</button></div>
+              <label class="field"><span class="field-label">名称 <em class="req">必填</em></span><input id="templateName" type="text" maxlength="40" required placeholder="例如：收到 / 处理中" /></label>
+              <label class="field"><span class="field-label">内容 <em class="req">必填</em></span><textarea id="templateContent" rows="5" required placeholder="回复内容，可使用 {{caller}}、{{model}}、{{ticket}}、{{operator}}、{{date}}、{{time}}"></textarea></label>
+              <div class="form-actions"><button class="btn primary" type="submit">保存模板</button><span class="admin-hint">变量：caller / model / ticket / operator / date / time</span></div>
+            <div id="templateError" class="form-error" role="alert"></div>
+          </form>
+        </div>
+      </section>
+    </div>
+
+    <div id="transferModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="transferTitle">
+      <section class="modal transfer-modal">
+        <div class="modal-head">
+          <div><h2 id="transferTitle">转交票据</h2><p class="hint">只能转交已认领、尚未开始流式发送的票据。</p></div>
+          <button id="transferClose" class="btn ghost" type="button">关闭</button>
+        </div>
+        <label class="field"><span class="field-label">转交给 <em class="req">必填</em></span><select id="transferTarget"></select></label>
+        <div id="transferError" class="form-error" role="alert"></div>
+        <div class="form-actions"><button id="transferConfirm" class="btn primary" type="button">确认转交</button><button id="transferCancel" class="btn ghost" type="button">取消</button></div>
+      </section>
+    </div>
+
     <div id="toast" class="toast"></div>
+    <script src="/navigation.js"></script>
     <script src="/console.js"></script>
   </body>
 </html>

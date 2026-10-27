@@ -53,6 +53,7 @@ async function loadMe() {
     return;
   }
   $("userLabel").textContent = `${operator} · 管理员`;
+  window.NGZRNAV?.render(role, me.features);
   setStatus("已登录");
 }
 

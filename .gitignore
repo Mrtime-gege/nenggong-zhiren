@@ -10,3 +10,5 @@ docs/screenshots/*.tmp
 /api-keys.json
 /state.json
 /usage.json
+/settings.json
+/audit.log

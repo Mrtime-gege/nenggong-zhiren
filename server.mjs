@@ -14,12 +14,14 @@ import https from "node:https";
 import os from "node:os";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { AuthError, AuthService } from "./src/auth.mjs";
 import { ROOT, loadConfig } from "./src/config.mjs";
 import { ApiKeyError, ApiKeyStore } from "./src/data/index.mjs";
 import { QuotaError, StateStore, UsageStore } from "./src/data/index.mjs";
+import { AuditStore, SettingsError, SettingsStore } from "./src/data/index.mjs";
+import { generateSecret, otpauthUrl } from "./src/totp.mjs";
 import {
   ANTHROPIC_PROTOCOL,
   OPENAI_PROTOCOL,
@@ -36,7 +38,7 @@ import {
 import { validateJsonSchema, formatSchemaErrors } from "./src/schema.mjs";
 
 const PUBLIC_DIR = path.join(ROOT, "public");
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 const PUBLIC_CONFIG = (() => {
   try {
     return loadConfig();
@@ -53,6 +55,9 @@ const config = Object.freeze({
   apiKeysFile: PUBLIC_CONFIG.storage.apiKeysFile,
   stateFile: PUBLIC_CONFIG.storage.stateFile,
   usageFile: PUBLIC_CONFIG.storage.usageFile,
+  settingsFile: PUBLIC_CONFIG.storage.settingsFile,
+  auditFile: PUBLIC_CONFIG.storage.auditFile,
+  features: PUBLIC_CONFIG.features,
   sessionTtlMs: PUBLIC_CONFIG.auth.sessionTtlMs,
   sessionIdleMs: PUBLIC_CONFIG.auth.sessionIdleMs,
   loginRateWindowMs: PUBLIC_CONFIG.auth.loginRateWindowMs,
@@ -78,6 +83,31 @@ const config = Object.freeze({
   defaultModel: PUBLIC_CONFIG.models.default,
 });
 
+const settingsStore = new SettingsStore({
+  file: config.settingsFile,
+  defaults: {
+    queue: {
+      waitTimeoutMs: config.queueTimeoutMs,
+      responseTimeoutMs: config.responseTimeoutMs,
+      retentionMs: config.retentionMs,
+      streamDelayMs: config.streamDelayMs,
+    },
+    limits: {
+      maxConcurrentPerKey: config.maxConcurrentPerKey,
+      bodyLimitBytes: config.bodyLimitBytes,
+    },
+    features: { ...config.features },
+  },
+  logger: console,
+}).init();
+const live = settingsStore.values;
+const audit = new AuditStore({
+  file: config.auditFile,
+  logger: console,
+  enabled: () => live.features.auditLog,
+}).init();
+
+
 /* ------------------------------------------------------------------ */
 /* Models                                                             */
 /* ------------------------------------------------------------------ */
@@ -90,9 +120,17 @@ for (const model of config.modelCatalog) {
     owned_by: "human-backend",
     humanInTheLoop: true,
     speedMs: model.id.includes("fast")
-      ? Math.max(2, Math.round(config.streamDelayMs / 4))
-      : config.streamDelayMs,
+      ? Math.max(2, Math.round(live.queue.streamDelayMs / 4))
+      : live.queue.streamDelayMs,
   });
+}
+
+function refreshModelSpeeds() {
+  for (const model of MODELS.values()) {
+    model.speedMs = model.id.includes("fast")
+      ? Math.max(2, Math.round(live.queue.streamDelayMs / 4))
+      : live.queue.streamDelayMs;
+  }
 }
 
 function fingerprint(modelId) {
@@ -421,7 +459,7 @@ async function readBody(req, limit) {
 }
 
 async function readJsonWithRaw(req) {
-  const raw = await readBody(req, config.bodyLimitBytes);
+  const raw = await readBody(req, live.limits.bodyLimitBytes);
   if (!raw) return { body: {}, raw: "" };
   try {
     return { body: JSON.parse(raw), raw };
@@ -436,7 +474,7 @@ async function readJson(req) {
 
 function setRateLimitHeaders(res, caller) {
   const used = slots.get(caller.key) || 0;
-  const limit = Number(caller.limits?.maxConcurrent) || config.maxConcurrentPerKey;
+  const limit = Number(caller.limits?.maxConcurrent) || live.limits.maxConcurrentPerKey;
   res.setHeader("x-ratelimit-limit-requests", String(limit));
   res.setHeader("x-ratelimit-remaining-requests", String(Math.max(0, limit - used)));
   res.setHeader("x-ratelimit-reset-requests", "1s");
@@ -1023,7 +1061,7 @@ function consumeQuota(caller) {
 function takeSlot(caller) {
   const key = caller.key;
   const used = slots.get(key) || 0;
-  const limit = Number(caller.limits?.maxConcurrent) || config.maxConcurrentPerKey;
+  const limit = Number(caller.limits?.maxConcurrent) || live.limits.maxConcurrentPerKey;
   if (used >= limit) return null;
   slots.set(key, used + 1);
   return () => {
@@ -1062,6 +1100,7 @@ function createTicket({ request, caller, releaseSlot }) {
     toolCalls: [],
     responseFormat: request.responseFormat,
     reasoning: "",
+    effort: request.effort || "",
     refusal: null,
     clientUser: request.clientUser,
     donePromise,
@@ -1087,7 +1126,7 @@ function createTicket({ request, caller, releaseSlot }) {
     heartbeat: null,
     sendChain: Promise.resolve(),
     timers: {},
-    speedMs: MODELS.get(request.model)?.speedMs ?? config.streamDelayMs,
+    speedMs: MODELS.get(request.model)?.speedMs ?? live.queue.streamDelayMs,
     releaseSlot,
   };
 }
@@ -1122,7 +1161,7 @@ function scheduleRetention(ticket) {
   ticket.timers.retention = setTimeout(() => {
     tickets.delete(ticket.id);
     persistRuntime();
-  }, config.retentionMs);
+  }, live.queue.retentionMs);
   ticket.timers.retention.unref?.();
 }
 
@@ -1131,7 +1170,7 @@ function armQueueTimeout(ticket) {
   ticket.timers.queue = setTimeout(() => {
     if (ticket.state !== "queued") return;
     stats.timedOut += 1;
-    log(`[queue-timeout] ${ticket.id} after ${config.queueTimeoutMs}ms`);
+    log(`[queue-timeout] ${ticket.id} after ${live.queue.waitTimeoutMs}ms`);
     finalizeError(
       ticket,
       503,
@@ -1140,7 +1179,7 @@ function armQueueTimeout(ticket) {
       "overloaded",
       { "Retry-After": "5" },
     );
-  }, config.queueTimeoutMs);
+  }, live.queue.waitTimeoutMs);
   ticket.timers.queue.unref?.();
 }
 
@@ -1150,7 +1189,7 @@ function armResponseTimeout(ticket) {
     if (ticket.finished) return;
     if (!["claimed", "streaming"].includes(ticket.state)) return;
     stats.timedOut += 1;
-    log(`[response-timeout] ${ticket.id} after ${config.responseTimeoutMs}ms`);
+    log(`[response-timeout] ${ticket.id} after ${live.queue.responseTimeoutMs}ms`);
     finalizeError(
       ticket,
       504,
@@ -1158,7 +1197,7 @@ function armResponseTimeout(ticket) {
       "server_error",
       "upstream_timeout",
     );
-  }, config.responseTimeoutMs);
+  }, live.queue.responseTimeoutMs);
   ticket.timers.response.unref?.();
 }
 
@@ -1388,7 +1427,7 @@ async function flushPending(ticket, paced) {
     } else if (!emitSse(ticket, chunkPayload(ticket, { content: part }))) {
       return;
     }
-    if (paced && config.streamDelayMs > 0) {
+    if (paced && live.queue.streamDelayMs > 0) {
       const delay = Math.max(0, Math.round(ticket.speedMs * (0.6 + Math.random() * 0.8)));
       if (delay > 0) await sleep(delay);
     }
@@ -1449,6 +1488,12 @@ function finalize(ticket, finishReason) {
     }
   }
 
+  audit.append({
+    actor: ticket.claimedBy || "system",
+    action: "ticket.finish",
+    target: ticket.id,
+    detail: `${ticket.finishReason} ${usage.completion_tokens}t`,
+  });
   log(
     `[done] ${ticket.id} reason=${ticket.finishReason} chars=${ticket.text.length} tokens=${usage.completion_tokens} operator=${ticket.claimedBy || "-"}`,
   );
@@ -1527,6 +1572,7 @@ function publicTicket(ticket) {
     toolCalls: ticket.toolCalls,
     responseFormat: ticket.responseFormat,
     reasoning: ticket.reasoning,
+    effort: ticket.effort || "",
     refusal: ticket.refusal,
     finishReason: ticket.finishReason,
     maxTokens: ticket.maxTokens,
@@ -1596,10 +1642,10 @@ function providerJson() {
     default_model: config.defaultModel,
     models: [...MODELS.values()].map(modelJson),
     limits: {
-      max_concurrent_per_key: config.maxConcurrentPerKey,
-      body_limit_bytes: config.bodyLimitBytes,
-      queue_timeout_ms: config.queueTimeoutMs,
-      response_timeout_ms: config.responseTimeoutMs,
+      max_concurrent_per_key: live.limits.maxConcurrentPerKey,
+      body_limit_bytes: live.limits.bodyLimitBytes,
+      queue_timeout_ms: live.queue.waitTimeoutMs,
+      response_timeout_ms: live.queue.responseTimeoutMs,
     },
   };
 }
@@ -1745,13 +1791,239 @@ function requireAdmin(session) {
 }
 
 function publicUser(user) {
-  return { username: user.username, role: user.role, createdAt: user.createdAt };
+  return { username: user.username, role: user.role, createdAt: user.createdAt, mfaEnabled: user.mfaEnabled === true };
+}
+
+function csvCell(value) {
+  let text = String(value ?? "");
+  // Prevent spreadsheet formula execution from user-controlled names/details.
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function sendCsv(res, filename, rows) {
+  const body = "\ufeff" + rows.map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
+  res.writeHead(200, {
+    "Content-Type": "text/csv; charset=utf-8",
+    "Content-Disposition": `attachment; filename="${filename}"`,
+    "Cache-Control": "no-store",
+    "Content-Length": Buffer.byteLength(body),
+  });
+  res.end(body);
+}
+
+function dateIso(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? new Date(number).toISOString() : "";
 }
 
 async function handleOperator(req, res, url, session) {
   const pathname = url.pathname;
   const body = ["POST", "PATCH"].includes(req.method) ? await readJson(req) : {};
   const operator = session.username;
+
+  if (pathname === "/op/api/mfa/setup") {
+    requireAdmin(session);
+    if (req.method !== "POST") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    const secret = generateSecret();
+    auth.setMfaSecret(session.username, secret);
+    audit.append({ actor: session.username, action: "mfa.setup", ip: clientIp(req) });
+    return sendJson(res, 200, {
+      ok: true,
+      secret,
+      otpauth: otpauthUrl({ secret, username: session.username }),
+      enabled: false,
+    });
+  }
+
+  if (pathname === "/op/api/mfa/enable") {
+    requireAdmin(session);
+    if (req.method !== "POST") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    if (!auth.verifyMfaSetup(session.username, body.code)) {
+      throw new ApiError(400, "动态验证码不正确。", "invalid_request_error", "invalid_totp");
+    }
+    auth.enableMfa(session.username);
+    audit.append({ actor: session.username, action: "mfa.enable", ip: clientIp(req) });
+    return sendJson(res, 200, { ok: true, enabled: true });
+  }
+
+  if (pathname === "/op/api/mfa/disable") {
+    requireAdmin(session);
+    if (req.method !== "POST") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    const user = auth.verifyCredentials(session.username, body.password);
+    if (!user) throw new ApiError(403, "密码不正确。", "invalid_request_error", "invalid_password");
+    auth.disableMfa(session.username);
+    audit.append({ actor: session.username, action: "mfa.disable", ip: clientIp(req) });
+    return sendJson(res, 200, { ok: true, enabled: false });
+  }
+
+  if (pathname === "/op/api/operators" && req.method === "GET") {
+    const online = auth.onlineUsers();
+    return sendJson(res, 200, {
+      ok: true,
+      operators: auth.listUsers().map((user) => ({
+        username: user.username,
+        role: user.role,
+        online: online.has(user.username),
+      })),
+    });
+  }
+
+  if (pathname === "/op/api/usage.csv" && req.method === "GET") {
+    requireAdmin(session);
+    const rows = [["key_id", "name", "hint", "status", "requests_per_minute", "requests_per_day", "requests_per_month", "minute_used", "day_used", "month_used", "total_requests", "total_tokens", "created_at", "last_used_at"]];
+    for (const key of apiKeys.list()) {
+      const usage = usageStore.get(key.id);
+      rows.push([
+        key.id,
+        key.name,
+        key.hint,
+        key.disabled ? "disabled" : "active",
+        key.limits?.requestsPerMinute || 0,
+        key.limits?.requestsPerDay || 0,
+        key.limits?.requestsPerMonth || 0,
+        usage.minute || 0,
+        usage.day || 0,
+        usage.month || 0,
+        usage.totalRequests || 0,
+        usage.totalTokens || 0,
+        dateIso(key.createdAt),
+        dateIso(key.lastUsedAt),
+      ]);
+    }
+    return sendCsv(res, "usage.csv", rows);
+  }
+
+  if (pathname === "/op/api/audit.csv" && req.method === "GET") {
+    requireAdmin(session);
+    const rows = [["at", "actor", "action", "target", "ip", "detail"]];
+    for (const event of audit.list({
+      limit: 5000,
+      action: url.searchParams.get("action") || "",
+      actor: url.searchParams.get("actor") || "",
+    })) {
+      rows.push([event.at, event.actor, event.action, event.target, event.ip, event.detail]);
+    }
+    return sendCsv(res, "audit.csv", rows);
+  }
+
+  if (pathname === "/op/api/settings") {
+    requireAdmin(session);
+    if (req.method === "GET") {
+      return sendJson(res, 200, {
+        ok: true,
+        settings: settingsStore.get(),
+        mfaEnabled: auth.mfaEnabled(session.username),
+        readonly: {
+          host: config.host,
+          port: config.port,
+          cookie_secure: config.cookieSecureMode,
+          tls_enabled: config.tlsEnabled,
+          trusted_hosts: config.trustedHosts,
+          models: [...MODELS.keys()],
+          users_file: path.basename(config.usersFile),
+          api_keys_file: path.basename(config.apiKeysFile),
+          state_file: path.basename(config.stateFile),
+          usage_file: path.basename(config.usageFile),
+          audit_file: path.basename(config.auditFile),
+          session_ttl_ms: config.sessionTtlMs,
+          session_idle_ms: config.sessionIdleMs,
+          login_ip_max_failures: config.loginIpMaxFailures,
+          login_user_max_failures: config.loginUserMaxFailures,
+          log_content: config.logContent,
+        },
+      });
+    }
+    if (req.method === "PATCH") {
+      const next = settingsStore.update(body);
+      refreshModelSpeeds();
+      audit.append({
+        actor: session.username,
+        action: "settings.update",
+        target: "runtime",
+        ip: clientIp(req),
+        detail: JSON.stringify({ queue: next.queue, limits: next.limits, features: next.features }).slice(0, 480),
+      });
+      return sendJson(res, 200, { ok: true, settings: next });
+    }
+    throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+  }
+
+  if (pathname === "/op/api/audit") {
+    requireAdmin(session);
+    if (req.method !== "GET") {
+      throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    }
+    return sendJson(res, 200, {
+      ok: true,
+      events: audit.list({
+        limit: Math.min(500, Number(url.searchParams.get("limit")) || 200),
+        action: url.searchParams.get("action") || "",
+        actor: url.searchParams.get("actor") || "",
+      }),
+    });
+  }
+
+  if (pathname === "/op/api/usage") {
+    requireAdmin(session);
+    if (req.method !== "GET") {
+      throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    }
+    const keys = apiKeys.list().map((key) => ({ ...key, usage: usageStore.get(key.id) }));
+    const historyMap = new Map();
+    let totalRequests = 0;
+    let totalTokens = 0;
+    for (const record of usageStore.entries.values()) {
+      totalRequests += record.totalRequests || 0;
+      totalTokens += record.totalTokens || 0;
+      for (const [date, value] of Object.entries(record.history || {})) {
+        const row = historyMap.get(date) || { date, requests: 0, tokens: 0 };
+        row.requests += value.requests || 0;
+        row.tokens += value.tokens || 0;
+        historyMap.set(date, row);
+      }
+    }
+    return sendJson(res, 200, {
+      ok: true,
+      keys,
+      totals: { requests: totalRequests, tokens: totalTokens },
+      history: [...historyMap.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-30),
+    });
+  }
+
+  if (pathname === "/op/api/status") {
+    requireAdmin(session);
+    if (req.method !== "GET") {
+      throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    }
+    const fileInfo = (file) => {
+      try {
+        const info = statSync(file);
+        return { exists: true, bytes: info.size, mode: (info.mode & 0o777).toString(8).padStart(3, "0") };
+      } catch {
+        return { exists: false, bytes: 0, mode: null };
+      }
+    };
+    return sendJson(res, 200, {
+      ok: true,
+      version: VERSION,
+      uptimeSec: Math.round(process.uptime()),
+      node: process.version,
+      memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+      queue: liveCounts(),
+      ticketsTotal: tickets.size,
+      settings: settingsStore.get(),
+      protocol: providerJson(),
+      storage: {
+        users: fileInfo(config.usersFile),
+        api_keys: fileInfo(config.apiKeysFile),
+        state: fileInfo(config.stateFile),
+        usage: fileInfo(config.usageFile),
+        audit: fileInfo(config.auditFile),
+      },
+      audit: audit.list({ limit: 20 }),
+    });
+  }
 
   if (pathname === "/op/api/keys") {
     requireAdmin(session);
@@ -1769,6 +2041,7 @@ async function handleOperator(req, res, url, session) {
         allowedModels: body.allowedModels,
         expiresAt: body.expiresAt,
       });
+      audit.append({ actor: session.username, action: "key.create", target: created.record.id, ip: clientIp(req), detail: created.record.name });
       log(`[admin] api key created id=${created.record.id} name=${created.record.name} by=${session.username}`);
       return sendJson(res, 201, {
         ok: true,
@@ -1778,6 +2051,24 @@ async function handleOperator(req, res, url, session) {
       });
     }
     throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+  }
+
+  const rotateMatch = /^\/op\/api\/keys\/([^/]+)\/rotate$/.exec(pathname);
+  if (rotateMatch) {
+    requireAdmin(session);
+    if (req.method !== "POST") {
+      throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    }
+    const keyId = decodeURIComponent(rotateMatch[1]);
+    const rotated = apiKeys.rotate(keyId);
+    audit.append({ actor: session.username, action: "key.rotate", target: keyId, ip: clientIp(req) });
+    log(`[admin] api key rotated id=${keyId} by=${session.username}`);
+    return sendJson(res, 200, {
+      ok: true,
+      key: rotated.token,
+      record: rotated.record,
+      warning: "旧密钥立即失效；新密钥只显示一次。",
+    });
   }
 
   const keyMatch = /^\/op\/api\/keys\/([^/]+)$/.exec(pathname);
@@ -1793,11 +2084,13 @@ async function handleOperator(req, res, url, session) {
         expiresAt: body.expiresAt,
         disabled: body.disabled,
       });
+      audit.append({ actor: session.username, action: "key.update", target: keyId, ip: clientIp(req) });
       log(`[admin] api key updated id=${keyId} by=${session.username}`);
       return sendJson(res, 200, { ok: true, record: { ...record, usage: usageStore.get(keyId) } });
     }
     if (req.method === "DELETE") {
       apiKeys.remove(keyId);
+      audit.append({ actor: session.username, action: "key.delete", target: keyId, ip: clientIp(req) });
       log(`[admin] api key removed id=${keyId} by=${session.username}`);
       return sendJson(res, 200, { ok: true });
     }
@@ -1811,6 +2104,7 @@ async function handleOperator(req, res, url, session) {
     }
     if (req.method === "POST") {
       const user = auth.addUser(body.username, body.password, body.role || "operator");
+      audit.append({ actor: session.username, action: "user.create", target: user.username, ip: clientIp(req), detail: user.role });
       log(`[admin] user added username=${user.username} role=${user.role} by=${session.username}`);
       return sendJson(res, 201, { ok: true, user: publicUser(user) });
     }
@@ -1836,6 +2130,7 @@ async function handleOperator(req, res, url, session) {
       if (!user && body.password === undefined && body.role === undefined) {
         throw new ApiError(400, "Provide password and/or role.", "invalid_request_error", "empty_update");
       }
+      audit.append({ actor: session.username, action: "user.update", target, ip: clientIp(req) });
       log(`[admin] user updated username=${target} by=${session.username}`);
       return sendJson(res, 200, { ok: true, user: user ? publicUser(user) : null });
     }
@@ -1844,6 +2139,7 @@ async function handleOperator(req, res, url, session) {
         throw new ApiError(409, "You cannot delete your own account.", "invalid_request_error", "cannot_delete_self");
       }
       auth.removeUser(target);
+      audit.append({ actor: session.username, action: "user.delete", target, ip: clientIp(req) });
       log(`[admin] user removed username=${target} by=${session.username}`);
       return sendJson(res, 200, { ok: true });
     }
@@ -1859,11 +2155,12 @@ async function handleOperator(req, res, url, session) {
       version: VERSION,
       models: [...MODELS.keys()],
       config: {
-        queueTimeoutMs: config.queueTimeoutMs,
-        responseTimeoutMs: config.responseTimeoutMs,
-        streamDelayMs: config.streamDelayMs,
-        maxConcurrentPerKey: config.maxConcurrentPerKey,
+        queueTimeoutMs: live.queue.waitTimeoutMs,
+        responseTimeoutMs: live.queue.responseTimeoutMs,
+        streamDelayMs: live.queue.streamDelayMs,
+        maxConcurrentPerKey: live.limits.maxConcurrentPerKey,
       },
+      features: { ...live.features },
     });
   }
 
@@ -1890,7 +2187,7 @@ async function handleOperator(req, res, url, session) {
     });
   }
 
-  const match = /^\/op\/api\/tickets\/([^/]+)(?:\/(claim|chunk|finish|release|cancel))?$/.exec(pathname);
+  const match = /^\/op\/api\/tickets\/([^/]+)(?:\/(claim|chunk|finish|release|cancel|transfer))?$/.exec(pathname);
   if (!match) {
     throw new ApiError(404, "Operator route not found.", "invalid_request_error", "not_found");
   }
@@ -1905,6 +2202,17 @@ async function handleOperator(req, res, url, session) {
   if (!action || req.method !== "POST") {
     throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
   }
+
+  const requireClaimant = (verb) => {
+    if (ticket.claimedBy !== operator) {
+      throw new ApiError(
+        403,
+        `Only the operator who claimed this ticket can ${verb} it.`,
+        "invalid_request_error",
+        "not_ticket_owner",
+      );
+    }
+  };
 
   if (action === "claim") {
     if (ticket.finished) throw new ApiError(409, `Ticket is already ${ticket.state}.`, "invalid_request_error", "ticket_closed");
@@ -1925,12 +2233,50 @@ async function handleOperator(req, res, url, session) {
     ticket.timers.queue = null;
     armResponseTimeout(ticket);
     if (ticket.stream) beginStream(ticket);
+    audit.append({ actor: operator, action: "ticket.claim", target: ticket.id, ip: clientIp(req), detail: ticket.model });
     persistRuntime();
     log(`[claim] ${ticket.id} operator=${operator} wait=${ticket.claimedAt - ticket.created}ms`);
     return sendJson(res, 200, { ok: true, ticket: publicTicket(ticket) });
   }
 
+  if (action === "transfer") {
+    if (ticket.finished) {
+      throw new ApiError(409, `Ticket is already ${ticket.state}.`, "invalid_request_error", "ticket_closed");
+    }
+    if (ticket.claimedBy !== operator && session.role !== "admin") {
+      throw new ApiError(403, "Only the current operator or an administrator can transfer this ticket.", "invalid_request_error", "not_claimant");
+    }
+    if (ticket.state !== "claimed") {
+      throw new ApiError(409, "Transfer is only available before streaming starts.", "invalid_request_error", "ticket_not_transferable");
+    }
+    const targetName = String(body.to || body.username || "").trim().toLowerCase();
+    if (!targetName) {
+      throw new ApiError(400, "Provide the target username.", "invalid_request_error", "missing_transfer_target");
+    }
+    if (targetName === operator) {
+      throw new ApiError(409, "A ticket cannot be transferred to its current operator.", "invalid_request_error", "same_operator");
+    }
+    if (!auth.hasUser(targetName)) {
+      throw new ApiError(404, "Target operator not found.", "invalid_request_error", "operator_not_found");
+    }
+    const previous = ticket.claimedBy;
+    ticket.claimedBy = targetName;
+    ticket.claimedAt = Date.now();
+    armResponseTimeout(ticket);
+    audit.append({
+      actor: operator,
+      action: "ticket.transfer",
+      target: ticket.id,
+      ip: clientIp(req),
+      detail: `${previous || "-"} -> ${targetName}`,
+    });
+    persistRuntime();
+    log(`[transfer] ${ticket.id} ${previous || "-"} -> ${targetName} by=${operator}`);
+    return sendJson(res, 200, { ok: true, ticket: publicTicket(ticket) });
+  }
+
   if (action === "chunk") {
+    requireClaimant("edit");
     if (ticket.finished || ticket.clientGone) {
       throw new ApiError(410, "The caller is no longer connected.", "invalid_request_error", "client_gone");
     }
@@ -1968,6 +2314,7 @@ async function handleOperator(req, res, url, session) {
   }
 
   if (action === "finish") {
+    requireClaimant("finish");
     if (ticket.finished) {
       return sendJson(res, 200, { ok: true, state: ticket.state, alreadyFinished: true });
     }
@@ -2065,6 +2412,7 @@ async function handleOperator(req, res, url, session) {
   }
 
   if (action === "release") {
+    requireClaimant("release");
     if (ticket.finished) {
       throw new ApiError(409, `Ticket is already ${ticket.state}.`, "invalid_request_error", "ticket_closed");
     }
@@ -2088,6 +2436,9 @@ async function handleOperator(req, res, url, session) {
   }
 
   if (action === "cancel") {
+    if (ticket.state !== "queued" && ticket.claimedBy !== operator && session.role !== "admin") {
+      throw new ApiError(403, "Only the claimant or an administrator can cancel this ticket.", "invalid_request_error", "not_ticket_owner");
+    }
     if (ticket.finished) {
       return sendJson(res, 200, { ok: true, state: ticket.state, alreadyFinished: true });
     }
@@ -2116,6 +2467,11 @@ const PUBLIC_FILES = new Map([
   ["/console.js", { file: "console.js", type: "text/javascript; charset=utf-8" }],
   ["/admin.css", { file: "admin.css", type: "text/css; charset=utf-8" }],
   ["/theme.css", { file: "theme.css", type: "text/css; charset=utf-8" }],
+  ["/navigation.js", { file: "navigation.js", type: "text/javascript; charset=utf-8" }],
+  ["/admin-settings.js", { file: "admin-settings.js", type: "text/javascript; charset=utf-8" }],
+  ["/admin-usage.js", { file: "admin-usage.js", type: "text/javascript; charset=utf-8" }],
+  ["/admin-audit.js", { file: "admin-audit.js", type: "text/javascript; charset=utf-8" }],
+  ["/admin-status.js", { file: "admin-status.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-users.js", { file: "admin-users.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-keys.js", { file: "admin-keys.js", type: "text/javascript; charset=utf-8" }],
 ]);
@@ -2203,12 +2559,13 @@ function parseLoginBody(raw, contentType) {
   const type = String(contentType || "").toLowerCase();
   if (type.includes("application/json")) {
     const parsed = JSON.parse(raw || "{}");
-    return { username: parsed.username, password: parsed.password, next: parsed.next };
+    return { username: parsed.username, password: parsed.password, totp: parsed.totp || parsed.otp || "", next: parsed.next };
   }
   const params = new URLSearchParams(raw);
   return {
     username: params.get("username"),
     password: params.get("password"),
+    totp: params.get("totp") || "",
     next: params.get("next"),
   };
 }
@@ -2227,6 +2584,7 @@ async function handleLogin(req, res, url) {
   const usernameForLimit = String(form.username || "").trim().toLowerCase();
   const allowed = auth.loginAllowed(ip, usernameForLimit);
   if (!allowed.allowed) {
+    audit.append({ actor: usernameForLimit || "unknown", action: "login.throttled", ip, detail: "retry-after" });
     log(`[login-throttled] ip=${ip} username=${usernameForLimit || "-"}`);
     return serveLoginPage(res, {
       status: 429,
@@ -2239,10 +2597,21 @@ async function handleLogin(req, res, url) {
   const user = auth.verifyCredentials(form.username, form.password);
   if (!user) {
     auth.recordLoginFailure(ip, usernameForLimit);
+    audit.append({ actor: usernameForLimit || "unknown", action: "login.failure", ip });
     log(`[login-failed] ip=${ip} username=${usernameForLimit || "-"}`);
     return serveLoginPage(res, {
       status: 401,
       error: "用户名或密码错误。",
+      next: safeNextPath(form.next, "/console"),
+    });
+  }
+
+  if (!auth.verifyMfa(user.username, form.totp)) {
+    auth.recordLoginFailure(ip, usernameForLimit);
+    audit.append({ actor: user.username, action: "login.mfa_failure", ip });
+    return serveLoginPage(res, {
+      status: 401,
+      error: "动态验证码不正确。",
       next: safeNextPath(form.next, "/console"),
     });
   }
@@ -2252,6 +2621,7 @@ async function handleLogin(req, res, url) {
     ip,
     userAgent: req.headers["user-agent"],
   });
+  audit.append({ actor: user.username, action: "login.success", target: user.role, ip });
   log(`[login-ok] user=${user.username} role=${user.role} ip=${ip}`);
   res.setHeader("Set-Cookie", auth.sessionCookie(session, req));
   res.writeHead(303, { Location: safeNextPath(form.next, "/console") });
@@ -2261,6 +2631,7 @@ async function handleLogin(req, res, url) {
 async function handleLogout(req, res) {
   const session = requireSession(req, { csrf: true });
   auth.destroySession(req);
+  audit.append({ actor: session.username, action: "logout", ip: clientIp(req) });
   log(`[logout] user=${session.username} ip=${clientIp(req)}`);
   res.setHeader("Set-Cookie", auth.clearCookie(req));
   return sendJson(res, 200, { ok: true });
@@ -2276,10 +2647,10 @@ async function handleMe(req, res) {
     version: VERSION,
     models: [...MODELS.keys()],
     config: {
-      queueTimeoutMs: config.queueTimeoutMs,
-      responseTimeoutMs: config.responseTimeoutMs,
-      streamDelayMs: config.streamDelayMs,
-      maxConcurrentPerKey: config.maxConcurrentPerKey,
+      queueTimeoutMs: live.queue.waitTimeoutMs,
+      responseTimeoutMs: live.queue.responseTimeoutMs,
+      streamDelayMs: live.queue.streamDelayMs,
+      maxConcurrentPerKey: live.limits.maxConcurrentPerKey,
     },
   });
 }
@@ -2391,6 +2762,23 @@ async function route(req, res) {
       return serveAdminPage(req, res, "keys.html");
     }
 
+    if (pathname === "/console/settings" || pathname === "/console/settings/") {
+      if (req.method !== "GET" && req.method !== "HEAD") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      return serveAdminPage(req, res, "settings.html");
+    }
+    if (pathname === "/console/usage" || pathname === "/console/usage/") {
+      if (req.method !== "GET" && req.method !== "HEAD") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      return serveAdminPage(req, res, "usage.html");
+    }
+    if (pathname === "/console/audit" || pathname === "/console/audit/") {
+      if (req.method !== "GET" && req.method !== "HEAD") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      return serveAdminPage(req, res, "audit.html");
+    }
+    if (pathname === "/console/status" || pathname === "/console/status/") {
+      if (req.method !== "GET" && req.method !== "HEAD") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      return serveAdminPage(req, res, "status.html");
+    }
+
     const publicFile = PUBLIC_FILES.get(pathname);
     if (publicFile) return serveStatic(req, res, publicFile);
 
@@ -2438,11 +2826,11 @@ function handleError(res, error) {
   const apiError =
     error instanceof ApiError
       ? error
-      : error instanceof AuthError || error instanceof ApiKeyError
+      : error instanceof AuthError || error instanceof ApiKeyError || error instanceof SettingsError
         ? new ApiError(error.status, error.message, "invalid_request_error", error.code)
         : new ApiError(500, "The server had an error while processing your request.", "server_error", "internal_error");
 
-  if (!(error instanceof ApiError) && !(error instanceof AuthError) && !(error instanceof ApiKeyError)) {
+  if (!(error instanceof ApiError) && !(error instanceof AuthError) && !(error instanceof ApiKeyError) && !(error instanceof SettingsError)) {
     console.error(nowIso(), "[unhandled]", error);
   }
 
@@ -2528,7 +2916,7 @@ server.listen(config.port, config.host, () => {
   const relativeUsers = path.relative(ROOT, config.usersFile);
   log(`  users file  ${relativeUsers && !relativeUsers.startsWith("..") ? relativeUsers : "<external users file>"}`);
   if (configuredKeys.length === 0) log("  WARNING     no API keys configured; add one in the admin console");
-  log(`  timeouts    queue=${config.queueTimeoutMs}ms response=${config.responseTimeoutMs}ms`);
+  log(`  timeouts    queue=${live.queue.waitTimeoutMs}ms response=${live.queue.responseTimeoutMs}ms`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

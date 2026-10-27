@@ -35,13 +35,13 @@ npm start
 # 等价于 node server.mjs
 ```
 
-程序只读取 `config.jsonc`。调用密钥不写在这里；启动并登录后，在网页右上角「调用密钥」
+程序只读取 `config.jsonc`。调用密钥不写在这里；启动并登录后，在顶部「API 密钥」
 生成一个，再交给调用方。
 
 启动成功时终端会显示：
 
 ```text
-能工智人 (nenggong-zhiren) v0.4.0 listening on 0.0.0.0:7355
+能工智人 (nenggong-zhiren) v0.5.0 listening on 0.0.0.0:7355
   login       http://127.0.0.1:7355/login
   console     http://127.0.0.1:7355/console
   LAN         http://<LAN-IP>:7355/login
@@ -64,8 +64,12 @@ npm start
 保存密码后登录。用户和密钥现在有独立页面：
 
 - `/console/users`：添加回复员/管理员、改角色、重置密码；
-- `/console/keys`：生成调用密钥，可指定自定义密钥，并设置过期时间、允许的模型、
-  分钟/日/月请求配额和并发上限。
+- `/console/keys`：生成、编辑、轮换调用密钥，可指定自定义密钥，并设置过期时间、允许的模型、分钟/日/月请求配额和并发上限；
+- `/console/usage`：按密钥查看分钟/日/月用量和最近 30 天趋势；
+- `/console/audit`：查看登录、账号、密钥、设置和票据操作；
+- `/console/status`：查看队列、进程、存储文件和最近审计；
+- `/console/settings`：统一管理运行参数、通知/审计开关和管理员 MFA；
+- 坐席工作台支持快捷回复模板和票据转交；模板保存在当前浏览器。
 
 > 还没有调用密钥时服务仍能启动，但 `/v1/*` 会拒绝所有调用方；先生成一个密钥即可。
 
@@ -77,10 +81,12 @@ npm start
 | `users.json` | 管理员/回复员的密码哈希、角色、创建时间 | 否，仅保留本机 |
 | `api-keys.json` | 调用密钥哈希、名称、配额和使用时间 | 否，仅保留本机 |
 | `state.json` | 已完成请求和幂等记录，用于重启恢复 | 否，仅保留本机 |
-| `usage.json` | 各密钥的分钟/日/月请求计数 | 否，仅保留本机 |
+| `usage.json` | 各密钥的分钟/日/月请求计数与每日历史 | 否，仅保留本机 |
+| `settings.json` | 设置页保存的覆盖值和功能开关 | 否，仅保留本机 |
+| `audit.log` | 登录、账号、密钥、设置和票据操作 | 否，仅保留本机 |
 | 日志 | 默认 stdout；建议重定向到项目目录外 | 否 |
 
-票据、登录会话和幂等记录都在内存里；**重启进程会丢未完成票据和会话**，但用户文件保留。
+活动票据、会话和登录限速计数在内存；**重启进程会中断未完成请求并要求重新登录**。已完成票据和幂等记录会写入 `state.json`，用户、密钥、用量、设置和审计文件保留。
 
 管理员密码只保存哈希。忘记密码时用 CLI 重置：
 
@@ -92,7 +98,7 @@ node scripts/user.mjs passwd admin
 
 ## 4. 三种运行方式
 
-### 4.1 前台开发
+### 4.1 本机前台运行
 
 ```bash
 npm start
@@ -177,7 +183,7 @@ curl -fsS http://127.0.0.1:7355/healthz
 # 3. 登录页可访问
 curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7355/login
 
-# 4. 调用方 key 有效（在网页「调用密钥」里生成）
+# 4. 调用方 key 有效（在网页「API 密钥」里生成）
 curl -fsS http://127.0.0.1:7355/v1/models \
   -H 'Authorization: Bearer <CALLER_KEY>'
 ```
@@ -208,7 +214,7 @@ curl -N http://127.0.0.1:7355/v1/chat/completions \
 | nohup | `kill $(cat .../server.pid)` | 重新执行 nohup |
 | systemd | `systemctl stop nenggong-zhiren` | `systemctl restart nenggong-zhiren` |
 
-重启会清空内存队列和会话；调用方会收到连接错误或超时，需要重试。`users.json` 不会丢。
+重启会清空内存队列、会话和限速计数；调用方会收到连接错误或超时，需要重试。用户、密钥、用量、设置、审计和已完成/幂等快照不会丢。
 
 ## 8. 常见问题
 
@@ -222,7 +228,7 @@ ss -ltnp | grep 7355
 
 ### 启动后 `/v1` 全部 401
 
-- 先在网页「调用密钥」里生成密钥；
+- 先在网页「API 密钥」里生成密钥；
 - OpenAI 格式用 `Authorization: Bearer <key>`，Anthropic 格式用 `x-api-key: <key>`；
 - 确认密钥没有在网页里被停用或删除。
 

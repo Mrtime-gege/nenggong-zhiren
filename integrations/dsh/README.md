@@ -8,11 +8,11 @@ DSH 通过 `@deepseek-ai/dsh-llm-pi-ai` 插件接入自定义 OpenAI 兼容网�
 
 ```bash
 cd nenggong-zhiren
-# 先在网页 /console/keys 生成调用密钥，再把 key 填到 DSH 配置
-QUEUE_TIMEOUT_MS=7200000 \
-RESPONSE_TIMEOUT_MS=7200000 \
-node server.mjs
+npm start
 ```
+
+先在网页 `/console/keys` 生成调用密钥，再把 key 填到 DSH 配置；运行参数在
+`config.jsonc` 或网页设置页修改，不通过环境变量启动。
 
 首次启动会在日志里打印一次随机管理员密码；账号哈希保存在项目根目录 `users.json`。
 确认：
@@ -83,7 +83,7 @@ DSH 提示：请用 bash 工具运行 pwd，然后告诉我当前工作目录是
 - Human Provider 显示但模型不可选：确认 `HUMAN_PROVIDER_KEY` 已配置，且 Human Provider 的
   `/v1/models` 可访问。
 - 模型请求 401：DSH 发出的 key 已在网页里停用、删除或填错。
-- 请求超时：Human Provider 的 `QUEUE_TIMEOUT_MS` / `RESPONSE_TIMEOUT_MS` 和 DSH 路由的
+- 请求超时：能工智人的 `queue.waitTimeoutMs` / `queue.responseTimeoutMs` 和 DSH 路由的
   `timeoutMs` / `streamIdleTimeoutMs` 都要放大。
 - DSH 报工具调用解析失败：确认 Human Provider 发送的是 `tool_calls` delta，并且最后是
   `finish_reason: "tool_calls"`。
@@ -93,4 +93,4 @@ DSH 提示：请用 bash 工具运行 pwd，然后告诉我当前工作目录是
 - 不要把 `/console` 和 `/op/api` 直接暴露公网；至少加 TLS、网络 ACL 和反代访问控制。
 - 坐席登录密码与调用方 API Key 是两套凭据；生产环境不要用示例值。
 - 人类坐席会看到完整的 prompt、工具 schema 和工具结果，需要隐私告知和访问审计。
-- 默认 HTTP 不加密；生产请用项目内置 TLS 或反代 TLS，并设置 `COOKIE_SECURE=1`。
+- 默认 HTTP 不加密；生产请用项目内置 TLS 或反代 TLS，并设置 `server.cookieSecure: true`。
