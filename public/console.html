@@ -40,7 +40,6 @@
             <input id="autoclaim" type="checkbox" />
             <span title="队列里有票时，自动认领最旧的一张">自动认领</span>
           </label>
-          <span class="hint">Ctrl+↵ 完成 · Ctrl+Shift+↵ 推送</span>
         </div>
         <div class="queue" id="queue">
           <div class="queue-group">
@@ -71,7 +70,8 @@
         <button id="cmdClaim" class="btn" type="button">认领 <kbd data-shortcut="claim"></kbd></button>
         <button id="cmdTemplates" class="btn ghost" type="button">快捷回复</button>
         <button id="cmdTransfer" class="btn ghost" type="button">转交</button>
-        <button id="cmdPush" class="btn" type="button">推送 <kbd data-shortcut="push"></kbd></button>
+        <button id="cmdThink" class="btn ghost" type="button">思考 <kbd data-shortcut="think"></kbd></button>
+        <button id="cmdPush" class="btn" type="button">正文 <kbd data-shortcut="push"></kbd></button>
         <button id="cmdFinish" class="btn primary" type="button">完成 <kbd data-shortcut="finish"></kbd></button>
         <button id="cmdRelease" class="btn ghost" type="button">放回 <kbd data-shortcut="release"></kbd></button>
         <button id="cmdRefuse" class="btn danger" type="button">拒答 <kbd data-shortcut="refuse"></kbd></button>
@@ -80,6 +80,14 @@
       </div>
       <div class="command-hint" id="commandHint">选择票据后启用操作</div>
     </footer>
+
+    <div id="subpageOverlay" class="subpage-overlay hidden" aria-label="子页面内容">
+      <div class="subpage-shell">
+        <div id="subpageFrames" class="subpage-frames">
+          <div id="subpageLoading" class="subpage-loading">加载子页面…</div>
+        </div>
+      </div>
+    </div>
 
     <div id="shortcutModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="shortcutTitle">
       <section class="modal shortcut-modal">
@@ -114,7 +122,7 @@
           </label>
           <label class="field">
             <span>初始密码</span>
-            <input id="newPassword" type="password" minlength="12" maxlength="256" autocomplete="new-password" placeholder="至少 12 位" required />
+            <input id="newPassword" type="password" minlength="8" maxlength="256" autocomplete="new-password" placeholder="至少 8 位" required />
           </label>
           <label class="field">
             <span>角色</span>
@@ -221,6 +229,7 @@
 
     <div id="toast" class="toast"></div>
     <script src="/navigation.js"></script>
+    <script src="/password-strength.js"></script>
     <script src="/console.js"></script>
   </body>
 </html>

@@ -2,6 +2,7 @@ const $ = (id) => document.getElementById(id);
 let csrf = "";
 let role = "";
 let operator = "";
+let refreshTimer = null;
 
 async function api(path, options = {}) {
   const headers = {};
@@ -14,19 +15,19 @@ async function api(path, options = {}) {
   return data;
 }
 
-function setStatus(text, bad = false) { $("status").textContent = text; $("status").classList.toggle("err", bad); }
+function setStatus(text, bad = false) {
+  $("status").textContent = text;
+  $("status").classList.toggle("err", bad);
+}
 
-function stat(label, value) {
-  const box = document.createElement("div");
-  box.className = "stat-box";
-  const v = document.createElement("div");
-  v.className = "stat-value";
-  v.textContent = value;
-  const l = document.createElement("div");
-  l.className = "stat-label";
-  l.textContent = label;
-  box.append(v, l);
-  return box;
+function duration(seconds) {
+  const total = Math.max(0, Math.floor(seconds || 0));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (days) return `${days}d ${hours}h`;
+  if (hours) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 }
 
 function bytes(value) {
@@ -35,17 +36,90 @@ function bytes(value) {
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function heroMetric(label, value, tone = "") {
+  const item = document.createElement("div");
+  item.className = `hero-metric ${tone}`;
+  const l = document.createElement("span");
+  l.textContent = label;
+  const v = document.createElement("strong");
+  v.textContent = value;
+  item.append(l, v);
+  return item;
+}
+
+function vital(icon, label, value, sub, tone = "") {
+  const card = document.createElement("div");
+  card.className = `vital-card ${tone}`;
+  const top = document.createElement("div");
+  top.className = "vital-top";
+  const glyph = document.createElement("span");
+  glyph.className = "vital-glyph";
+  glyph.textContent = icon;
+  top.append(glyph, Object.assign(document.createElement("span"), { className: "vital-label", textContent: label }));
+  const number = document.createElement("div");
+  number.className = "vital-value";
+  number.textContent = value;
+  const caption = document.createElement("div");
+  caption.className = "vital-sub";
+  caption.textContent = sub || "";
+  card.append(top, number, caption);
+  return card;
+}
+
+function flowStep(label, count, tone, max) {
+  const step = document.createElement("div");
+  step.className = `flow-step ${tone}`;
+  const marker = document.createElement("span");
+  marker.className = "flow-marker";
+  const name = document.createElement("div");
+  name.className = "flow-name";
+  name.textContent = label;
+  const value = document.createElement("div");
+  value.className = "flow-value";
+  value.textContent = count;
+  const bar = document.createElement("div");
+  bar.className = "flow-bar";
+  const fill = document.createElement("span");
+  fill.style.width = `${Math.round((count / max) * 100)}%`;
+  bar.append(fill);
+  step.append(marker, name, value, bar);
+  return step;
+}
+
 function render(data) {
   const q = data.queue || {};
-  const stats = $("statusStats");
-  stats.replaceChildren(
-    stat("运行时间", `${Math.floor((data.uptimeSec || 0) / 60)} 分`),
-    stat("待接单", q.queued ?? 0),
-    stat("进行中", (q.claimed || 0) + (q.streaming || 0) + (q.finishing || 0)),
-    stat("票据总数", data.ticketsTotal ?? 0),
-    stat("内存", `${data.memoryMb || 0} MB`),
-    stat("版本", data.version || "—"),
+  const active = (q.claimed || 0) + (q.streaming || 0) + (q.finishing || 0);
+  const total = data.ticketsTotal || 0;
+  const online = true;
+
+  $("heroState").textContent = online ? "ONLINE" : "DEGRADED";
+  $("heroUptime").textContent = `uptime ${duration(data.uptimeSec)}`;
+  const hero = $("heroMetrics");
+  hero.replaceChildren(
+    heroMetric("VERSION", data.version || "—", "accent"),
+    heroMetric("NODE", data.node || "—"),
+    heroMetric("MEMORY", `${data.memoryMb || 0} MB`),
   );
+  $("lastSync").textContent = `同步于 ${new Date().toLocaleTimeString()}`;
+
+  $("statusStats").replaceChildren(
+    vital("◷", "运行时间", duration(data.uptimeSec), "process uptime", "cyan"),
+    vital("⌁", "待接单", q.queued ?? 0, "waiting requests", (q.queued || 0) > 0 ? "warm" : ""),
+    vital("◉", "进行中", active, "claimed + streaming", active > 0 ? "violet" : ""),
+    vital("▤", "票据总数", total, "in memory", ""),
+    vital("▣", "内存", `${data.memoryMb || 0} MB`, "rss footprint", ""),
+    vital("◇", "版本", data.version || "—", "release channel", "accent"),
+  );
+
+  const flow = $("queueFlow");
+  const max = Math.max(1, q.queued || 0, q.claimed || 0, q.streaming || 0, q.finishing || 0);
+  flow.replaceChildren(
+    flowStep("待接单", q.queued ?? 0, "queued", max),
+    flowStep("已认领", q.claimed ?? 0, "claimed", max),
+    flowStep("流式中", q.streaming ?? 0, "streaming", max),
+    flowStep("收尾中", q.finishing ?? 0, "finishing", max),
+  );
+
   const readonly = $("statusReadonly");
   readonly.replaceChildren();
   const pairs = [
@@ -60,7 +134,7 @@ function render(data) {
   ];
   for (const [key, value] of pairs) {
     const cell = document.createElement("div");
-    cell.className = "readonly-item";
+    cell.className = "runtime-item";
     const k = document.createElement("span");
     k.textContent = key;
     const v = document.createElement("code");
@@ -68,34 +142,123 @@ function render(data) {
     cell.append(k, v);
     readonly.append(cell);
   }
-  const storage = $("storageTable");
-  storage.replaceChildren();
-  for (const [name, info] of Object.entries(data.storage || {})) {
-    const row = document.createElement("tr");
-    for (const value of [name, info.exists ? "是" : "否", bytes(info.bytes || 0), info.mode || "—"]) {
-      const cell = document.createElement("td");
-      cell.textContent = value;
-      if (value === name) cell.className = "cell-main";
-      row.append(cell);
-    }
-    storage.append(row);
+
+  const vault = $("statusVault");
+  vault.replaceChildren();
+  const storage = Object.entries(data.storage || {});
+  const maxBytes = Math.max(1, ...storage.map(([, info]) => info.bytes || 0));
+  for (const [name, info] of storage) {
+    const row = document.createElement("div");
+    row.className = `vault-row ${info.exists ? "present" : "missing"}`;
+    const head = document.createElement("div");
+    head.className = "vault-head";
+    const label = document.createElement("span");
+    label.textContent = name;
+    const state = document.createElement("span");
+    state.className = `vault-state ${info.exists ? "ok" : "off"}`;
+    state.textContent = info.exists ? "ONLINE" : "MISSING";
+    head.append(label, state);
+    const meta = document.createElement("div");
+    meta.className = "vault-meta";
+    const size = document.createElement("span");
+    size.textContent = bytes(info.bytes || 0);
+    const mode = document.createElement("span");
+    mode.textContent = `mode ${info.mode || "—"}`;
+    meta.append(size, mode);
+    const track = document.createElement("div");
+    track.className = "vault-track";
+    const fill = document.createElement("span");
+    fill.style.width = `${Math.max(2, Math.round(((info.bytes || 0) / maxBytes) * 100))}%`;
+    track.append(fill);
+    row.append(head, meta, track);
+    vault.append(row);
   }
-  const audit = $("recentAudit");
-  audit.replaceChildren();
+
+  const feed = $("recentAudit");
+  feed.replaceChildren();
   for (const event of data.audit || []) {
-    const row = document.createElement("tr");
-    for (const value of [new Date(event.at).toLocaleString(), event.actor, event.action, event.target || "—"]) {
-      const cell = document.createElement("td");
-      cell.textContent = value;
-      row.append(cell);
-    }
-    audit.append(row);
+    const item = document.createElement("div");
+    item.className = "feed-item";
+    const dot = document.createElement("span");
+    dot.className = "feed-dot";
+    const body = document.createElement("div");
+    body.className = "feed-body";
+    const top = document.createElement("div");
+    top.className = "feed-top";
+    const action = document.createElement("strong");
+    action.textContent = event.action || "event";
+    const time = document.createElement("span");
+    time.textContent = new Date(event.at).toLocaleTimeString();
+    top.append(action, time);
+    const detail = document.createElement("div");
+    detail.className = "feed-detail";
+    detail.textContent = [event.actor || "—", event.target || ""].filter(Boolean).join(" → ");
+    body.append(top, detail);
+    item.append(dot, body);
+    feed.append(item);
+  }
+  if (!data.audit?.length) {
+    feed.append(Object.assign(document.createElement("div"), { className: "admin-empty", textContent: "还没有操作信号。" }));
   }
 }
 
+function initPointerMotion() {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const hero = document.querySelector(".status-hero");
+  const cards = $("statusStats");
+  if (!hero || !cards) return;
+
+  hero.addEventListener("pointermove", (event) => {
+    const rect = hero.getBoundingClientRect();
+    const x = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+    const y = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+    hero.style.setProperty("--mx", `${x}px`);
+    hero.style.setProperty("--my", `${y}px`);
+    hero.style.setProperty("--px", ((x / rect.width - 0.5) * 2).toFixed(3));
+    hero.style.setProperty("--py", ((y / rect.height - 0.5) * 2).toFixed(3));
+  });
+  hero.addEventListener("pointerleave", () => {
+    hero.style.setProperty("--mx", "72%");
+    hero.style.setProperty("--my", "18%");
+    hero.style.setProperty("--px", "0");
+    hero.style.setProperty("--py", "0");
+  });
+
+  const clearCard = (card) => {
+    card.style.setProperty("--rx", "0deg");
+    card.style.setProperty("--ry", "0deg");
+    card.style.setProperty("--gx", "50%");
+    card.style.setProperty("--gy", "50%");
+  };
+  cards.addEventListener("pointermove", (event) => {
+    const card = event.target.closest(".vital-card");
+    if (!card) return;
+    const rect = card.getBoundingClientRect();
+    const x = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+    const y = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+    for (const other of cards.querySelectorAll(".vital-card")) {
+      if (other !== card) clearCard(other);
+    }
+    card.style.setProperty("--ry", `${((x / rect.width - 0.5) * 7).toFixed(2)}deg`);
+    card.style.setProperty("--rx", `${(-(y / rect.height - 0.5) * 6).toFixed(2)}deg`);
+    card.style.setProperty("--gx", `${((x / rect.width) * 100).toFixed(1)}%`);
+    card.style.setProperty("--gy", `${((y / rect.height) * 100).toFixed(1)}%`);
+  });
+  cards.addEventListener("pointerleave", () => {
+    for (const card of cards.querySelectorAll(".vital-card")) clearCard(card);
+  });
+}
+
 async function load() {
-  const data = await api("/op/api/status");
-  render(data);
+  const button = $("refresh");
+  button.classList.add("busy");
+  try {
+    const data = await api("/op/api/status");
+    render(data);
+    setStatus("已同步");
+  } finally {
+    button.classList.remove("busy");
+  }
 }
 
 async function init() {
@@ -108,9 +271,13 @@ async function init() {
     $("userLabel").textContent = `${operator} · 管理员`;
     window.NGZRNAV?.render(role, me.features);
     await load();
-    setStatus("已登录");
+    initPointerMotion();
     $("refresh").addEventListener("click", () => load().catch(() => {}));
+    refreshTimer = setInterval(() => {
+      if (!document.hidden) load().catch(() => {});
+    }, 15_000);
     $("logout").addEventListener("click", async () => {
+      clearInterval(refreshTimer);
       try { await api("/auth/logout", { method: "POST", body: {} }); } catch { /* leave */ }
       location.replace("/login");
     });

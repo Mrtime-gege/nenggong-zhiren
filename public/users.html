@@ -41,7 +41,7 @@
             </label>
             <label class="field">
               <span class="field-label">密码 <em id="passwordFlag" class="req">必填</em></span>
-              <input id="newPassword" type="password" minlength="12" maxlength="256" autocomplete="new-password" placeholder="至少 12 位" required />
+              <input id="newPassword" type="password" minlength="8" maxlength="256" autocomplete="new-password" placeholder="至少 8 位" required />
             </label>
             <label class="field">
               <span class="field-label">角色 <em class="req">必填</em></span>
@@ -50,6 +50,11 @@
                 <option value="admin">管理员</option>
               </select>
             </label>
+            <div class="field field-full">
+              <span class="field-label">可回复模型 <em class="opt">选填</em></span>
+              <div id="userModelPicker" class="model-picker" role="group" aria-label="可回复模型"></div>
+              <span id="userModelHint" class="admin-hint">全部模型 = 不限制；无权限的票据不会出现在该用户队列中。</span>
+            </div>
             <div class="form-actions">
               <button id="userCreateBtn" class="btn primary" type="submit">添加用户</button>
               <button id="userCancelBtn" class="btn ghost hidden" type="button">取消编辑</button>
@@ -66,6 +71,7 @@
                 <tr>
                   <th>用户</th>
                   <th>角色</th>
+                  <th>可回复模型</th>
                   <th>创建时间</th>
                   <th>操作</th>
                 </tr>
@@ -78,6 +84,7 @@
         </div>
     </main>
     <script src="/navigation.js"></script>
+    <script src="/password-strength.js"></script>
     <script src="/admin-users.js"></script>
   </body>
 </html>

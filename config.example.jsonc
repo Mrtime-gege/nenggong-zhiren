@@ -56,7 +56,10 @@
     "settingsFile": "settings.json",
 
     // 管理操作、登录和密钥变更的审计记录文件；按行追加。
-    "auditFile": "audit.log"
+    "auditFile": "audit.log",
+
+    // 运行时模型清单。首次启动会从 models.catalog 初始化；之后由「模型」页面维护。
+    "modelsFile": "models.json"
   },
 
   "auth": {

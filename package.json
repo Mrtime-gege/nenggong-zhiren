@@ -1,6 +1,6 @@
 {
   "name": "nenggong-zhiren",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
   "description": "能工智人 — human-backed OpenAI-compatible provider with a login-protected operator console",

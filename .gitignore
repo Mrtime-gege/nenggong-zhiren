@@ -12,3 +12,4 @@ docs/screenshots/*.tmp
 /usage.json
 /settings.json
 /audit.log
+/models.json

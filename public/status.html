@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#0a0e13" />
+    <meta name="theme-color" content="#070b10" />
     <title>能工智人 · 状态</title>
     <link rel="stylesheet" href="/console.css" />
     <link rel="stylesheet" href="/admin.css" />
@@ -15,26 +15,70 @@
       <nav id="topnav" class="topnav" aria-label="主导航"></nav>
       <div class="conn"><span id="userLabel" class="user-label">正在加载…</span><button id="logout" class="btn ghost" type="button">退出</button><span id="status" class="conn-status">连接中…</span></div>
     </header>
-    <main class="admin-main">
-      <div class="admin-head"><div><h1>状态</h1><p>服务进程、队列、存储和最近审计事件。刷新页面获取最新快照。</p></div><button id="refresh" class="btn" type="button">刷新</button></div>
-      <div class="stat-row" id="statusStats"></div>
-      <div class="admin-card">
-        <div class="admin-card-title">运行配置</div>
-        <div id="statusReadonly" class="readonly-grid"></div>
-      </div>
-      <div class="admin-card">
-        <div class="admin-card-title">存储文件</div>
-        <div class="admin-table-wrap">
-          <table class="admin-table"><thead><tr><th>文件</th><th>存在</th><th>大小</th><th>权限</th></tr></thead><tbody id="storageTable"></tbody></table>
+
+    <main class="admin-main status-main">
+      <section class="status-hero">
+        <div class="status-orbit" aria-hidden="true">
+          <span class="orbit-ring ring-a"></span>
+          <span class="orbit-ring ring-b"></span>
+          <span class="orbit-ring ring-c"></span>
+          <span class="orbit-satellite sat-a"></span>
+          <span class="orbit-satellite sat-b"></span>
+          <div class="orbit-core">
+            <span class="core-wave"></span>
+            <strong id="heroState">CONNECTING</strong>
+            <small id="heroUptime">—</small>
+          </div>
         </div>
-      </div>
-      <div class="admin-card">
-        <div class="admin-card-title">最近审计</div>
-        <div class="admin-table-wrap">
-          <table class="admin-table"><thead><tr><th>时间</th><th>操作者</th><th>动作</th><th>对象</th></tr></thead><tbody id="recentAudit"></tbody></table>
+        <div class="status-hero-copy">
+          <span class="status-kicker">RUNTIME / SIGNAL CORE</span>
+          <h1>系统生命体征</h1>
+          <p>进程、队列、存储和操作信号的实时切片。这个页面每 15 秒自动呼吸一次。</p>
+          <div class="hero-metrics" id="heroMetrics"></div>
         </div>
+        <div class="status-actions">
+          <span id="lastSync" class="sync-stamp">尚未同步</span>
+          <button id="refresh" class="btn status-refresh" type="button"><span class="refresh-glyph">↻</span> 刷新</button>
+        </div>
+      </section>
+
+      <section class="status-vitals" id="statusStats"></section>
+
+      <section class="status-card queue-flow-card">
+        <div class="status-card-head">
+          <div><span class="status-kicker">FLOW / QUEUE</span><h2>请求流</h2></div>
+          <span class="card-note">当前队列切片</span>
+        </div>
+        <div id="queueFlow" class="queue-flow"></div>
+      </section>
+
+      <div class="status-split">
+        <section class="status-card runtime-card">
+          <div class="status-card-head">
+            <div><span class="status-kicker">SYSTEM / BLUEPRINT</span><h2>运行配置</h2></div>
+            <span class="card-note">只读快照</span>
+          </div>
+          <div id="statusReadonly" class="runtime-grid"></div>
+        </section>
+
+        <section class="status-card vault-card">
+          <div class="status-card-head">
+            <div><span class="status-kicker">STORAGE / VAULT</span><h2>数据舱</h2></div>
+            <span class="card-note">本地文件</span>
+          </div>
+          <div id="statusVault" class="vault-list"></div>
+        </section>
       </div>
+
+      <section class="status-card signal-card">
+        <div class="status-card-head">
+          <div><span class="status-kicker">AUDIT / SIGNAL FEED</span><h2>最近操作信号</h2></div>
+          <span class="card-note">最近 20 条</span>
+        </div>
+        <div id="recentAudit" class="signal-feed"></div>
+      </section>
     </main>
+
     <script src="/navigation.js"></script>
     <script src="/admin-status.js"></script>
   </body>

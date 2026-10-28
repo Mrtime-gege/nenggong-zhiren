@@ -4,3 +4,4 @@ export { QuotaError, UsageStore } from "./usage.mjs";
 export { StateStore } from "./state.mjs";
 export { AuditStore } from "./audit.mjs";
 export { SettingsError, SettingsStore } from "./settings.mjs";
+export { ModelError, ModelStore } from "./models.mjs";

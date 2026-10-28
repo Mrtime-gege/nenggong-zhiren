@@ -6,6 +6,78 @@ let operator = "";
 let role = "";
 let editingKeyId = "";
 const state = { keys: [] };
+let availableModels = [];
+let selectedModels = new Set();
+function customModelList() {
+  return $("newKeyCustomModels").value.split(",").map((name) => name.trim()).filter(Boolean);
+}
+
+function allModelsSelected() {
+  return selectedModels.size === 0 && customModelList().length === 0;
+}
+
+function selectedModelList() {
+  const custom = customModelList();
+  if (selectedModels.size === 0 && custom.length === 0) return [];
+  return [...new Set([...selectedModels, ...custom])].slice(0, 64);
+}
+
+function updateModelHint() {
+  const hint = $("newKeyModelHint");
+  const models = selectedModelList();
+  if (models.length === 0) {
+    hint.textContent = "全部模型 = 不限制；可以保存常用模型组合。";
+  } else {
+    hint.textContent = `只允许 ${models.length} 个模型：${models.join("、")}`;
+  }
+}
+
+function renderModelPicker() {
+  const picker = $("newKeyModelPicker");
+  picker.replaceChildren();
+  const all = document.createElement("button");
+  all.type = "button";
+  all.className = "model-chip";
+  all.textContent = "全部模型";
+  all.classList.toggle("active", allModelsSelected());
+  all.addEventListener("click", () => {
+    selectedModels.clear();
+    $("newKeyCustomModels").value = "";
+    renderModelPicker();
+  });
+  picker.append(all);
+  for (const name of availableModels) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "model-chip";
+    chip.textContent = name;
+    chip.classList.toggle("active", selectedModels.has(name));
+    chip.addEventListener("click", () => {
+      if (allModelsSelected()) {
+        selectedModels.clear();
+        selectedModels.add(name);
+      } else if (selectedModels.has(name)) {
+        selectedModels.delete(name);
+      } else {
+        selectedModels.add(name);
+        if (selectedModels.size === availableModels.length && customModelList().length === 0) {
+          selectedModels.clear();
+        }
+      }
+      renderModelPicker();
+    });
+    picker.append(chip);
+  }
+  if (!availableModels.length) picker.append(elHint("暂无可选模型；可直接填下面的自定义模型。"));
+  updateModelHint();
+}
+
+function elHint(text) {
+  const span = document.createElement("span");
+  span.className = "admin-hint";
+  span.textContent = text;
+  return span;
+}
 
 async function api(path, { method = "GET", body } = {}) {
   const headers = {};
@@ -65,6 +137,57 @@ function localDateTime(value) {
   return local.toISOString().slice(0, 16);
 }
 
+function remainingText(ms) {
+  const abs = Math.abs(ms);
+  const minutes = Math.floor(abs / 60_000);
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours} 小时`;
+  return `${Math.ceil(hours / 24)} 天`;
+}
+
+function updateExpiryHint() {
+  const preset = $("newKeyExpiryPreset").value;
+  const input = $("newKeyExpires");
+  const hint = $("newKeyExpiryHint");
+  hint.classList.remove("warn");
+  if (preset === "never" || !input.value) {
+    hint.textContent = "永不过期：密钥一直有效，直到手动停用或删除。";
+    return;
+  }
+  const when = new Date(input.value);
+  if (!Number.isFinite(when.getTime())) {
+    hint.textContent = "时间格式不正确，请重新选择。";
+    hint.classList.add("warn");
+    return;
+  }
+  const diff = when.getTime() - Date.now();
+  if (diff <= 0) {
+    hint.textContent = `已过期（${dateText(when.getTime())}），请改到未来或选择永不过期。`;
+    hint.classList.add("warn");
+  } else {
+    hint.textContent = `有效期至 ${dateText(when.getTime())}，还剩约 ${remainingText(diff)}。`;
+  }
+}
+
+function applyExpiryPreset(value) {
+  const input = $("newKeyExpires");
+  if (value === "never") {
+    input.value = "";
+    input.disabled = true;
+  } else if (value === "custom") {
+    input.disabled = false;
+    input.focus();
+  } else {
+    const target = new Date();
+    target.setDate(target.getDate() + Number(value));
+    target.setSeconds(0, 0);
+    input.value = localDateTime(target.toISOString());
+    input.disabled = false;
+  }
+  updateExpiryHint();
+}
+
 async function loadMe() {
   const me = await api("/auth/me");
   csrf = me.csrfToken;
@@ -75,6 +198,9 @@ async function loadMe() {
     return;
   }
   $("userLabel").textContent = `${operator} · 管理员`;
+  const modelData = await api("/op/api/models");
+  availableModels = (modelData.models || []).map((model) => String(model.id));
+  renderModelPicker();
   window.NGZRNAV?.render(role, me.features);
   setStatus("已登录");
 }
@@ -104,8 +230,13 @@ function resetForm() {
   $("newKeyPerMonth").value = 0;
   $("newKeyConcurrent").value = 0;
   $("newKeyValue").value = "";
-  $("newKeyModels").value = "";
+  selectedModels.clear();
+  $("newKeyCustomModels").value = "";
+  renderModelPicker();
+  $("newKeyExpiryPreset").value = "never";
   $("newKeyExpires").value = "";
+  $("newKeyExpires").disabled = true;
+  updateExpiryHint();
   $("newKeyBox").classList.add("hidden");
   setError("");
 }
@@ -117,8 +248,20 @@ function fillForm(key) {
   $("newKeyPerDay").value = limits.requestsPerDay || 0;
   $("newKeyPerMonth").value = limits.requestsPerMonth || 0;
   $("newKeyConcurrent").value = limits.maxConcurrent || 0;
-  $("newKeyModels").value = (key.allowedModels || []).join(",");
-  $("newKeyExpires").value = localDateTime(key.expiresAt);
+  const allowed = Array.isArray(key.allowedModels) ? key.allowedModels : [];
+  selectedModels = new Set(allowed.filter((model) => availableModels.includes(model)));
+  $("newKeyCustomModels").value = allowed.filter((model) => !availableModels.includes(model)).join(", ");
+  renderModelPicker();
+  if (key.expiresAt) {
+    $("newKeyExpiryPreset").value = "custom";
+    $("newKeyExpires").disabled = false;
+    $("newKeyExpires").value = localDateTime(key.expiresAt);
+  } else {
+    $("newKeyExpiryPreset").value = "never";
+    $("newKeyExpires").value = "";
+    $("newKeyExpires").disabled = true;
+  }
+  updateExpiryHint();
   $("newKeyValue").value = "";
 }
 
@@ -148,12 +291,27 @@ function renderKeys() {
     hint.textContent = key.hint || "—";
     row.append(hint);
 
+    const expired = Boolean(key.expiresAt && key.expiresAt <= Date.now());
     const status = document.createElement("td");
     const badge = document.createElement("span");
-    badge.className = `status-badge ${key.disabled ? "off" : "ok"}`;
-    badge.textContent = key.disabled ? "已停用" : "可用";
+    badge.className = `status-badge ${key.disabled || expired ? "off" : "ok"}`;
+    badge.textContent = key.disabled ? "已停用" : expired ? "已过期" : "可用";
     status.append(badge);
     row.append(status);
+
+    const expiryCell = document.createElement("td");
+    if (!key.expiresAt) {
+      expiryCell.textContent = "永不过期";
+    } else {
+      expiryCell.textContent = dateText(key.expiresAt);
+      const remaining = document.createElement("div");
+      remaining.className = `admin-hint${expired ? " warn" : ""}`;
+      remaining.textContent = expired
+        ? "已过期"
+        : `还剩约 ${remainingText(key.expiresAt - Date.now())}`;
+      expiryCell.append(remaining);
+    }
+    row.append(expiryCell);
 
     for (const text of [quotaText(key), (key.allowedModels || []).join(", ") || "全部"]) {
       const cell = document.createElement("td");
@@ -171,12 +329,6 @@ function renderKeys() {
 
     const usage = document.createElement("td");
     usage.textContent = usageText(key.usage);
-    if (key.expiresAt) {
-      const expiry = document.createElement("div");
-      expiry.className = "admin-hint";
-      expiry.textContent = `到期：${dateText(key.expiresAt)}`;
-      usage.append(expiry);
-    }
     row.append(usage);
 
     const actions = document.createElement("td");
@@ -225,14 +377,16 @@ function limitsForm() {
 }
 
 function modelsForm() {
-  return $("newKeyModels").value.split(",").map((value) => value.trim()).filter(Boolean);
+  return selectedModelList();
 }
 
 function expiryForm() {
+  if ($("newKeyExpiryPreset").value === "never") return null;
   const value = $("newKeyExpires").value;
-  if (!value) return null;
+  if (!value) throw new Error("请选择过期时间，或选择永不过期。");
   const parsed = new Date(value).getTime();
   if (!Number.isFinite(parsed)) throw new Error("过期时间格式不正确。");
+  if (parsed <= Date.now()) throw new Error("过期时间必须晚于当前时间；如需永久有效，请选择永不过期。");
   return parsed;
 }
 
@@ -355,6 +509,12 @@ async function init() {
     resetForm();
     $("keyCreateForm").addEventListener("submit", submitKey);
     $("keyCancelBtn").addEventListener("click", resetForm);
+    $("newKeyExpiryPreset").addEventListener("change", (event) => applyExpiryPreset(event.target.value));
+    $("newKeyExpires").addEventListener("input", () => {
+      $("newKeyExpiryPreset").value = "custom";
+      updateExpiryHint();
+    });
+    $("newKeyCustomModels").addEventListener("input", renderModelPicker);
     $("copyKeyBtn").addEventListener("click", copyNewKey);
     $("logout").addEventListener("click", logout);
   } catch (error) {

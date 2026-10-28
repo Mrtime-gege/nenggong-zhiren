@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0e13" />
+    <title>能工智人 · 模型</title>
+    <link rel="stylesheet" href="/console.css" />
+    <link rel="stylesheet" href="/admin.css" />
+    <link rel="stylesheet" href="/theme.css" />
+  </head>
+  <body data-page="models">
+    <header class="topbar">
+      <div class="brand"><span class="status-dot ok"></span><span class="brand-name">能工智人</span><span class="brand-sub">管理后台</span></div>
+      <nav id="topnav" class="topnav" aria-label="主导航"></nav>
+      <div class="conn"><span id="userLabel" class="user-label">正在加载…</span><button id="logout" class="btn ghost" type="button">退出</button><span id="status" class="conn-status">连接中…</span></div>
+    </header>
+    <main class="admin-main">
+      <div class="admin-head">
+        <div>
+          <h1>模型</h1>
+          <p>维护对外模型名。调用密钥只能选择这里启用的模型；删除前需先解除密钥和回复员的引用。</p>
+        </div>
+      </div>
+
+      <div class="admin-card">
+        <div class="admin-card-title">添加模型</div>
+        <form id="modelCreateForm" class="admin-form">
+          <label class="field">
+            <span class="field-label">模型名 <em class="req">必填</em></span>
+            <input id="modelId" type="text" maxlength="64" autocomplete="off" spellcheck="false" placeholder="例如 human-2 或 team-a" required />
+          </label>
+          <label class="field">
+            <span class="field-label">显示名称 <em class="opt">选填</em></span>
+            <input id="modelName" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="留空则使用模型名" />
+          </label>
+          <div class="form-actions">
+            <button id="modelCreateBtn" class="btn primary" type="submit">添加模型</button>
+          </div>
+        </form>
+        <div id="modelsError" class="form-error" role="alert"></div>
+      </div>
+
+      <div class="admin-card">
+        <div class="admin-card-title">模型列表 <span id="modelCount" class="admin-hint"></span></div>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead><tr><th>模型名</th><th>显示名称</th><th>能力</th><th>创建时间</th><th>操作</th></tr></thead>
+            <tbody id="modelTable"></tbody>
+          </table>
+        </div>
+        <div id="modelsEmpty" class="admin-empty hidden">还没有模型。</div>
+        <p class="admin-hint">模型名会出现在 /v1/models 和 API 密钥的模型选择中。</p>
+      </div>
+    </main>
+    <script src="/navigation.js"></script>
+    <script src="/admin-models.js"></script>
+  </body>
+</html>

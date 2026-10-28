@@ -16,17 +16,42 @@
       <div class="conn"><span id="userLabel" class="user-label">正在加载…</span><button id="logout" class="btn ghost" type="button">退出</button><span id="status" class="conn-status">连接中…</span></div>
     </header>
     <main class="admin-main">
-      <div class="admin-head"><div><h1>用量</h1><p>按调用密钥查看分钟、日、月用量和最近 30 天趋势。计数按 UTC 日期归档。</p></div><a class="btn" href="/op/api/usage.csv" download="usage.csv">导出 CSV</a></div>
+      <div class="admin-head"><div><h1>用量</h1><p>按调用密钥查看分钟、日、月用量和趋势。计数按 UTC 日期归档；筛选条件可组合。</p></div><button id="usageExport" class="btn" type="button">导出当前结果</button></div>
+      <div class="admin-card usage-filter-card">
+        <div class="admin-card-title">筛选 <span id="usageFilterCount" class="admin-hint"></span></div>
+        <form id="usageFilters" class="admin-form usage-filters">
+          <label class="field"><span class="field-label">搜索</span><input id="usageFilterQuery" type="search" placeholder="密钥名称 / 提示" /></label>
+          <label class="field"><span class="field-label">状态</span>
+            <select id="usageFilterStatus">
+              <option value="all">全部状态</option>
+              <option value="active">可用</option>
+              <option value="disabled">已停用</option>
+              <option value="expired">已过期</option>
+            </select>
+          </label>
+          <label class="field"><span class="field-label">允许模型</span><select id="usageFilterModel"><option value="">全部模型</option></select></label>
+          <label class="field"><span class="field-label">开始日期 <em class="opt">UTC</em></span><input id="usageFilterFrom" type="date" /></label>
+          <label class="field"><span class="field-label">结束日期 <em class="opt">UTC</em></span><input id="usageFilterTo" type="date" /></label>
+          <div class="form-actions">
+            <button id="usageFilterReset" class="btn ghost" type="button">重置</button>
+          </div>
+        </form>
+        <div class="usage-key-filter">
+          <div class="usage-key-filter-head"><span>调用密钥</span><span class="admin-hint">可多选</span></div>
+          <div id="usageKeyChips" class="model-picker"></div>
+        </div>
+        <div id="usageFilterSummary" class="admin-hint"></div>
+      </div>
       <div class="stat-row" id="usageStats"></div>
       <div class="admin-card">
-        <div class="admin-card-title">最近 30 天</div>
+        <div class="admin-card-title" id="usageChartTitle">最近 30 天</div>
         <div id="usageChart" class="usage-chart"></div>
       </div>
       <div class="admin-card">
         <div class="admin-card-title">按密钥统计</div>
         <div class="admin-table-wrap">
           <table class="admin-table">
-            <thead><tr><th>密钥</th><th>分钟</th><th>今日</th><th>本月</th><th>累计请求</th><th>累计 tokens</th><th>配额</th></tr></thead>
+            <thead id="usageTableHead"></thead>
             <tbody id="usageTable"></tbody>
           </table>
         </div>

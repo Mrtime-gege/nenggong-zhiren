@@ -6,6 +6,8 @@ let operator = "";
 let role = "";
 let editingUser = "";
 const state = { users: [] };
+let availableModels = [];
+let selectedUserModels = new Set();
 
 async function api(path, { method = "GET", body } = {}) {
   const headers = {};
@@ -73,11 +75,14 @@ function resetForm() {
   $("newUsername").value = "";
   $("newPassword").value = "";
   $("newPassword").required = true;
-  $("newPassword").placeholder = "至少 12 位";
+  window.NGZRPasswordStrength?.hide($("newPassword"));
+  $("newPassword").placeholder = "至少 8 位";
   $("passwordFlag").className = "req";
   $("passwordFlag").textContent = "必填";
   $("newRole").disabled = false;
   $("newRole").value = "operator";
+  selectedUserModels.clear();
+  renderUserModelPicker();
   $("userCreateBtn").textContent = "添加用户";
   $("userCancelBtn").classList.add("hidden");
   setError("");
@@ -90,15 +95,72 @@ function beginEdit(user) {
   $("newUsername").disabled = true;
   $("newPassword").value = "";
   $("newPassword").required = false;
+  window.NGZRPasswordStrength?.hide($("newPassword"));
   $("newPassword").placeholder = "留空表示不修改密码";
   $("passwordFlag").className = "opt";
   $("passwordFlag").textContent = "选填";
   $("newRole").value = user.role;
   $("newRole").disabled = user.username === operator;
+  selectedUserModels = new Set((user.allowedModels || []).filter((model) => availableModels.includes(model)));
+  renderUserModelPicker();
   $("userCreateBtn").textContent = "保存修改";
   $("userCancelBtn").classList.remove("hidden");
   setError("");
   $("newPassword").focus();
+}
+
+function selectedUserModelList() {
+  return selectedUserModels.size ? [...selectedUserModels] : [];
+}
+
+function renderUserModelPicker() {
+  const picker = $("userModelPicker");
+  picker.replaceChildren();
+  const all = document.createElement("button");
+  all.type = "button";
+  all.className = "model-chip";
+  all.textContent = "全部模型";
+  all.classList.toggle("active", selectedUserModels.size === 0);
+  all.addEventListener("click", () => {
+    selectedUserModels.clear();
+    renderUserModelPicker();
+  });
+  picker.append(all);
+  for (const model of availableModels) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "model-chip";
+    chip.textContent = model;
+    chip.classList.toggle("active", selectedUserModels.has(model));
+    chip.addEventListener("click", () => {
+      if (selectedUserModels.size === 0) {
+        selectedUserModels.clear();
+        selectedUserModels.add(model);
+      } else if (selectedUserModels.has(model)) {
+        selectedUserModels.delete(model);
+      } else {
+        selectedUserModels.add(model);
+        if (selectedUserModels.size === availableModels.length) selectedUserModels.clear();
+      }
+      renderUserModelPicker();
+    });
+    picker.append(chip);
+  }
+  if (!availableModels.length) {
+    picker.append(Object.assign(document.createElement("span"), {
+      className: "admin-hint",
+      textContent: "还没有可用模型，请先在「模型」页面添加。",
+    }));
+  }
+  $("userModelHint").textContent = selectedUserModels.size
+    ? `仅可回复：${selectedUserModelList().join("、")}`
+    : "全部模型 = 不限制；无权限的票据不会出现在该用户队列中。";
+}
+
+async function loadModels() {
+  const data = await api("/op/api/models");
+  availableModels = (data.models || []).map((model) => String(model.id));
+  renderUserModelPicker();
 }
 
 function renderUsers() {
@@ -119,6 +181,10 @@ function renderUsers() {
     badge.textContent = user.role === "admin" ? "管理员" : "人工回复员";
     roleCell.append(badge);
     row.append(roleCell);
+
+    const modelsCell = document.createElement("td");
+    modelsCell.textContent = user.allowedModels?.length ? user.allowedModels.join(", ") : "全部";
+    row.append(modelsCell);
 
     const created = document.createElement("td");
     created.textContent = formatDate(user.createdAt);
@@ -175,6 +241,7 @@ async function submitUser(event) {
       const body = {};
       if (password) body.password = password;
       if (editingUser !== operator) body.role = nextRole;
+      body.allowedModels = selectedUserModelList();
       if (!Object.keys(body).length) {
         setError("没有需要保存的修改。输入新密码或修改角色后再保存。");
         return;
@@ -197,7 +264,7 @@ async function submitUser(event) {
     } else {
       await api("/op/api/users", {
         method: "POST",
-        body: { username, password, role: nextRole },
+        body: { username, password, role: nextRole, allowedModels: selectedUserModelList() },
       });
       setStatus("用户已添加");
       resetForm();
@@ -226,7 +293,9 @@ async function deleteUser(username) {
 async function init() {
   try {
     await loadMe();
+    await loadModels();
     await loadUsers();
+    window.NGZRPasswordStrength?.mount($("newPassword"));
     resetForm();
     $("userCreateForm").addEventListener("submit", submitUser);
     $("userCancelBtn").addEventListener("click", resetForm);

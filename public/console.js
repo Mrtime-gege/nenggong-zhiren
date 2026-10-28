@@ -60,12 +60,16 @@ const els = {
   transferConfirm: $("transferConfirm"),
   transferCancel: $("transferCancel"),
   transferError: $("transferError"),
+  cmdThink: $("cmdThink"),
   cmdPush: $("cmdPush"),
   cmdFinish: $("cmdFinish"),
   cmdRelease: $("cmdRelease"),
   cmdRefuse: $("cmdRefuse"),
   cmdCancel: $("cmdCancel"),
   cmdShortcuts: $("cmdShortcuts"),
+  subpageOverlay: $("subpageOverlay"),
+  subpageFrames: $("subpageFrames"),
+  subpageLoading: $("subpageLoading"),
   shortcutModal: $("shortcutModal"),
   shortcutList: $("shortcutList"),
   shortcutClose: $("shortcutClose"),
@@ -85,7 +89,6 @@ const state = {
   stats: null,
   selectedId: null,
   drafts: new Map(),
-  thinkingDrafts: new Map(),
   toolDrafts: new Map(),
   busy: false,
   pollTimer: null,
@@ -98,8 +101,9 @@ const state = {
 };
 
 const SHORTCUT_DEFS = [
-  { id: "finish", label: "完成并发送", desc: "提交回复并结束票据" },
-  { id: "push", label: "推送片段", desc: "立即发送当前草稿" },
+  { id: "think", label: "作为思考发送", desc: "把当前编辑区内容流式发送为 reasoning" },
+  { id: "push", label: "作为正文推送", desc: "把当前编辑区内容立即发送为正文" },
+  { id: "finish", label: "正文并完成", desc: "发送当前正文并结束票据" },
   { id: "claim", label: "认领票据", desc: "认领当前选中的待认领票据" },
   { id: "release", label: "放回队列", desc: "把未开始的票据放回队列" },
   { id: "refuse", label: "拒答", desc: "以 content_filter 结束" },
@@ -110,8 +114,9 @@ const SHORTCUT_DEFS = [
 ];
 
 const DEFAULT_SHORTCUTS = Object.freeze({
-  finish: "Mod+Enter",
-  push: "Mod+Shift+Enter",
+  think: "Mod+Enter",
+  push: "Shift+Enter",
+  finish: "Mod+Shift+Enter",
   claim: "Alt+C",
   release: "Alt+B",
   refuse: "Alt+R",
@@ -503,6 +508,9 @@ async function loadSession() {
     }
     els.userLabel.textContent = `${me.user.username} · ${me.user.role === "admin" ? "管理员" : "人工回复员"}`;
     window.NGZRNAV?.render(me.user.role, me.features);
+    if (me.user.role === "admin" && (location.hash === "#status" || new URLSearchParams(location.search).get("page") === "status")) {
+      openSubpage("/console/status", "状态");
+    }
     setStatus("ok", `${me.user.username} 已登录`);
     clearTimeout(state.pollTimer);
     await pollOnce();
@@ -538,6 +546,7 @@ function openUsers() {
   if (state.role !== "admin") return;
   setUsersError("");
   els.usersModal.classList.remove("hidden");
+  window.NGZRPasswordStrength?.hide(els.newPassword);
   loadUsers().catch((error) => setUsersError(error.message));
 }
 
@@ -591,6 +600,7 @@ async function createUser(event) {
     });
     els.newUsername.value = "";
     els.newPassword.value = "";
+    window.NGZRPasswordStrength?.hide(els.newPassword);
     els.newUsername.focus();
     toast("用户已添加");
     await loadUsers();
@@ -603,7 +613,7 @@ async function createUser(event) {
 }
 
 async function resetUserPassword(username) {
-  const password = window.prompt(`为 ${username} 设置新密码（至少 12 位）：`);
+  const password = window.prompt(`为 ${username} 设置新密码（至少 8 位）：`);
   if (!password) return;
   setUsersError("");
   try {
@@ -974,26 +984,41 @@ function renderStats() {
 }
 
 function queueItem(ticket) {
-  const button = el("button", `qitem${ticket.id === state.selectedId ? " selected" : ""}`);
+  const active = isActive(ticket);
+  const button = el("button", `qitem${ticket.id === state.selectedId ? " selected" : ""}${active ? " is-live" : " recent"}`);
   button.type = "button";
+  button.dataset.state = ticket.state;
   button.addEventListener("click", () => {
     state.selectedId = ticket.id;
     render();
   });
 
   const top = el("div", "qitem-top");
-  top.append(el("span", "qitem-model", ticket.model));
+  const model = el("span", "qitem-model", ticket.model);
+  model.title = ticket.model;
+  top.append(model);
   top.append(badge(STATE_LABELS[ticket.state] || ticket.state, stateTone(ticket.state)));
   top.append(el("span", "qitem-mode", ticket.stream ? "SSE" : "JSON"));
 
-  const preview = el("div", "qitem-preview", previewOf(ticket).slice(0, 140) || "(空)");
+  const rawPreview = previewOf(ticket).replace(/\s+/g, " ").trim() || "(空)";
+  const preview = el("div", "qitem-preview", rawPreview.slice(0, 240));
+  preview.title = rawPreview;
 
   const purpose = purposeOf(ticket);
   const foot = el("div", "qitem-foot");
-  foot.append(el("span", "qitem-caller", ticket.caller || "caller"));
+  const caller = el("span", "qitem-caller", ticket.caller || "caller");
+  caller.title = ticket.caller || "caller";
+  foot.append(caller);
+  if (ticket.claimedBy) {
+    foot.append(el("span", "qitem-dot"));
+    const owner = el("span", "qitem-owner", `@${ticket.claimedBy}`);
+    owner.title = `当前回复员：${ticket.claimedBy}`;
+    foot.append(owner);
+  }
   foot.append(el("span", "qitem-dot"));
   const purposeLabel = el("span", "qitem-purpose", purpose.queueLabel);
   purposeLabel.title = purpose.detailLabel;
+  purposeLabel.dataset.tone = purpose.tone;
   foot.append(purposeLabel);
   foot.append(el("span", "qitem-dot"));
   const timing = ticket.queueWaitMs !== null && ticket.queueWaitMs !== undefined ? `等 ${fmtMs(ticket.queueWaitMs)}` : fmtMs(ticket.elapsedMs);
@@ -1106,19 +1131,19 @@ function buildDetail(ticket) {
   const charCount = el("span", "pane-note", "");
   outputHead.append(outputTitle, charCount);
   const transcript = el("div", "transcript placeholder", "还没有发送任何内容。");
+  const reasoningBox = el("details", "reasoning-box hidden");
+  reasoningBox.open = true;
+  const reasoningSummary = el("summary", "reasoning-summary", "已发送思考");
+  const reasoningCount = el("span", "reasoning-count", "");
+  reasoningSummary.append(reasoningCount);
+  const reasoningText = el("pre", "reasoning-text", "");
+  reasoningBox.append(reasoningSummary, reasoningText);
   const sentTools = el("div", "sent-toolcalls hidden");
   const composer = el("div", "composer");
-  const label = el("label", "", "回复编辑器 · 推送 = 立即输出 · 完成 = 补齐后收尾");
+  const label = el("label", "", "统一编辑区 · 同一份文字可发成思考、正文或完成");
   const draft = el("textarea");
-  draft.placeholder = "在这里写回复。Ctrl+Enter 完成并发送，Ctrl+Shift+Enter 推送片段…";
+  draft.placeholder = "在这里写。Ctrl+Enter 作为思考发送，Shift+Enter 作为正文推送，Ctrl+Shift+Enter 正文并完成…";
   draft.spellcheck = false;
-
-  const thinkingPanel = el("details", "thinking-panel");
-  thinkingPanel.append(el("summary", "", "思考过程（可选，不对外）"));
-  const thinkingDraft = el("textarea", "thinking-text");
-  thinkingDraft.placeholder = "写给自己/调试用的推理，不进入对外 content；完成时会以 reasoning_content 发给支持的客户端。";
-  thinkingDraft.spellcheck = false;
-  thinkingPanel.append(thinkingDraft);
 
   const toolPanel = el("div", "toolcall-panel hidden");
   const toolTitle = el("div", "toolcall-title", "工具调用");
@@ -1138,7 +1163,9 @@ function buildDetail(ticket) {
   toolAdd.type = "button";
   const toolTemplate = el("button", "btn ghost", "填充参数模板");
   toolTemplate.type = "button";
-  toolButtons.append(toolAdd, toolTemplate);
+  const toolSend = el("button", "btn primary", "发送工具调用");
+  toolSend.type = "button";
+  toolButtons.append(toolAdd, toolTemplate, toolSend);
   const toolPending = el("div", "toolcall-pending");
   toolPanel.append(toolTitle, toolSub, toolFilter, toolSelect, toolDesc, toolArgs, toolError, toolButtons, toolPending);
 
@@ -1147,16 +1174,16 @@ function buildDetail(ticket) {
   const inspector = el("aside", "inspector");
   const inspectorHead = el("div", "inspector-head");
   inspectorHead.append(el("span", "", "检查器"));
-  inspectorHead.append(el("span", "inspector-hint", "工具 / 思考 · 拖边缘调宽"));
+  inspectorHead.append(el("span", "inspector-hint", "工具 · 拖边缘调宽"));
   const inspectorBody = el("div", "inspector-body");
   const toolEmpty = el("div", "inspector-empty", "");
-  inspectorBody.append(toolPanel, toolEmpty, thinkingPanel);
+  inspectorBody.append(toolPanel, toolEmpty);
   inspector.append(inspectorHead, inspectorBody);
 
   const composerMain = el("div", "composer-main");
   composerMain.append(label, draft, note);
   composer.append(composerMain);
-  outputPane.append(outputHead, transcript, sentTools);
+  outputPane.append(outputHead, reasoningBox, transcript, sentTools);
 
   const paneSplitter = createSplitter("pane");
   const inspectorSplitter = createSplitter("inspector");
@@ -1179,10 +1206,11 @@ function buildDetail(ticket) {
     msgCount,
     transcript,
     charCount,
+    reasoningBox,
+    reasoningCount,
+    reasoningText,
     sentTools,
     draft,
-    thinkingPanel,
-    thinkingDraft,
     composer,
     composerMain,
     toolPanel,
@@ -1196,6 +1224,7 @@ function buildDetail(ticket) {
     toolError,
     toolAdd,
     toolTemplate,
+    toolSend,
     toolPending,
     note,
     claim: els.cmdClaim,
@@ -1207,12 +1236,8 @@ function buildDetail(ticket) {
   };
 
   draft.value = state.drafts.get(ticket.id) || "";
-  thinkingDraft.value = state.thinkingDrafts.get(ticket.id) || "";
   draft.addEventListener("input", () => {
     if (detail) state.drafts.set(detail.id, draft.value);
-  });
-  thinkingDraft.addEventListener("input", () => {
-    if (detail) state.thinkingDrafts.set(detail.id, thinkingDraft.value);
   });
   toolFilter.addEventListener("input", () => {
     const currentTicket = state.tickets.find((item) => item.id === state.selectedId);
@@ -1234,6 +1259,7 @@ function buildDetail(ticket) {
   });
   toolAdd.addEventListener("click", addToolCallFromUI);
   toolTemplate.addEventListener("click", fillToolTemplate);
+  toolSend.addEventListener("click", sendToolCalls);
 
   detail = current;
   return current;
@@ -1380,7 +1406,13 @@ function renderMessages(ticket, d) {
   d.msgSignature = signature;
 
   const { conversation, context } = messageBuckets(ticket);
-  d.els.messages.replaceChildren();
+  const box = d.els.messages;
+  const previousTop = box.scrollTop;
+  const previousHeight = box.scrollHeight;
+  const previousClient = box.clientHeight;
+  const sameTicket = box.dataset.ticketId === ticket.id;
+  const wasNearBottom = !sameTicket || previousTop + previousClient >= previousHeight - 24;
+  box.replaceChildren();
 
   const summary = el("div", "messages-summary");
   summary.append(el("span", "messages-summary-main", `对话历史 · ${conversation.length} 条`));
@@ -1424,6 +1456,17 @@ function renderMessages(ticket, d) {
   } else {
     d.els.tools.style.display = "none";
     d.els.tools.replaceChildren();
+  }
+
+  box.dataset.ticketId = ticket.id;
+  if (wasNearBottom) {
+    const scrollToBottom = () => {
+      if (box.isConnected) box.scrollTop = box.scrollHeight;
+    };
+    scrollToBottom();
+    requestAnimationFrame(scrollToBottom);
+  } else {
+    box.scrollTop = previousTop;
   }
 }
 
@@ -1552,11 +1595,13 @@ function renderPendingToolCalls(ticket, d) {
   const calls = state.toolDrafts.get(ticket.id) || [];
   d.els.toolPending.replaceChildren();
   if (!calls.length) {
+    d.els.toolSend.disabled = true;
     d.els.toolPending.append(el("div", "tool-pending-empty", "尚未添加工具调用"));
     return;
   }
 
   const editable = isTicketEditable(ticket);
+  d.els.toolSend.disabled = !editable || !calls.length;
   d.els.toolPending.append(el("div", "tool-pending-head", `待发送 ${calls.length} 个工具调用`));
   calls.forEach((call, index) => {
     const row = el("div", "toolcall-item");
@@ -1718,10 +1763,11 @@ function updateComposer(ticket, d) {
     ticket.responseFormat?.type === "json_object" ||
     ticket.responseFormat?.type === "json_schema";
 
+  const reasoning = ticket.reasoning || "";
+  d.els.reasoningBox.classList.toggle("hidden", !reasoning);
+  d.els.reasoningText.textContent = reasoning;
+  d.els.reasoningCount.textContent = reasoning ? `${reasoning.length} 字` : "";
   d.els.draft.disabled = !editable;
-  d.els.thinkingPanel.classList.toggle("hidden", !isActive(ticket));
-  d.els.thinkingDraft.disabled = !editable;
-
   note.classList.add("hidden");
   if (!isActive(ticket)) {
     note.classList.remove("hidden");
@@ -1753,7 +1799,7 @@ function updateComposer(ticket, d) {
   }
 
   if (d.els.draft.disabled) d.els.draft.placeholder = "认领票据后即可输入回复";
-  else d.els.draft.placeholder = `在这里写回复。${prettyShortcut("finish")} 完成，${prettyShortcut("push")} 推送…`;
+  else d.els.draft.placeholder = `在这里写。${prettyShortcut("think")} 作为思考发送 · ${prettyShortcut("push")} 作为正文推送 · ${prettyShortcut("finish")} 正文并完成…`;
   syncCommandbar();
 }
 
@@ -1762,10 +1808,14 @@ function updateComposer(ticket, d) {
 async function doAction(name) {
   const ticket = state.tickets.find((item) => item.id === state.selectedId);
   if (!ticket || state.busy) return;
+  if (name === "think" && ticket.protocol === "anthropic-messages") {
+    toast("Anthropic 路径暂不支持流式 thinking。");
+    return;
+  }
 
   const draft = detail && detail.id === ticket.id ? detail.els.draft.value : "";
-  if (name === "push" && !draft.trim()) {
-    toast("先输入回复内容，再推送片段");
+  if ((name === "push" || name === "think") && !draft.trim()) {
+    toast(name === "think" ? "先输入内容，再作为思考发送。" : "先输入正文，再推送片段。");
     detail?.els.draft.focus();
     return;
   }
@@ -1778,11 +1828,9 @@ async function doAction(name) {
 
   try {
     const body = {};
-    const thinking = detail && detail.id === ticket.id ? detail.els.thinkingDraft.value : "";
-    if (name === "push" || name === "finish") body.text = draft;
+    if (name === "push" || name === "think" || name === "finish") body.text = draft;
     if (name === "finish") {
       body.finishReason = "stop";
-      if (thinking.trim()) body.reasoning = thinking;
       if (ticket.responseFormat) body.replaceText = true;
       const toolCalls = state.toolDrafts.get(ticket.id) || [];
       if (toolCalls.length) body.toolCalls = toolCalls;
@@ -1791,18 +1839,17 @@ async function doAction(name) {
       body.refusal = draft.trim() || "无法协助这个请求。";
     }
 
-    const endpoint = name === "push" ? "chunk" : name === "refuse" ? "finish" : name;
+    const endpoint =
+      name === "think" ? "reasoning" : name === "push" ? "chunk" : name === "refuse" ? "finish" : name;
     await api(`/op/api/tickets/${encodeURIComponent(ticket.id)}/${endpoint}`, { method: "POST", body });
 
-    if (name === "push" || name === "finish" || name === "refuse") {
+    if (name === "think" || name === "push" || name === "finish" || name === "refuse") {
       state.drafts.set(ticket.id, "");
       if (detail && detail.id === ticket.id) detail.els.draft.value = "";
     }
     if (name === "finish" || name === "refuse") {
-      state.thinkingDrafts.set(ticket.id, "");
       state.toolDrafts.delete(ticket.id);
       if (detail && detail.id === ticket.id) {
-        detail.els.thinkingDraft.value = "";
         detail.els.toolArgs.value = "";
         renderPendingToolCalls(ticket, detail);
       }
@@ -1844,6 +1891,9 @@ function syncCommandbar() {
   els.cmdTemplates.disabled = state.busy || !ticket || !detail || detail.els.draft.disabled;
   els.cmdTransfer.disabled =
     state.busy || !ticket || ticket.state !== "claimed" || !(mine || state.role === "admin");
+  els.cmdThink.disabled = state.busy || !editable || !ticket || ticket.protocol === "anthropic-messages";
+  els.cmdThink.title =
+    ticket?.protocol === "anthropic-messages" ? "Anthropic 路径暂不支持流式 thinking" : "";
   els.cmdPush.disabled = state.busy || !editable;
   els.cmdFinish.disabled = state.busy || !editable || (toolRequired && pending.length === 0);
   els.cmdFinish.title =
@@ -1856,18 +1906,19 @@ function syncCommandbar() {
     !active ||
     !(mine || ticket.state === "queued" || (state.role === "admin"));
   els.commandHint.textContent = ticket
-    ? `${prettyShortcut("finish")} 完成 · ${prettyShortcut("push")} 推送 · ${prettyShortcut("help")} 快捷键`
+    ? `${prettyShortcut("think")} 思考 · ${prettyShortcut("push")} 正文 · ${prettyShortcut("finish")} 完成 · ${prettyShortcut("help")} 快捷键`
     : "选择票据后启用操作";
   updateShortcutLabels();
 }
 
 function setButtonsDisabled(flag) {
-  for (const button of [els.cmdClaim, els.cmdTemplates, els.cmdTransfer, els.cmdPush, els.cmdFinish, els.cmdRelease, els.cmdRefuse, els.cmdCancel]) {
+  for (const button of [els.cmdClaim, els.cmdTemplates, els.cmdTransfer, els.cmdThink, els.cmdPush, els.cmdFinish, els.cmdRelease, els.cmdRefuse, els.cmdCancel]) {
     button.disabled = flag;
   }
   if (detail?.els) {
     detail.els.toolAdd.disabled = flag;
     detail.els.toolTemplate.disabled = flag;
+    detail.els.toolSend.disabled = flag || !(state.toolDrafts.get(detail.id) || []).length;
   }
   if (!flag) {
     const ticket = currentTicket();
@@ -2025,7 +2076,7 @@ async function openTransfer() {
   els.transferTarget.disabled = true;
   els.transferModal.classList.remove("hidden");
   try {
-    const data = await api("/op/api/operators");
+    const data = await api(`/op/api/operators?model=${encodeURIComponent(ticket.model)}`);
     const choices = (data.operators || []).filter((item) => item.username !== state.operator);
     if (!choices.length) {
       els.transferError.textContent = "没有其他可转交的用户。";
@@ -2068,26 +2119,179 @@ async function confirmTransfer() {
   }
 }
 
+async function sendToolCalls() {
+  const ticket = currentTicket();
+  if (!ticket || !detail || detail.id !== ticket.id) return;
+  const calls = state.toolDrafts.get(ticket.id) || [];
+  if (!calls.length) {
+    toast("先添加至少一个工具调用。");
+    return;
+  }
+  await doAction("finish");
+}
+
+/* ---------------------------- subpages ---------------------------- */
+
+const subpageCache = new Map();
+
+function installSubpageStyles(frame) {
+  try {
+    const doc = frame.contentDocument;
+    if (!doc) return;
+    let style = doc.getElementById("ngzr-embed-style");
+    if (!style) {
+      style = doc.createElement("style");
+      style.id = "ngzr-embed-style";
+      doc.head.append(style);
+    }
+    style.textContent = `
+      .topbar { display: none !important; }
+      .admin-main { padding-top: 18px !important; }
+      body { min-height: 100vh; }
+    `;
+    doc.documentElement.classList.add("ngzr-embedded");
+  } catch {
+    /* same-origin pages should always be reachable; ignore transient document swaps */
+  }
+}
+
+function setTopnavActive(href) {
+  for (const link of document.querySelectorAll("#topnav a.topnav-item")) {
+    link.classList.toggle("active", link.getAttribute("href") === href);
+  }
+}
+
+function syncTopbarOffset() {
+  const topbar = document.querySelector(".topbar");
+  if (!topbar) return;
+  document.documentElement.style.setProperty(
+    "--topbar-height",
+    `${Math.ceil(topbar.getBoundingClientRect().height)}px`,
+  );
+}
+
+function openSubpage(href, title) {
+  if (!href || href === "/console") {
+    closeSubpage();
+    return;
+  }
+  const wasOpen = !els.subpageOverlay.classList.contains("hidden");
+  els.subpageOverlay.classList.remove("hidden");
+  document.body.classList.add("subpage-open");
+  syncTopbarOffset();
+  setTopnavActive(href);
+
+  for (const frame of subpageCache.values()) frame.hidden = true;
+  let frame = subpageCache.get(href);
+  if (!frame) {
+    frame = document.createElement("iframe");
+    frame.className = "subpage-frame";
+    frame.title = title || "子页面";
+    frame.src = `${href}${href.includes("?") ? "&" : "?"}embed=1`;
+    frame.addEventListener("load", () => {
+      installSubpageStyles(frame);
+      frame.dataset.loaded = "1";
+      if (!frame.hidden) els.subpageLoading.hidden = true;
+    });
+    subpageCache.set(href, frame);
+    els.subpageFrames.append(frame);
+  }
+  frame.hidden = false;
+  if (frame.dataset.loaded === "1") els.subpageLoading.hidden = true;
+  else els.subpageLoading.hidden = false;
+
+  const current = `${location.pathname}${location.search}`;
+  if (current !== href) {
+    if (wasOpen) history.replaceState({ ngzrSubpage: href }, "", href);
+    else history.pushState({ ngzrSubpage: href }, "", href);
+  }
+}
+
+function closeSubpage({ fromHistory = false } = {}) {
+  if (els.subpageOverlay.classList.contains("hidden")) return;
+  els.subpageOverlay.classList.add("hidden");
+  document.body.classList.remove("subpage-open");
+  els.subpageLoading.hidden = true;
+  setTopnavActive("/console");
+  if (!fromHistory && location.pathname !== "/console") {
+    history.replaceState({}, "", "/console");
+  }
+}
+
+function initSubpages() {
+  syncTopbarOffset();
+  window.addEventListener("resize", syncTopbarOffset);
+  document.getElementById("topnav")?.addEventListener("click", (event) => {
+    const link = event.target.closest("a.topnav-item");
+    if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    const href = link.getAttribute("href");
+    if (!href || !href.startsWith("/console")) return;
+    event.preventDefault();
+    if (href === "/console") closeSubpage();
+    else openSubpage(href, link.textContent.trim());
+  });
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key !== "Escape" || els.subpageOverlay.classList.contains("hidden")) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      closeSubpage();
+    },
+    true,
+  );
+  window.addEventListener("message", (event) => {
+    if (event.origin !== location.origin || event.data?.type !== "ngzr-models-changed") return;
+    for (const href of ["/console/keys", "/console/users"]) {
+      const frame = subpageCache.get(href);
+      if (!frame) continue;
+      frame.dataset.loaded = "";
+      frame.src = `${href}${href.includes("?") ? "&" : "?"}embed=1`;
+    }
+  });
+  window.addEventListener("popstate", () => {
+    if (!els.subpageOverlay.classList.contains("hidden")) closeSubpage({ fromHistory: true });
+  });
+}
+
 /* ------------------------------ shortcuts ------------------------------ */
+
+const SHORTCUTS_VERSION = 2;
 
 function loadShortcuts() {
   const loaded = {};
+  let stored = {};
   try {
-    const stored = JSON.parse(localStorage.getItem("ngzr.shortcuts") || "{}");
-    for (const [key, value] of Object.entries(stored)) {
-      if (typeof value === "string" && /^(Mod|Shift|Alt|Control|Meta)(\+[A-Za-z0-9/\[\]=,.;'`-]+)+$/.test(value)) {
-        loaded[key] = value;
-      }
-    }
+    stored = JSON.parse(localStorage.getItem("ngzr.shortcuts") || "{}") || {};
   } catch {
     /* corrupt localStorage: use defaults */
+  }
+  // Before v2, Ctrl+Enter was finish and Ctrl+Shift+Enter was push. Migrate
+  // those known defaults once, while preserving deliberately customized keys.
+  if (stored.__version !== SHORTCUTS_VERSION) {
+    if (stored.finish === "Mod+Enter" && stored.push === "Mod+Shift+Enter") {
+      delete stored.finish;
+      delete stored.push;
+    }
+    stored.__version = SHORTCUTS_VERSION;
+    try {
+      localStorage.setItem("ngzr.shortcuts", JSON.stringify(stored));
+    } catch {
+      /* private mode: keep defaults in memory */
+    }
+  }
+  for (const [key, value] of Object.entries(stored)) {
+    if (key === "__version") continue;
+    if (typeof value === "string" && /^(Mod|Shift|Alt|Control|Meta)(\+[A-Za-z0-9/\[\]=,.;'`-]+)+$/.test(value)) {
+      loaded[key] = value;
+    }
   }
   return { ...DEFAULT_SHORTCUTS, ...loaded };
 }
 
 function saveShortcuts() {
   try {
-    localStorage.setItem("ngzr.shortcuts", JSON.stringify(state.shortcuts));
+    localStorage.setItem("ngzr.shortcuts", JSON.stringify({ ...state.shortcuts, __version: SHORTCUTS_VERSION }));
   } catch {
     toast("快捷键已应用，但浏览器拒绝持久化");
   }
@@ -2117,10 +2321,13 @@ function comboFromEvent(event) {
   if (["Control", "Meta", "Shift", "Alt"].includes(event.key)) return null;
   const mod = event.ctrlKey || event.metaKey;
   const alt = event.altKey;
-  if (!mod && !alt) return null;
+  const shift = event.shiftKey;
+  // Shift+Enter is a first-class send shortcut. Allow Shift-only for
+  // non-letter keys so typing an uppercase letter isn't captured globally.
+  if (!mod && !alt && !(shift && ["Enter", "Tab", "Escape"].includes(event.key))) return null;
   const parts = [];
   if (mod) parts.push("Mod");
-  if (event.shiftKey) parts.push("Shift");
+  if (shift) parts.push("Shift");
   if (alt) parts.push("Alt");
   let key = event.key;
   if (key === " ") key = "Space";
@@ -2259,8 +2466,8 @@ function handleGlobalShortcut(event) {
     target instanceof HTMLElement &&
     (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
   if (typing && !isDraft) return;
-  if (isDraft && !["finish", "push"].includes(action)) return;
-  if (["finish", "push", "claim", "release", "refuse", "cancel", "next"].includes(action) && !currentTicket()) {
+  if (isDraft && !["think", "finish", "push"].includes(action)) return;
+  if (["think", "finish", "push", "claim", "release", "refuse", "cancel", "next"].includes(action) && !currentTicket()) {
     return;
   }
 
@@ -2318,6 +2525,7 @@ function init() {
   els.cmdClaim.addEventListener("click", () => doAction("claim"));
   els.cmdTemplates.addEventListener("click", openTemplateModal);
   els.cmdTransfer.addEventListener("click", openTransfer);
+  els.cmdThink.addEventListener("click", () => doAction("think"));
   els.cmdPush.addEventListener("click", () => doAction("push"));
   els.cmdFinish.addEventListener("click", () => doAction("finish"));
   els.cmdRelease.addEventListener("click", () => doAction("release"));
@@ -2341,6 +2549,8 @@ function init() {
   els.shortcutModal.addEventListener("click", (event) => {
     if (event.target === els.shortcutModal) closeShortcuts();
   });
+  initSubpages();
+  window.NGZRPasswordStrength?.mount(els.newPassword);
   document.addEventListener("keydown", handleGlobalShortcut);
   syncCommandbar();
 

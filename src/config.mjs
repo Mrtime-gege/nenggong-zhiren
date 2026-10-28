@@ -178,6 +178,7 @@ export function loadConfig(file = CONFIG_FILE) {
   const usageFile = resolvePath(stringAt(storage, "usageFile", "storage.usageFile", "usage.json"));
   const settingsFile = resolvePath(stringAt(storage, "settingsFile", "storage.settingsFile", "settings.json"));
   const auditFile = resolvePath(stringAt(storage, "auditFile", "storage.auditFile", "audit.log"));
+  const modelsFile = resolvePath(stringAt(storage, "modelsFile", "storage.modelsFile", "models.json"));
   const modelIds = stringArrayAt(models, "ids", "models.ids", ["human-1", "human-1-fast"]);
   if (!modelIds.length) throw new ConfigError("models.ids must contain at least one model name.");
   const defaultModel = stringAt(models, "default", "models.default", modelIds[0]);
@@ -269,7 +270,7 @@ export function loadConfig(file = CONFIG_FILE) {
       ),
       corsOrigins: stringArrayAt(server, "corsOrigins", "server.corsOrigins", ["*"]),
     }),
-    storage: Object.freeze({ usersFile, apiKeysFile, stateFile, usageFile, settingsFile, auditFile }),
+    storage: Object.freeze({ usersFile, apiKeysFile, stateFile, usageFile, settingsFile, auditFile, modelsFile }),
     auth: Object.freeze({
       sessionTtlMs: integerAt(auth, "sessionTtlMs", "auth.sessionTtlMs", {
         fallback: 12 * 60 * 60_000,

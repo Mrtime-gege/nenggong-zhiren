@@ -61,11 +61,24 @@
             </label>
             <label class="field field-wide">
               <span class="field-label">允许模型 <em class="opt">选填</em></span>
-              <input id="newKeyModels" type="text" autocomplete="off" spellcheck="false" placeholder="留空 = 全部；多个用逗号分隔" />
+              <div id="newKeyModelPicker" class="model-picker" role="group" aria-label="允许模型"></div>
+              <input id="newKeyCustomModels" type="text" autocomplete="off" spellcheck="false" placeholder="其他模型（可选，逗号分隔）" />
+              <span id="newKeyModelHint" class="admin-hint">全部模型 = 不限制；可以保存常用模型组合。</span>
             </label>
             <label class="field field-wide">
-              <span class="field-label">过期时间 <em class="opt">选填</em></span>
-              <input id="newKeyExpires" type="datetime-local" />
+              <span class="field-label">有效期 <em class="opt">选填</em></span>
+              <div class="expiry-controls">
+                <select id="newKeyExpiryPreset">
+                  <option value="never">永不过期</option>
+                  <option value="1">1 天后</option>
+                  <option value="7">7 天后</option>
+                  <option value="30">30 天后</option>
+                  <option value="90">90 天后</option>
+                  <option value="custom">自定义时间</option>
+                </select>
+                <input id="newKeyExpires" type="datetime-local" disabled />
+              </div>
+              <span id="newKeyExpiryHint" class="admin-hint">永不过期：密钥一直有效，直到手动停用或删除。</span>
             </label>
             <div class="form-actions">
               <button id="keyCreateBtn" class="btn primary" type="submit">生成新密钥</button>
@@ -92,6 +105,7 @@
                   <th>名称</th>
                   <th>密钥提示</th>
                   <th>状态</th>
+                  <th>有效期</th>
                   <th>配额</th>
                   <th>模型</th>
                   <th>创建 / 最近使用</th>

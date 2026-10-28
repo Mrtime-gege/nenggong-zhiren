@@ -18,7 +18,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { AuthError, AuthService } from "./src/auth.mjs";
 import { ROOT, loadConfig } from "./src/config.mjs";
-import { ApiKeyError, ApiKeyStore } from "./src/data/index.mjs";
+import { ApiKeyError, ApiKeyStore, ModelError, ModelStore } from "./src/data/index.mjs";
 import { QuotaError, StateStore, UsageStore } from "./src/data/index.mjs";
 import { AuditStore, SettingsError, SettingsStore } from "./src/data/index.mjs";
 import { generateSecret, otpauthUrl } from "./src/totp.mjs";
@@ -38,7 +38,7 @@ import {
 import { validateJsonSchema, formatSchemaErrors } from "./src/schema.mjs";
 
 const PUBLIC_DIR = path.join(ROOT, "public");
-const VERSION = "0.5.0";
+const VERSION = "0.5.1";
 const PUBLIC_CONFIG = (() => {
   try {
     return loadConfig();
@@ -57,6 +57,7 @@ const config = Object.freeze({
   usageFile: PUBLIC_CONFIG.storage.usageFile,
   settingsFile: PUBLIC_CONFIG.storage.settingsFile,
   auditFile: PUBLIC_CONFIG.storage.auditFile,
+  modelsFile: PUBLIC_CONFIG.storage.modelsFile,
   features: PUBLIC_CONFIG.features,
   sessionTtlMs: PUBLIC_CONFIG.auth.sessionTtlMs,
   sessionIdleMs: PUBLIC_CONFIG.auth.sessionIdleMs,
@@ -112,18 +113,31 @@ const audit = new AuditStore({
 /* Models                                                             */
 /* ------------------------------------------------------------------ */
 
+const modelStore = new ModelStore({
+  file: config.modelsFile,
+  seed: config.modelCatalog,
+  logger: console,
+}).init();
 const MODELS = new Map();
-for (const model of config.modelCatalog) {
-  MODELS.set(model.id, {
-    ...model,
-    created: 1767225600, // 2026-01-01, stable fake creation date
-    owned_by: "human-backend",
-    humanInTheLoop: true,
-    speedMs: model.id.includes("fast")
-      ? Math.max(2, Math.round(live.queue.streamDelayMs / 4))
-      : live.queue.streamDelayMs,
-  });
+let runtimeDefaultModel = config.defaultModel;
+
+function loadRuntimeModels() {
+  MODELS.clear();
+  for (const model of modelStore.list()) {
+    MODELS.set(model.id, {
+      ...model,
+      created: Math.floor(model.createdAt / 1000),
+      owned_by: "human-backend",
+      humanInTheLoop: true,
+      speedMs: model.id.includes("fast")
+        ? Math.max(2, Math.round(live.queue.streamDelayMs / 4))
+        : live.queue.streamDelayMs,
+    });
+  }
+  if (!MODELS.has(runtimeDefaultModel)) runtimeDefaultModel = [...MODELS.keys()][0];
 }
+
+loadRuntimeModels();
 
 function refreshModelSpeeds() {
   for (const model of MODELS.values()) {
@@ -392,11 +406,19 @@ function assertSameOrigin(req) {
 }
 
 function applySecurityHeaders(req, res) {
+  let embeddedConsolePage = false;
+  try {
+    const url = new URL(req.url || "/", "http://localhost");
+    embeddedConsolePage =
+      url.searchParams.get("embed") === "1" && url.pathname.startsWith("/console/");
+  } catch {
+    /* malformed URL: keep the strict defaults */
+  }
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: http: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'",
+    `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: http: https:; connect-src 'self'; frame-ancestors ${embeddedConsolePage ? "'self'" : "'none'"}; base-uri 'none'; form-action 'self'; object-src 'none'`,
   );
-  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-Frame-Options", embeddedConsolePage ? "SAMEORIGIN" : "DENY");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
@@ -1100,6 +1122,7 @@ function createTicket({ request, caller, releaseSlot }) {
     toolCalls: [],
     responseFormat: request.responseFormat,
     reasoning: "",
+    reasoningDelivered: 0,
     effort: request.effort || "",
     refusal: null,
     clientUser: request.clientUser,
@@ -1355,10 +1378,13 @@ function writeToolCallDeltas(ticket) {
 
 function writeReasoning(ticket) {
   if (!ticket.reasoning || ticket.protocol === ANTHROPIC_PROTOCOL) return;
+  const pending = ticket.reasoning.slice(ticket.reasoningDelivered || 0);
+  if (!pending) return;
   ticket.reasoningSent = true;
-  const parts = splitForStream(ticket.reasoning);
+  const parts = splitForStream(pending);
   for (const part of parts) {
     emitSse(ticket, chunkPayload(ticket, { reasoning_content: part }));
+    ticket.reasoningDelivered += part.length;
   }
 }
 
@@ -1392,7 +1418,7 @@ function writeStreamFinal(ticket, usage) {
     return;
   }
   if (ticket.refusal) writeRefusal(ticket);
-  else if (ticket.reasoning && !ticket.reasoningSent) writeReasoning(ticket);
+  else if (ticket.reasoning && !ticket.refusal) writeReasoning(ticket);
   if (ticket.toolCalls.length) writeToolCallDeltas(ticket);
   emitSse(ticket, chunkPayload(ticket, {}, ticket.finishReason));
   if (ticket.includeUsage) {
@@ -1639,7 +1665,7 @@ function providerJson() {
     mode: "human-in-the-loop",
     disclosure: "Responses are produced by human responders, not by a trained model.",
     protocols: ["openai-chat-completions", "anthropic-messages"],
-    default_model: config.defaultModel,
+    default_model: runtimeDefaultModel,
     models: [...MODELS.values()].map(modelJson),
     limits: {
       max_concurrent_per_key: live.limits.maxConcurrentPerKey,
@@ -1790,8 +1816,44 @@ function requireAdmin(session) {
   }
 }
 
+function allowedModelsFor(session) {
+  if (session.role === "admin") return null;
+  const user = auth.getUser(session.username);
+  return user?.allowedModels?.length ? new Set(user.allowedModels) : null;
+}
+
+function canSeeModel(session, model) {
+  const allowed = allowedModelsFor(session);
+  return !allowed || allowed.has(model);
+}
+
+function visibleModelsFor(session) {
+  const allowed = allowedModelsFor(session);
+  return [...MODELS.keys()].filter((model) => !allowed || allowed.has(model));
+}
+
+function validateAllowedModels(raw) {
+  if (raw === undefined || raw === null || raw === "") return [];
+  if (!Array.isArray(raw) && typeof raw !== "string") {
+    throw new ApiError(400, "allowedModels must be an array or comma-separated string.", "invalid_request_error", "invalid_allowed_models");
+  }
+  const list = Array.isArray(raw) ? raw : String(raw).split(",");
+  const models = [...new Set(list.map((item) => String(item).trim()).filter(Boolean))].slice(0, 64);
+  const unknown = models.filter((model) => !MODELS.has(model));
+  if (unknown.length) {
+    throw new ApiError(400, `未知模型：${unknown.join(", ")}`, "invalid_request_error", "unknown_model");
+  }
+  return models;
+}
+
 function publicUser(user) {
-  return { username: user.username, role: user.role, createdAt: user.createdAt, mfaEnabled: user.mfaEnabled === true };
+  return {
+    username: user.username,
+    role: user.role,
+    createdAt: user.createdAt,
+    allowedModels: [...(user.allowedModels || [])],
+    mfaEnabled: user.mfaEnabled === true,
+  };
 }
 
 function csvCell(value) {
@@ -1859,13 +1921,17 @@ async function handleOperator(req, res, url, session) {
 
   if (pathname === "/op/api/operators" && req.method === "GET") {
     const online = auth.onlineUsers();
+    const model = String(url.searchParams.get("model") || "").trim();
     return sendJson(res, 200, {
       ok: true,
-      operators: auth.listUsers().map((user) => ({
-        username: user.username,
-        role: user.role,
-        online: online.has(user.username),
-      })),
+      operators: auth.listUsers()
+        .filter((user) => !model || user.role === "admin" || !user.allowedModels?.length || user.allowedModels.includes(model))
+        .map((user) => ({
+          username: user.username,
+          role: user.role,
+          allowedModels: [...(user.allowedModels || [])],
+          online: online.has(user.username),
+        })),
     });
   }
 
@@ -2019,6 +2085,7 @@ async function handleOperator(req, res, url, session) {
         api_keys: fileInfo(config.apiKeysFile),
         state: fileInfo(config.stateFile),
         usage: fileInfo(config.usageFile),
+        models: fileInfo(config.modelsFile),
         audit: fileInfo(config.auditFile),
       },
       audit: audit.list({ limit: 20 }),
@@ -2038,7 +2105,7 @@ async function handleOperator(req, res, url, session) {
         name: body.name,
         value: body.value,
         limits: body.limits,
-        allowedModels: body.allowedModels,
+        allowedModels: body.allowedModels === undefined ? undefined : validateAllowedModels(body.allowedModels),
         expiresAt: body.expiresAt,
       });
       audit.append({ actor: session.username, action: "key.create", target: created.record.id, ip: clientIp(req), detail: created.record.name });
@@ -2080,7 +2147,7 @@ async function handleOperator(req, res, url, session) {
         name: body.name,
         value: body.value,
         limits: body.limits,
-        allowedModels: body.allowedModels,
+        allowedModels: body.allowedModels === undefined ? undefined : validateAllowedModels(body.allowedModels),
         expiresAt: body.expiresAt,
         disabled: body.disabled,
       });
@@ -2097,13 +2164,71 @@ async function handleOperator(req, res, url, session) {
     throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
   }
 
+  if (pathname === "/op/api/models") {
+    requireAdmin(session);
+    if (req.method === "GET") {
+      return sendJson(res, 200, {
+        ok: true,
+        models: modelStore.list(),
+        defaultModel: runtimeDefaultModel,
+      });
+    }
+    if (req.method === "POST") {
+      const record = modelStore.add({
+        id: body.id,
+        name: body.name,
+        description: body.description,
+        contextWindow: body.contextWindow,
+        maxOutputTokens: body.maxOutputTokens,
+        capabilities: body.capabilities,
+      });
+      loadRuntimeModels();
+      refreshModelSpeeds();
+      audit.append({ actor: session.username, action: "model.create", target: record.id, ip: clientIp(req), detail: record.name });
+      log(`[admin] model added id=${record.id} by=${session.username}`);
+      return sendJson(res, 201, { ok: true, model: record, defaultModel: runtimeDefaultModel });
+    }
+    throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+  }
+
+  const modelMatch = /^\/op\/api\/models\/([^/]+)$/.exec(pathname);
+  if (modelMatch) {
+    requireAdmin(session);
+    const modelId = decodeURIComponent(modelMatch[1]);
+    if (req.method === "DELETE") {
+      const usedByKey = apiKeys.list().find((key) => key.allowedModels?.includes(modelId));
+      if (usedByKey) {
+        throw new ApiError(409, `模型正在被调用密钥「${usedByKey.name}」使用，请先修改该密钥。`, "invalid_request_error", "model_in_use_by_key");
+      }
+      const usedByUser = auth.listUsers().find((user) => user.allowedModels?.includes(modelId));
+      if (usedByUser) {
+        throw new ApiError(409, `模型正在被用户「${usedByUser.username}」的回复权限使用，请先修改该用户。`, "invalid_request_error", "model_in_use_by_user");
+      }
+      if ([...tickets.values()].some((ticket) => ticket.model === modelId && !ticket.finished)) {
+        throw new ApiError(409, "该模型还有未结束的票据，暂时不能删除。", "invalid_request_error", "model_in_use_by_ticket");
+      }
+      modelStore.remove(modelId);
+      loadRuntimeModels();
+      refreshModelSpeeds();
+      audit.append({ actor: session.username, action: "model.delete", target: modelId, ip: clientIp(req) });
+      log(`[admin] model removed id=${modelId} by=${session.username}`);
+      return sendJson(res, 200, { ok: true, defaultModel: runtimeDefaultModel });
+    }
+    throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+  }
+
   if (pathname === "/op/api/users") {
     requireAdmin(session);
     if (req.method === "GET") {
       return sendJson(res, 200, { ok: true, users: auth.listUsers().map(publicUser) });
     }
     if (req.method === "POST") {
-      const user = auth.addUser(body.username, body.password, body.role || "operator");
+      const user = auth.addUser(
+        body.username,
+        body.password,
+        body.role || "operator",
+        validateAllowedModels(body.allowedModels || []),
+      );
       audit.append({ actor: session.username, action: "user.create", target: user.username, ip: clientIp(req), detail: user.role });
       log(`[admin] user added username=${user.username} role=${user.role} by=${session.username}`);
       return sendJson(res, 201, { ok: true, user: publicUser(user) });
@@ -2127,8 +2252,11 @@ async function handleOperator(req, res, url, session) {
         }
         user = auth.setRole(target, body.role);
       }
-      if (!user && body.password === undefined && body.role === undefined) {
-        throw new ApiError(400, "Provide password and/or role.", "invalid_request_error", "empty_update");
+      if (body.allowedModels !== undefined) {
+        user = auth.setAllowedModels(target, validateAllowedModels(body.allowedModels));
+      }
+      if (!user && body.password === undefined && body.role === undefined && body.allowedModels === undefined) {
+        throw new ApiError(400, "Provide password, role and/or allowedModels.", "invalid_request_error", "empty_update");
       }
       audit.append({ actor: session.username, action: "user.update", target, ip: clientIp(req) });
       log(`[admin] user updated username=${target} by=${session.username}`);
@@ -2153,7 +2281,7 @@ async function handleOperator(req, res, url, session) {
       user: { username: session.username, role: session.role },
       csrfToken: session.csrf,
       version: VERSION,
-      models: [...MODELS.keys()],
+      models: visibleModelsFor(session),
       config: {
         queueTimeoutMs: live.queue.waitTimeoutMs,
         responseTimeoutMs: live.queue.responseTimeoutMs,
@@ -2169,7 +2297,7 @@ async function handleOperator(req, res, url, session) {
   }
 
   if (pathname === "/op/api/tickets" && req.method === "GET") {
-    const all = [...tickets.values()];
+    const all = [...tickets.values()].filter((ticket) => canSeeModel(session, ticket.model));
     const activeStates = new Set(["queued", "claimed", "streaming", "finishing"]);
     const active = all
       .filter((ticket) => activeStates.has(ticket.state))
@@ -2187,13 +2315,16 @@ async function handleOperator(req, res, url, session) {
     });
   }
 
-  const match = /^\/op\/api\/tickets\/([^/]+)(?:\/(claim|chunk|finish|release|cancel|transfer))?$/.exec(pathname);
+  const match = /^\/op\/api\/tickets\/([^/]+)(?:\/(claim|chunk|finish|release|cancel|transfer|reasoning))?$/.exec(pathname);
   if (!match) {
     throw new ApiError(404, "Operator route not found.", "invalid_request_error", "not_found");
   }
 
   const ticket = requireTicket(decodeURIComponent(match[1]));
   const action = match[2];
+  if (!canSeeModel(session, ticket.model)) {
+    throw new ApiError(404, "Ticket not found.", "invalid_request_error", "ticket_not_found");
+  }
 
   if (!action && req.method === "GET") {
     return sendJson(res, 200, { ok: true, ticket: publicTicket(ticket) });
@@ -2259,6 +2390,10 @@ async function handleOperator(req, res, url, session) {
     if (!auth.hasUser(targetName)) {
       throw new ApiError(404, "Target operator not found.", "invalid_request_error", "operator_not_found");
     }
+    const targetUser = auth.getUser(targetName);
+    if (targetUser?.role !== "admin" && targetUser?.allowedModels?.length && !targetUser.allowedModels.includes(ticket.model)) {
+      throw new ApiError(403, "Target operator cannot handle this model.", "invalid_request_error", "target_model_forbidden");
+    }
     const previous = ticket.claimedBy;
     ticket.claimedBy = targetName;
     ticket.claimedAt = Date.now();
@@ -2273,6 +2408,36 @@ async function handleOperator(req, res, url, session) {
     persistRuntime();
     log(`[transfer] ${ticket.id} ${previous || "-"} -> ${targetName} by=${operator}`);
     return sendJson(res, 200, { ok: true, ticket: publicTicket(ticket) });
+  }
+
+  if (action === "reasoning") {
+    requireClaimant("stream reasoning");
+    if (ticket.finished || ticket.clientGone) {
+      throw new ApiError(410, "The caller is no longer connected.", "invalid_request_error", "client_gone");
+    }
+    if (!["claimed", "streaming"].includes(ticket.state)) {
+      throw new ApiError(409, `Ticket is ${ticket.state}.`, "invalid_request_error", "ticket_not_active");
+    }
+    const text = typeof body.text === "string" ? body.text : "";
+    if (!text.trim()) {
+      throw new ApiError(400, "text must be a non-empty string.", "invalid_request_error", "invalid_reasoning");
+    }
+    if (ticket.reasoning.length + text.length > 100_000) {
+      throw new ApiError(413, "Reasoning text is too long.", "invalid_request_error", "reasoning_too_long");
+    }
+    ticket.reasoning += text;
+    armResponseTimeout(ticket);
+    if (ticket.stream && ticket.protocol !== ANTHROPIC_PROTOCOL) {
+      if (!ticket.headersSent) beginStream(ticket);
+      writeReasoning(ticket);
+    }
+    persistRuntime();
+    log(`[reasoning] ${ticket.id} +${text.length} chars total=${ticket.reasoning.length}`);
+    return sendJson(res, 200, {
+      ok: true,
+      reasoningLength: ticket.reasoning.length,
+      delivered: ticket.reasoningDelivered || 0,
+    });
   }
 
   if (action === "chunk") {
@@ -2468,12 +2633,14 @@ const PUBLIC_FILES = new Map([
   ["/admin.css", { file: "admin.css", type: "text/css; charset=utf-8" }],
   ["/theme.css", { file: "theme.css", type: "text/css; charset=utf-8" }],
   ["/navigation.js", { file: "navigation.js", type: "text/javascript; charset=utf-8" }],
+  ["/password-strength.js", { file: "password-strength.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-settings.js", { file: "admin-settings.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-usage.js", { file: "admin-usage.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-audit.js", { file: "admin-audit.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-status.js", { file: "admin-status.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-users.js", { file: "admin-users.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-keys.js", { file: "admin-keys.js", type: "text/javascript; charset=utf-8" }],
+  ["/admin-models.js", { file: "admin-models.js", type: "text/javascript; charset=utf-8" }],
 ]);
 
 function escapeHtml(value) {
@@ -2624,7 +2791,10 @@ async function handleLogin(req, res, url) {
   audit.append({ actor: user.username, action: "login.success", target: user.role, ip });
   log(`[login-ok] user=${user.username} role=${user.role} ip=${ip}`);
   res.setHeader("Set-Cookie", auth.sessionCookie(session, req));
-  res.writeHead(303, { Location: safeNextPath(form.next, "/console") });
+  const defaultPath = user.role === "admin" ? "/console#status" : "/console";
+  const requestedNext = String(form.next || "").trim();
+  const destination = safeNextPath(requestedNext && requestedNext !== "/console" ? requestedNext : "", defaultPath);
+  res.writeHead(303, { Location: destination });
   res.end();
 }
 
@@ -2639,13 +2809,18 @@ async function handleLogout(req, res) {
 
 async function handleMe(req, res) {
   const session = requireSession(req);
+  const user = auth.getUser(session.username);
   return sendJson(res, 200, {
     ok: true,
-    user: { username: session.username, role: session.role },
+    user: {
+      username: session.username,
+      role: session.role,
+      allowedModels: [...(user?.allowedModels || [])],
+    },
     csrfToken: session.csrf,
     expiresAt: session.expiresAt,
     version: VERSION,
-    models: [...MODELS.keys()],
+    models: visibleModelsFor(session),
     config: {
       queueTimeoutMs: live.queue.waitTimeoutMs,
       responseTimeoutMs: live.queue.responseTimeoutMs,
@@ -2709,8 +2884,9 @@ async function route(req, res) {
     }
 
     if (pathname === "/login" && req.method === "GET") {
-      if (auth.getSession(req)) {
-        res.writeHead(302, { Location: "/console" });
+      const existingSession = auth.getSession(req);
+      if (existingSession) {
+        res.writeHead(302, { Location: existingSession.role === "admin" ? "/console#status" : "/console" });
         res.end();
         return;
       }
@@ -2731,7 +2907,8 @@ async function route(req, res) {
     }
 
     if (pathname === "/" && req.method === "GET") {
-      res.writeHead(302, { Location: auth.getSession(req) ? "/console" : "/login" });
+      const rootSession = auth.getSession(req);
+      res.writeHead(302, { Location: rootSession ? (rootSession.role === "admin" ? "/console#status" : "/console") : "/login" });
       res.end();
       return;
     }
@@ -2753,6 +2930,13 @@ async function route(req, res) {
         throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
       }
       return serveAdminPage(req, res, "users.html");
+    }
+
+    if (pathname === "/console/models" || pathname === "/console/models/") {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      }
+      return serveAdminPage(req, res, "models.html");
     }
 
     if (pathname === "/console/keys" || pathname === "/console/keys/") {
@@ -2826,11 +3010,11 @@ function handleError(res, error) {
   const apiError =
     error instanceof ApiError
       ? error
-      : error instanceof AuthError || error instanceof ApiKeyError || error instanceof SettingsError
+      : error instanceof AuthError || error instanceof ApiKeyError || error instanceof ModelError || error instanceof SettingsError
         ? new ApiError(error.status, error.message, "invalid_request_error", error.code)
         : new ApiError(500, "The server had an error while processing your request.", "server_error", "internal_error");
 
-  if (!(error instanceof ApiError) && !(error instanceof AuthError) && !(error instanceof ApiKeyError) && !(error instanceof SettingsError)) {
+  if (!(error instanceof ApiError) && !(error instanceof AuthError) && !(error instanceof ApiKeyError) && !(error instanceof ModelError) && !(error instanceof SettingsError)) {
     console.error(nowIso(), "[unhandled]", error);
   }
 

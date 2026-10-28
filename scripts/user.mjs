@@ -124,7 +124,7 @@ async function main() {
       const role = takeFlag(args, "--role") || "operator";
       const username = args[0];
       if (!username) throw new Error("用法：add <username> [--role operator|admin]");
-      const password = await promptPassword(`为 ${username} 输入密码（至少 12 位）：`);
+      const password = await promptPassword(`为 ${username} 输入密码（至少 8 位）：`);
       const user = auth.addUser(username, password, role);
       console.log(`已创建用户 ${user.username}（${user.role}）`);
       return;
@@ -133,7 +133,7 @@ async function main() {
     if (command === "passwd") {
       const username = args[0];
       if (!username) throw new Error("用法：passwd <username>");
-      const password = await promptPassword(`为 ${username} 输入新密码（至少 12 位）：`);
+      const password = await promptPassword(`为 ${username} 输入新密码（至少 8 位）：`);
       auth.setPassword(username, password);
       console.log(`已更新 ${username} 的密码，现有会话已失效。`);
       return;

@@ -13,7 +13,7 @@ import { verifyTotp } from "./totp.mjs";
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9_.-]{2,31}$/;
 const ROLES = new Set(["admin", "operator"]);
-const PASSWORD_MIN = 12;
+const PASSWORD_MIN = 8;
 const PASSWORD_MAX = 256;
 const SCRYPT_OPTIONS = Object.freeze({ N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
 const HASH_BYTES = 64;
@@ -37,6 +37,12 @@ export function normalizeUsername(value) {
     );
   }
   return username;
+}
+
+function normalizeAllowedModels(raw) {
+  if (raw === undefined || raw === null || raw === "") return [];
+  if (!Array.isArray(raw)) throw new AuthError("允许模型必须是字符串数组。", "invalid_allowed_models");
+  return [...new Set(raw.map((item) => String(item).trim()).filter(Boolean))].slice(0, 64);
 }
 
 export function assertPassword(value) {
@@ -203,6 +209,7 @@ export class AuthService {
         salt: raw.salt,
         hash: raw.hash,
         createdAt: Number(raw.createdAt) || this.now(),
+        allowedModels: normalizeAllowedModels(raw.allowedModels || []),
         totpSecret: typeof raw.totpSecret === "string" ? raw.totpSecret : "",
         mfaEnabled: raw.mfaEnabled === true && typeof raw.totpSecret === "string" && raw.totpSecret.length > 0,
       });
@@ -219,6 +226,7 @@ export class AuthService {
         salt: user.salt,
         hash: user.hash,
         createdAt: user.createdAt,
+        allowedModels: user.allowedModels || [],
         totpSecret: user.totpSecret || undefined,
         mfaEnabled: user.mfaEnabled === true,
       })),
@@ -235,7 +243,13 @@ export class AuthService {
 
   listUsers() {
     return [...this.users.values()]
-      .map(({ username, role, createdAt, mfaEnabled }) => ({ username, role, createdAt, mfaEnabled: mfaEnabled === true }))
+      .map(({ username, role, createdAt, allowedModels, mfaEnabled }) => ({
+        username,
+        role,
+        createdAt,
+        allowedModels: [...(allowedModels || [])],
+        mfaEnabled: mfaEnabled === true,
+      }))
       .sort((a, b) => a.username.localeCompare(b.username));
   }
 
@@ -299,7 +313,7 @@ export class AuthService {
     return this.users.size > 0;
   }
 
-  addUser(username, password, role = "operator") {
+  addUser(username, password, role = "operator", allowedModels = []) {
     const normalized = normalizeUsername(username);
     assertPassword(password);
     if (!ROLES.has(role)) throw new AuthError("角色只能是 admin 或 operator。", "invalid_role");
@@ -311,10 +325,38 @@ export class AuthService {
       salt,
       hash: hashPassword(password, salt).toString("hex"),
       createdAt: this.now(),
+      allowedModels: normalizeAllowedModels(allowedModels),
     };
     this.users.set(normalized, user);
     this.persistUsers();
-    return { username: user.username, role: user.role, createdAt: user.createdAt };
+    return {
+      username: user.username,
+      role: user.role,
+      createdAt: user.createdAt,
+      allowedModels: [...user.allowedModels],
+    };
+  }
+
+  setAllowedModels(username, allowedModels) {
+    const normalized = normalizeUsername(username);
+    const user = this.users.get(normalized);
+    if (!user) throw new AuthError("用户不存在。", "user_not_found", 404);
+    user.allowedModels = normalizeAllowedModels(allowedModels);
+    this.users.set(normalized, user);
+    this.persistUsers();
+    return { ...user, allowedModels: [...user.allowedModels] };
+  }
+
+  getUser(username) {
+    const user = this.users.get(normalizeUsername(username));
+    if (!user) return null;
+    return {
+      username: user.username,
+      role: user.role,
+      createdAt: user.createdAt,
+      allowedModels: [...(user.allowedModels || [])],
+      mfaEnabled: user.mfaEnabled === true,
+    };
   }
 
   setPassword(username, password) {
@@ -345,7 +387,12 @@ export class AuthService {
     this.users.set(normalized, user);
     this.persistUsers();
     this.destroyUserSessions(normalized);
-    return { username: user.username, role: user.role, createdAt: user.createdAt };
+    return {
+      username: user.username,
+      role: user.role,
+      createdAt: user.createdAt,
+      allowedModels: [...(user.allowedModels || [])],
+    };
   }
 
   removeUser(username) {
