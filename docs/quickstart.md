@@ -41,7 +41,7 @@ npm start
 启动成功时终端会显示：
 
 ```text
-能工智人 (nenggong-zhiren) v0.5.1 listening on 0.0.0.0:7355
+能工智人 (nenggong-zhiren) v0.6.0 listening on 0.0.0.0:7355
   login       http://127.0.0.1:7355/login
   console     http://127.0.0.1:7355/console
   LAN         http://<LAN-IP>:7355/login
@@ -68,8 +68,9 @@ npm start
 - `/console/models`：添加/删除对外模型名；删除前检查调用密钥、回复员权限和未结束票据；
 - `/console/keys`：生成、编辑、轮换调用密钥，可指定自定义密钥，并设置永不过期或具体到期时间、允许的模型（只能从模型页选择，可多选）、分钟/日/月请求配额和并发上限；
 - `/console/usage`：按密钥、状态、模型、日期和多个密钥组合筛选，查看分钟/日/月用量、区间统计和趋势；
+- `/console/history`：按会话、模型、状态、调用方、回复员、日期和全文检索已结束票据，并导出 CSV；
 - `/console/audit`：查看登录、账号、密钥、设置和票据操作；
-- `/console/settings`：统一管理运行参数、通知/审计开关和管理员 MFA；
+- `/console/settings`：所有回复员可管理自己的个性化设置；管理员另外管理运行参数、功能开关和 MFA；
 - 坐席工作台支持快捷回复模板和票据转交；模板保存在当前浏览器。
 
 > 还没有调用密钥时服务仍能启动，但 `/v1/*` 会拒绝所有调用方；先生成一个密钥即可。
@@ -88,7 +89,7 @@ npm start
 | `models.json` | 运行时模型注册表，首次启动自动生成 | 否，仅保留本机 |
 | 日志 | 默认 stdout；建议重定向到项目目录外 | 否 |
 
-活动票据、会话和登录限速计数在内存；**重启进程会中断未完成请求并要求重新登录**。已完成票据和幂等记录会写入 `state.json`，用户、密钥、用量、设置和审计文件保留。
+活动票据、认领状态和 SSE 日志会写入 `state.json`，重启后恢复；登录会话和限速计数在内存。带 `Idempotency-Key` 的调用方可以重连未完成票据；用户、密钥、用量、设置、审计和历史保留。
 
 管理员密码只保存哈希。忘记密码时用 CLI 重置：
 
@@ -188,9 +189,12 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7355/login
 # 4. 调用方 key 有效（在网页「API 密钥」里生成）
 curl -fsS http://127.0.0.1:7355/v1/models \
   -H 'Authorization: Bearer <CALLER_KEY>'
+
+# 5. 监控指标可读
+curl -fsS http://127.0.0.1:7355/metrics | head
 ```
 
-然后在浏览器打开 `http://<LAN-IP>:7355/login`，管理员登录后默认进入状态子页；坐席页面仍可从顶部导航进入。
+然后在浏览器打开 `http://<LAN-IP>:7355/login`，管理员登录后默认进入状态子页；坐席、历史、模型和 API 密钥等页面从顶部导航进入。
 
 ## 6. 第一个真实请求
 
@@ -208,6 +212,18 @@ curl -N http://127.0.0.1:7355/v1/chat/completions \
 请求会停在队列里，直到坐席在 `/console` 认领并完成。没有坐席回答时，
 `queue.waitTimeoutMs` 后返回超时错误。
 
+文件附件示例：
+
+```bash
+curl -X POST http://127.0.0.1:7355/v1/files \
+  -H 'Authorization: Bearer <CALLER_KEY>' \
+  -H 'Content-Type: text/plain' \
+  -H 'X-Filename: notes.txt' \
+  --data-binary @notes.txt
+```
+
+把返回的 `file_...` 放进消息的 `file` 内容块即可。HTML、SVG、Office、ZIP 和未知二进制会被拒绝。
+
 ## 7. 停止与重启
 
 | 方式 | 停止 | 重启 |
@@ -216,7 +232,7 @@ curl -N http://127.0.0.1:7355/v1/chat/completions \
 | nohup | `kill $(cat .../server.pid)` | 重新执行 nohup |
 | systemd | `systemctl stop nenggong-zhiren` | `systemctl restart nenggong-zhiren` |
 
-重启会清空内存队列、会话和限速计数；调用方会收到连接错误或超时，需要重试。用户、密钥、用量、设置、审计和已完成/幂等快照不会丢。
+重启会重新加载运行状态：活动票据会恢复，带相同 `Idempotency-Key` 的调用方可以重连；登录会话和限速计数仍需重新建立。用户、密钥、用量、设置、审计、活动票据和已完成/幂等快照都会保留。
 
 ## 8. 常见问题
 

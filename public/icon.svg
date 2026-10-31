@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="能工智人">
+  <defs>
+    <linearGradient id="bg" x1="8" y1="4" x2="56" y2="62" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#111a24"/>
+      <stop offset="0.55" stop-color="#0a1119"/>
+      <stop offset="1" stop-color="#080c12"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="17" y1="14" x2="49" y2="51" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#b4c4ff"/>
+      <stop offset="0.55" stop-color="#8aa4f8"/>
+      <stop offset="1" stop-color="#83c7a4"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0" cy="0" r="1" gradientTransform="translate(32 28) rotate(90) scale(26)">
+      <stop offset="0" stop-color="#8aa4f8" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#8aa4f8" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur stdDeviation="1.8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect x="1" y="1" width="62" height="62" rx="15" fill="url(#bg)" stroke="#2a3542" stroke-opacity="0.9"/>
+  <rect x="3" y="3" width="58" height="58" rx="13" fill="url(#halo)"/>
+  <circle cx="32" cy="31" r="18.5" fill="none" stroke="url(#signal)" stroke-opacity="0.42" stroke-width="1.5" stroke-dasharray="2 5" stroke-linecap="round"/>
+  <circle cx="32" cy="23.5" r="6.1" fill="url(#signal)"/>
+  <path d="M21.4 45.2c0.5-6.5 4.9-10.7 10.6-10.7s10.1 4.2 10.6 10.7" fill="none" stroke="url(#signal)" stroke-width="4.6" stroke-linecap="round"/>
+  <circle cx="49.5" cy="17.2" r="2.3" fill="#83c7a4" filter="url(#glow)"/>
+  <circle cx="14.3" cy="29.5" r="1.6" fill="#a8baff" opacity="0.75"/>
+</svg>

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0e13" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>能工智人 · 设置</title>
+    <link rel="stylesheet" href="/console.css" />
+    <link rel="stylesheet" href="/admin.css" />
+    <link rel="stylesheet" href="/theme.css" />
+  </head>
+  <body data-page="settings">
+    <header class="topbar">
+      <div class="brand"><span class="brand-icon-wrap"><img class="brand-icon" src="/icon.svg" alt="" /><span class="status-dot ok"></span></span><span class="brand-name">能工智人</span><span class="brand-sub">设置</span></div>
+      <nav id="topnav" class="topnav" aria-label="主导航"></nav>
+      <div class="conn"><span id="userLabel" class="user-label">正在加载…</span><button id="logout" class="btn ghost" type="button">退出</button><span id="status" class="conn-status">连接中…</span></div>
+    </header>
+    <main class="admin-main">
+      <div class="admin-head"><div><h1>设置</h1><p>个性化设置只影响当前账号。功能设置和运行参数由管理员统一管理。</p></div></div>
+
+      <div class="admin-card personal-card">
+        <div class="admin-card-title">个性化设置 <span class="admin-hint">仅当前账号</span></div>
+        <form id="personalForm" class="admin-form">
+          <label class="switch-line"><input id="prefBrowserNotify" type="checkbox" /><span>浏览器通知</span></label>
+          <label class="switch-line"><input id="prefSound" type="checkbox" /><span>新请求提示音</span></label>
+          <label class="switch-line"><input id="prefAutoClaim" type="checkbox" /><span>默认自动接单</span></label>
+          <label class="switch-line field-full"><input id="prefAutoAiClaim" type="checkbox" /><span>认领票据后自动使用 AI 辅助（需管理员允许）</span></label>
+          <p id="prefAutoAiClaimHint" class="admin-hint">认领后自动 AI 需要管理员先开启该功能。</p>
+          <label class="field"><span class="field-label">排队提醒（秒） <em class="opt">选填</em></span><input id="prefQueueAlert" type="number" min="10" max="86400" /><span class="field-hint">范围 10–86400 秒；0 或越界会拒绝本次修改。</span></label>
+          <div class="form-actions"><button id="notifyPermission" class="btn ghost" type="button">请求浏览器通知权限</button><span class="admin-hint">修改后自动保存</span></div>
+        </form>
+        <div id="personalError" class="form-error" role="alert"></div>
+      </div>
+    </main>
+    <div id="settingsToast" class="settings-toast" role="status" aria-live="polite"></div>
+    <script src="/navigation.js"></script>
+    <script src="/admin-settings.js"></script>
+  </body>
+</html>

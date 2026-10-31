@@ -35,6 +35,9 @@ function blank(keyId) {
     monthCount: 0,
     totalRequests: 0,
     totalTokens: 0,
+    uploadDay: "",
+    uploadBytesDay: 0,
+    uploadBytesTotal: 0,
     history: {},
   };
 }
@@ -47,6 +50,8 @@ function publicUsage(entry) {
     month: entry.monthCount,
     totalRequests: entry.totalRequests,
     totalTokens: entry.totalTokens,
+    uploadBytesDay: entry.uploadBytesDay,
+    uploadBytesTotal: entry.uploadBytesTotal,
     history: Object.entries(entry.history || {})
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, value]) => ({ date, requests: value.requests || 0, tokens: value.tokens || 0 })),
@@ -101,6 +106,9 @@ export class UsageStore {
         monthCount: Number(raw.monthCount) || 0,
         totalRequests: Number(raw.totalRequests) || 0,
         totalTokens: Number(raw.totalTokens) || 0,
+        uploadDay: typeof raw.uploadDay === "string" ? raw.uploadDay : "",
+        uploadBytesDay: Number(raw.uploadBytesDay) || 0,
+        uploadBytesTotal: Number(raw.uploadBytesTotal) || 0,
         history:
           raw.history && typeof raw.history === "object" && !Array.isArray(raw.history)
             ? Object.fromEntries(
@@ -131,6 +139,9 @@ export class UsageStore {
         monthCount: entry.monthCount,
         totalRequests: entry.totalRequests,
         totalTokens: entry.totalTokens,
+        uploadDay: entry.uploadDay,
+        uploadBytesDay: entry.uploadBytesDay,
+        uploadBytesTotal: entry.uploadBytesTotal,
         history: entry.history,
       })),
     };
@@ -217,6 +228,38 @@ export class UsageStore {
     this.dirty = true;
     this.schedule();
     return publicUsage(entry);
+  }
+
+  checkUploadQuota(keyId, bytes, limitBytes) {
+    const amount = Math.max(0, Number(bytes) || 0);
+    const limit = Math.max(0, Number(limitBytes) || 0);
+    if (!limit) return;
+    const day = utcDay(this.now());
+    const entry = this.entries.get(keyId) || blank(keyId);
+    const used = entry.uploadDay === day ? entry.uploadBytesDay : 0;
+    if (used + amount <= limit) return;
+    const next = new Date(this.now());
+    next.setUTCHours(24, 0, 0, 0);
+    throw new QuotaError("Attachment upload quota exceeded for today.", {
+      code: "upload_quota_exceeded",
+      retryAfterMs: Math.max(1_000, next.getTime() - this.now()),
+    });
+  }
+
+  addUploadBytes(keyId, bytes) {
+    const amount = Math.max(0, Number(bytes) || 0);
+    if (!amount) return;
+    const day = utcDay(this.now());
+    const entry = this.entries.get(keyId) || blank(keyId);
+    if (entry.uploadDay !== day) {
+      entry.uploadDay = day;
+      entry.uploadBytesDay = 0;
+    }
+    entry.uploadBytesDay += amount;
+    entry.uploadBytesTotal += amount;
+    this.entries.set(keyId, entry);
+    this.dirty = true;
+    this.schedule();
   }
 
   addTokens(keyId, tokens) {

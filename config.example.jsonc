@@ -29,6 +29,10 @@
     // 空数组表示只使用本机、localhost 和当前监听网卡自动生成的地址。
     "trustedHosts": [],
 
+    // 只有来自这些代理地址的 X-Forwarded-For 才会被采信。
+    // 留空表示永远使用 TCP remoteAddress（最安全）。
+    "trustedProxies": [],
+
     // 浏览器跨域读取接口的允许来源。
     //   ["*"] = 允许任意来源读取（方便接入，安全边界仍靠调用密钥）
     //   []    = 不允许跨域读取
@@ -45,8 +49,8 @@
     // 文件只保存密钥哈希和名称，不保存明文；权限自动设为 0600。
     "apiKeysFile": "api-keys.json",
 
-    // 已完成请求和幂等记录的快照。服务重启时用来恢复已完成请求；
-    // 重启时仍在等待/处理中的请求无法恢复原连接，会标记为中断。
+    // 活动/已完成请求、认领状态、SSE 日志和幂等记录快照。
+    // 重启后恢复活动票据；原 socket 不会恢复，带幂等键的调用方可重连。
     "stateFile": "state.json",
 
     // 每个调用密钥的分钟/日/月配额计数，重启后保留。
@@ -58,8 +62,26 @@
     // 管理操作、登录和密钥变更的审计记录文件；按行追加。
     "auditFile": "audit.log",
 
+    // 文件附件存储目录；权限会自动收紧到 0700。
+    "attachmentsDir": "attachments",
+
     // 运行时模型清单。首次启动会从 models.catalog 初始化；之后由「模型」页面维护。
-    "modelsFile": "models.json"
+    "modelsFile": "models.json",
+
+    // 服务端共享/个人快捷回复模板。
+    "templatesFile": "templates.json",
+
+    // AI 辅助的 API Key（0600，只有管理员能写；不会通过 API 返回）。
+    "aiSecretsFile": "ai-secrets.json",
+
+    // AI 辅助的每日限额计数（不保存提示词或回复内容）。
+    "aiUsageFile": "ai-usage.json",
+
+    // 已完成票据的 SQLite/FTS5 历史索引；没有 node:sqlite 时自动回退内存搜索。
+    "historyFile": "history.db",
+
+    // 票据/幂等记录的 SQLite 状态库；启动时若库为空会导入旧 state.json。
+    "stateDb": "state.db"
   },
 
   "auth": {
@@ -97,8 +119,9 @@
     // 范围 10000–86400000；便于查看最近记录。状态快照会写入 state.json。
     "retentionMs": 1800000,
 
-    // 逐段发送时每小段的基础停顿，单位毫秒。
-    // 范围 0–5000；0 表示不额外停顿，数字越大越像“慢慢想”。
+    // 全局默认输出速度：每个流式片段的基准停顿，单位毫秒。
+    // 模型未单独设置 speedMs 时使用；范围 0–60000。
+    // 0 表示不限速；26 是安装默认值，数字越大越慢。
     "streamDelayMs": 26
   },
 
@@ -166,24 +189,58 @@
     "keyFile": ""
   },
 
+  "attachments": {
+    // 只允许文本/CSV/JSON、PNG/JPEG/GIF/WebP 和 PDF。
+    "enabled": true,
+    "maxBytes": 10485760,
+    // 每个调用密钥每天最多上传多少字节；0 表示不限。
+    "maxBytesPerKeyPerDay": 209715200,
+    // 整个附件目录的总容量上限；达到后拒绝新上传，不做自动删除。
+    "maxStoreBytes": 2147483648,
+    // 可选：上传图片在独立 Python/Pillow worker 中重编码。默认关闭，核心功能不依赖 Python。
+    // 开启后如果 worker 不可用会回退原图；基础文件头/尺寸校验仍生效。
+    "reencodeImages": false,
+    // 可选：PDF 页图按需渲染，需要 Python 包 pypdfium2。默认关闭，关闭时只显示文字预览。
+    "pdfPagePreview": false,
+    "maxPerRequest": 5,
+    // 每个请求最多携带多少个图片 URL；防止一条请求无限塞入远程/data URL 图片。
+    "maxImagesPerRequest": 8,
+    // 一条请求内所有图片 URL 字符串的总字节上限（含 data URL）。
+    "maxImageUrlBytes": 2000000,
+    "maxTextPreviewBytes": 262144,
+    "maxPdfTextBytes": 262144,
+    // 附件保留时间，默认 30 天；定时在上传时清理过期文件。
+    "retentionMs": 2592000000
+  },
+
+  "audit": {
+    // 单个审计日志文件的最大字节数；超过后按 .1/.2/... 轮转。
+    "maxBytes": 10485760,
+    // 保留多少个历史审计文件；0 不允许，最小 1。
+    "keepFiles": 5
+  },
+
+  "alerts": {
+    // 监控告警：留空 webhookUrl 表示只记录指标，不发送外部通知。
+    "webhookUrl": "",
+    // 队列积压超过该数量时触发。
+    "queueDepth": 10,
+    // 最老待接单请求等待超过该毫秒数时触发。
+    "oldestWaitMs": 60000,
+    // 同类告警冷却时间，避免频繁发送。
+    "cooldownMs": 300000
+  },
+
   "features": {
-    // 默认是否启用浏览器通知；管理员可在设置页覆盖。
-    "browserNotifications": true,
-
-    // 新请求到来时是否播放提示音；管理员可在设置页覆盖。
-    "notificationSound": true,
-
-    // 新坐席第一次进入工作台时是否默认勾选自动接单。
-    "autoClaimDefault": false,
-
     // 是否记录登录、账号、密钥和设置变更。
     "auditLog": true,
 
     // 是否在顶部导航显示用量页面。
     "usageDashboard": true,
 
-    // 请求等待超过多少秒时提醒回复员（设置页可覆盖）。
-    "queueAlertSeconds": 120
+    // 未登录访客是否可以查看 /guide 新手教程。
+    // 登录用户始终可以通过顶部导航在控制台内查看教程。
+    "publicGuide": true
   },
 
   "logging": {

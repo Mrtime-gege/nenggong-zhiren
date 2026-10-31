@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "能工智人 API",
-    "version": "0.5.1",
+    "version": "0.6.0",
     "description": "人工回复服务。响应由登录后的人工回复员产生，不是训练出来的模型。支持 OpenAI Chat Completions 和 Anthropic Messages 两种请求格式。",
     "license": { "name": "MIT" }
   },
@@ -18,11 +18,42 @@
         "responses": { "200": { "description": "服务正常" } }
       }
     },
+    "/metrics": {
+      "get": {
+        "summary": "Prometheus 聚合指标",
+        "description": "不含聊天内容、调用方名称或密钥；适合内网 Prometheus 抓取。",
+        "security": [],
+        "responses": { "200": { "description": "Prometheus text format", "content": { "text/plain": { "schema": { "type": "string" } } } } }
+      }
+    },
     "/provider": {
       "get": {
         "summary": "服务与模型元数据",
         "security": [],
         "responses": { "200": { "description": "服务信息、模型卡与限制" } }
+      }
+    },
+    "/v1/files": {
+      "post": {
+        "summary": "上传附件",
+        "description": "接受原始二进制或单文件 multipart。仅允许文本/日志/JSON/CSV、PNG/JPEG/GIF/WebP 和 PDF。",
+        "parameters": [{ "name": "X-Filename", "in": "header", "required": false, "schema": { "type": "string" }, "description": "原始二进制上传时的文件名；multipart 使用文件字段名。" }],
+        "requestBody": { "required": true, "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } }, "multipart/form-data": { "schema": { "type": "object", "properties": { "file": { "type": "string", "format": "binary" } } } } } },
+        "responses": { "201": { "description": "附件已就绪" }, "400": { "description": "无效请求" }, "413": { "description": "文件过大" }, "415": { "description": "不支持的类型" } }
+      }
+    },
+    "/v1/files/{id}": {
+      "get": {
+        "summary": "附件元数据",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "附件元数据" }, "404": { "description": "不存在或不属于当前密钥" } }
+      }
+    },
+    "/v1/files/{id}/content": {
+      "get": {
+        "summary": "下载附件原文件",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "附件二进制", "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } } }, "404": { "description": "不存在或不属于当前密钥" } }
       }
     },
     "/v1/models": {

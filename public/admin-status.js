@@ -47,7 +47,7 @@ function heroMetric(label, value, tone = "") {
   return item;
 }
 
-function vital(icon, label, value, sub, tone = "") {
+function vital(icon, label, value, sub, tone = "", meter = null) {
   const card = document.createElement("div");
   card.className = `vital-card ${tone}`;
   const top = document.createElement("div");
@@ -63,6 +63,14 @@ function vital(icon, label, value, sub, tone = "") {
   caption.className = "vital-sub";
   caption.textContent = sub || "";
   card.append(top, number, caption);
+  if (meter !== null) {
+    const track = document.createElement("div");
+    track.className = "vital-meter";
+    const fill = document.createElement("span");
+    fill.style.width = `${Math.max(0, Math.min(100, meter))}%`;
+    track.append(fill);
+    card.append(track);
+  }
   return card;
 }
 
@@ -86,33 +94,74 @@ function flowStep(label, count, tone, max) {
   return step;
 }
 
+let lastLoadedAt = 0;
+
+function updateSyncStamp() {
+  const el = $("lastSync");
+  if (!el) return;
+  if (!lastLoadedAt) {
+    el.textContent = "尚未同步";
+    return;
+  }
+  const next = Math.max(0, 15 - Math.floor((Date.now() - lastLoadedAt) / 1000));
+  el.textContent = `同步于 ${new Date(lastLoadedAt).toLocaleTimeString()} · ${next}s 后刷新`;
+}
+
 function render(data) {
   const q = data.queue || {};
   const active = (q.claimed || 0) + (q.streaming || 0) + (q.finishing || 0);
   const total = data.ticketsTotal || 0;
-  const online = true;
-
-  $("heroState").textContent = online ? "ONLINE" : "DEGRADED";
+  const alerts = data.alerts?.active || [];
+  const degraded = alerts.length > 0;
+  const health = $("heroHealth");
+  if (health) {
+    health.classList.toggle("degraded", degraded);
+    health.classList.toggle("online", !degraded);
+  }
+  $("heroHealthText").textContent = degraded ? `检测到 ${alerts.length} 项告警` : "运行正常";
+  const memory = data.memory || {};
+  const rss = memory.rssMb ?? data.memoryMb ?? 0;
+  const heapUsed = memory.heapUsedMb ?? 0;
+  const heapTotal = memory.heapTotalMb ?? 0;
+  const load1 = data.loadAverage?.[0] ?? 0;
+  const cpuCount = data.cpuCount ?? 1;
+  const loadPercent = Math.min(100, Math.round((load1 / Math.max(1, cpuCount)) * 100));
+  const heapPercent = heapTotal ? Math.min(100, Math.round((heapUsed / heapTotal) * 100)) : 0;
+  const heroEl = document.querySelector(".status-hero");
+  heroEl?.classList.toggle("degraded", degraded);
+  $("heroState").textContent = degraded ? "DEGRADED" : "ONLINE";
   $("heroUptime").textContent = `uptime ${duration(data.uptimeSec)}`;
   const hero = $("heroMetrics");
   hero.replaceChildren(
     heroMetric("VERSION", data.version || "—", "accent"),
     heroMetric("NODE", data.node || "—"),
-    heroMetric("MEMORY", `${data.memoryMb || 0} MB`),
+    heroMetric("LOAD 1M", `${load1.toFixed(2)} / ${cpuCount}`),
+    heroMetric("RSS", `${rss} MB`),
   );
-  $("lastSync").textContent = `同步于 ${new Date().toLocaleTimeString()}`;
+  lastLoadedAt = Date.now();
+  updateSyncStamp();
+
+  const alertStrip = $("alertStrip");
+  alertStrip.classList.toggle("hidden", alerts.length === 0);
+  if (alerts.length) {
+    const labels = { queue_depth: "队列积压", oldest_wait: "最老请求等待超时" };
+    alertStrip.textContent = `● ${alerts.map((key) => labels[key] || key).join(" / ")} · 当前待接单 ${data.alerts?.queueDepth ?? q.queued ?? 0} · 最长等待 ${Math.round((data.alerts?.oldestWaitMs || 0) / 1000)}s`;
+  }
 
   $("statusStats").replaceChildren(
     vital("◷", "运行时间", duration(data.uptimeSec), "process uptime", "cyan"),
     vital("⌁", "待接单", q.queued ?? 0, "waiting requests", (q.queued || 0) > 0 ? "warm" : ""),
     vital("◉", "进行中", active, "claimed + streaming", active > 0 ? "violet" : ""),
-    vital("▤", "票据总数", total, "in memory", ""),
-    vital("▣", "内存", `${data.memoryMb || 0} MB`, "rss footprint", ""),
-    vital("◇", "版本", data.version || "—", "release channel", "accent"),
+    vital("▤", "内存票据", total, "in-memory tickets", ""),
+    vital("▣", "内存", `${rss} MB`, `heap ${heapUsed}/${heapTotal} MB`, "", heapPercent),
+    vital("◌", "系统负载", `${load1.toFixed(2)} / ${cpuCount}`, `1m load · ${loadPercent}%`, loadPercent > 80 ? "warm" : "", loadPercent),
   );
 
   const flow = $("queueFlow");
   const max = Math.max(1, q.queued || 0, q.claimed || 0, q.streaming || 0, q.finishing || 0);
+  const idle = !(q.queued || q.claimed || q.streaming || q.finishing);
+  flow.dataset.idle = idle ? "true" : "false";
+  if ($("flowNote")) $("flowNote").textContent = idle ? "当前无排队活动" : "当前队列切片";
   flow.replaceChildren(
     flowStep("待接单", q.queued ?? 0, "queued", max),
     flowStep("已认领", q.claimed ?? 0, "claimed", max),
@@ -129,8 +178,11 @@ function render(data) {
     ["并发上限", data.settings?.limits?.maxConcurrentPerKey],
     ["等待超时", `${data.settings?.queue?.waitTimeoutMs} ms`],
     ["回复超时", `${data.settings?.queue?.responseTimeoutMs} ms`],
-    ["通知", data.settings?.features?.browserNotifications ? "开启" : "关闭"],
     ["审计", data.settings?.features?.auditLog ? "开启" : "关闭"],
+    ["本进程请求 / 完成", `${data.stats?.created ?? 0} / ${data.stats?.completed ?? 0}`],
+    ["本进程失败 / 拒绝", `${data.stats?.failed ?? 0} / ${data.stats?.cancelled ?? 0}`],
+    ["平均等待", `${data.stats?.avgClaimMs ?? 0} ms`],
+    ["平均处理", `${data.stats?.avgHandleMs ?? 0} ms`],
   ];
   for (const [key, value] of pairs) {
     const cell = document.createElement("div");
@@ -147,16 +199,28 @@ function render(data) {
   vault.replaceChildren();
   const storage = Object.entries(data.storage || {});
   const maxBytes = Math.max(1, ...storage.map(([, info]) => info.bytes || 0));
+  const storageLabels = {
+    users: "账号库",
+    api_keys: "调用密钥",
+    state: "旧版 state（可选）",
+    state_db: "状态数据库",
+    history: "历史索引",
+    usage: "调用用量",
+    models: "模型清单",
+    attachments: "附件目录",
+    audit: "审计日志",
+  };
   for (const [name, info] of storage) {
     const row = document.createElement("div");
     row.className = `vault-row ${info.exists ? "present" : "missing"}`;
     const head = document.createElement("div");
     head.className = "vault-head";
     const label = document.createElement("span");
-    label.textContent = name;
+    label.textContent = storageLabels[name] || name;
     const state = document.createElement("span");
-    state.className = `vault-state ${info.exists ? "ok" : "off"}`;
-    state.textContent = info.exists ? "ONLINE" : "MISSING";
+    const legacyOptional = name === "state";
+    state.className = `vault-state ${info.exists ? "ok" : legacyOptional ? "optional" : "off"}`;
+    state.textContent = info.exists ? "ONLINE" : legacyOptional ? "未使用" : "MISSING";
     head.append(label, state);
     const meta = document.createElement("div");
     meta.className = "vault-meta";
@@ -176,6 +240,19 @@ function render(data) {
 
   const feed = $("recentAudit");
   feed.replaceChildren();
+  const actionLabels = {
+    "ticket.claim": "认领",
+    "ticket.finish": "完成",
+    "ticket.meta": "修改标签",
+    "ai.relay": "AI 中继",
+    "settings.update": "修改设置",
+    "key.create": "新增密钥",
+    "key.update": "修改密钥",
+    "key.delete": "删除密钥",
+    "user.update": "修改用户",
+    "login-ok": "登录成功",
+    "login-fail": "登录失败",
+  };
   for (const event of data.audit || []) {
     const item = document.createElement("div");
     item.className = "feed-item";
@@ -186,7 +263,7 @@ function render(data) {
     const top = document.createElement("div");
     top.className = "feed-top";
     const action = document.createElement("strong");
-    action.textContent = event.action || "event";
+    action.textContent = actionLabels[event.action] || event.action || "event";
     const time = document.createElement("span");
     time.textContent = new Date(event.at).toLocaleTimeString();
     top.append(action, time);
@@ -273,6 +350,7 @@ async function init() {
     await load();
     initPointerMotion();
     $("refresh").addEventListener("click", () => load().catch(() => {}));
+    const syncTicker = setInterval(updateSyncStamp, 1_000);
     refreshTimer = setInterval(() => {
       if (!document.hidden) load().catch(() => {});
     }, 15_000);

@@ -961,6 +961,8 @@ a.btn {
   background: #0e1115;
 }
 .template-editor .field { margin-bottom: 9px; }
+.template-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.template-owner { color: var(--muted); font-size: 9px; font-family: var(--mono); margin-top: 2px; }
 .template-form-head {
   display: flex;
   align-items: center;
@@ -1335,20 +1337,39 @@ body.subpage-open {
   position: sticky;
   top: 0;
   z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   margin: 0 -2px 7px;
-  padding: 7px 6px;
+  /* 这里的 12px 顶部内边距同时覆盖 queue 顶边，滚动时不会露出上一张卡片。 */
+  padding: 12px 6px 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.055);
-  background: rgba(13, 17, 23, 0.94);
-  backdrop-filter: blur(8px);
+  background: rgba(13, 17, 23, 0.98);
+  backdrop-filter: blur(10px);
+}
+
+.queue-group-head > span:first-child {
+  color: var(--text-dim);
+  font-weight: 600;
 }
 
 .queue-group-head span:last-child {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 24px;
-  padding: 1px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  height: 18px;
+  margin-left: auto;
+  padding: 0 7px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 999px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--muted);
+  line-height: 1;
   text-align: center;
-  font-size: 8px;
+  font-size: 9px;
+  letter-spacing: 0;
 }
 
 .qitem {
@@ -1392,6 +1413,130 @@ body.subpage-open {
 
 .qitem-top {
   min-width: 0;
+}
+
+.qitem-priority,
+.qitem-tag,
+.qitem-note-count {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.qitem-priority[data-priority="3"] {
+  border-color: rgba(230, 154, 154, 0.35);
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.qitem-priority[data-priority="2"] {
+  border-color: rgba(215, 181, 138, 0.35);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.qitem-tag {
+  max-width: 74px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qitem-note-count {
+  border-color: rgba(138, 164, 248, 0.22);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.ticket-extra {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.ticket-extra-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ticket-extra-hint {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 400;
+}
+
+.ticket-extra-body {
+  display: grid;
+  gap: 7px;
+}
+
+.compact-field {
+  margin: 0;
+}
+
+.compact-field .field-label {
+  font-size: 10px;
+}
+
+.compact-field input,
+.compact-field select {
+  min-height: 30px;
+  font-size: 11px;
+}
+
+.internal-notes {
+  display: grid;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.internal-note {
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.internal-note-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8.5px;
+}
+
+.internal-note-text {
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.internal-note-input {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 7px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0e1115;
+  color: var(--text);
+  padding: 7px;
+  font-size: 11px;
 }
 
 .qitem-model {
@@ -1485,4 +1630,984 @@ body.subpage-open {
   .qitem-model { max-width: 48%; }
   .qitem-caller { max-width: 80px; }
   .qitem-foot { gap: 4px 6px; }
+}
+
+/* Session aggregation strip */
+.qitem-session {
+  flex: 0 0 auto;
+  min-width: 20px;
+  padding: 1px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 4px;
+  color: #66717f;
+  font-family: var(--mono);
+  font-size: 8px;
+  text-align: center;
+}
+
+.qitem-owner.preferred {
+  color: #c9a878;
+}
+
+.session-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 7px 9px;
+  border: 1px solid rgba(138, 164, 248, 0.13);
+  border-radius: 8px;
+  background: rgba(138, 164, 248, 0.035);
+}
+
+.session-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.session-title {
+  color: #9da9ba;
+  font-family: var(--mono);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.session-owner {
+  color: #c9a878;
+  font-size: 8.5px;
+}
+
+.session-tickets {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.session-tickets::-webkit-scrollbar { display: none; }
+
+.session-ticket {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 5px;
+  background: transparent;
+  color: #707b89;
+  font-family: var(--mono);
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.session-ticket:hover {
+  color: var(--text);
+  border-color: rgba(138, 164, 248, 0.3);
+}
+
+.session-ticket.active {
+  border-color: rgba(138, 164, 248, 0.4);
+  background: rgba(138, 164, 248, 0.12);
+  color: #c7d3e8;
+}
+
+.session-continue {
+  flex: 0 0 auto;
+  height: 25px;
+  min-height: 25px;
+  padding: 0 8px;
+  font-size: 8.5px;
+}
+
+@media (max-width: 900px) {
+  .session-bar { flex-wrap: wrap; }
+  .session-tickets { flex-basis: 100%; order: 3; }
+  .session-continue { margin-left: auto; }
+}
+
+/* Secure attachment cards and preview */
+.file-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.file-attachment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 320px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.085);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.file-attachment:hover {
+  border-color: rgba(138, 164, 248, 0.35);
+  background: rgba(138, 164, 248, 0.06);
+}
+
+.file-glyph {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: 5px;
+  background: rgba(138, 164, 248, 0.1);
+  color: #a9b9e8;
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.file-glyph.pdf { background: rgba(230, 154, 154, 0.1); color: #efb0b0; }
+.file-glyph.image { background: rgba(127, 196, 154, 0.1); color: #a7d9b9; }
+.file-glyph.csv { background: rgba(243, 182, 122, 0.1); color: #f3c491; }
+
+.file-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.file-name {
+  max-width: 240px;
+  overflow: hidden;
+  color: #b9c4d2;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-meta {
+  color: #697585;
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+.attachment-modal {
+  width: min(900px, 94vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.attachment-body {
+  min-height: 180px;
+  max-height: 62vh;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 7px;
+  background: rgba(5, 8, 12, 0.55);
+}
+
+.attachment-loading {
+  padding: 40px;
+  color: #6c7787;
+  text-align: center;
+  font-size: 10px;
+}
+
+.attachment-pre {
+  margin: 0;
+  padding: 14px;
+  color: #b9c4d2;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.attachment-preview-image {
+  display: block;
+  max-width: 100%;
+  max-height: 62vh;
+  margin: 0 auto;
+  object-fit: contain;
+}
+
+.attachment-table-wrap {
+  overflow: auto;
+}
+
+.attachment-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.attachment-table th,
+.attachment-table td {
+  max-width: 240px;
+  padding: 5px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-table th {
+  position: sticky;
+  top: 0;
+  background: #10151d;
+  color: #9ba9bb;
+}
+
+.attachment-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 10px;
+}
+
+.attachment-actions .btn {
+  height: 28px;
+  min-height: 28px;
+  font-size: 9px;
+  text-decoration: none;
+}
+
+/* Operator message utilities and draft feedback */
+.msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.msg:hover .msg-actions,
+.msg:focus-within .msg-actions {
+  opacity: 1;
+}
+
+.msg-action {
+  padding: 2px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 4px;
+  background: transparent;
+  color: #718091;
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.msg-action:hover {
+  border-color: rgba(138, 164, 248, 0.3);
+  color: #b9c4d2;
+}
+
+.draft-status {
+  min-height: 12px;
+  margin-top: 4px;
+  color: #7fc49a;
+  font-size: 8.5px;
+  text-align: right;
+}
+
+@media (max-width: 900px) {
+  .msg-actions { opacity: 1; }
+}
+
+/* AI assist: suggestions are always human-confirmed */
+.ai-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-height: 28px;
+}
+
+.ai-tools-label {
+  margin-right: 3px;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.2px;
+}
+
+.ai-tools .ai-action {
+  height: 25px;
+  min-height: 25px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+
+.ai-panel {
+  margin: 0 0 9px;
+  padding: 10px;
+  border: 1px solid rgba(138, 164, 248, 0.24);
+  border-radius: 8px;
+  background: rgba(138, 164, 248, 0.055);
+}
+
+.ai-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ai-panel-hint {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 400;
+}
+
+.ai-panel-body {
+  max-height: 220px;
+  overflow: auto;
+  margin: 7px 0;
+  color: var(--text-dim);
+  font-family: var(--sans);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ai-panel-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.ai-panel-actions .btn {
+  height: 26px;
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+
+.attachment-pdf-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.attachment-pdf-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.attachment-pdf-controls .btn {
+  height: 26px;
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+
+/* Keep the inspector collapsible after the theme's resizable grid rules. */
+.workspace.inspector-collapsed {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.workspace.inspector-collapsed > .inspector,
+.workspace.inspector-collapsed > .splitter {
+  display: none !important;
+}
+
+/* Compact AI entry point: task choices live in a popover. */
+.ai-tools {
+  position: relative;
+  gap: 6px;
+}
+
+.ai-menu-trigger {
+  height: 27px;
+  min-height: 27px;
+  padding: 0 9px;
+  font-size: 10px;
+}
+
+.ai-menu {
+  position: absolute;
+  z-index: 30;
+  bottom: calc(100% + 4px);
+  right: 0;
+  left: auto;
+  display: grid;
+  min-width: 178px;
+  max-width: min(230px, calc(100vw - 24px));
+  max-height: min(320px, 60vh);
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #11171e;
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.45);
+}
+
+.ai-menu-item {
+  min-height: 30px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-menu-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+/* Keep the AI entry on the editor's label line; the suggestion panel is the only
+   part that adds height, and only while open. */
+.composer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 22px;
+  margin-bottom: 6px;
+}
+
+.composer-head > label {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-bottom: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-head .ai-tools {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.composer-head .ai-menu-trigger {
+  height: 24px;
+  min-height: 24px;
+  padding: 0 8px;
+}
+
+.composer .ai-panel {
+  margin: 0 0 8px;
+  padding: 8px 9px;
+}
+
+.composer .ai-panel-body {
+  max-height: 150px;
+  margin: 5px 0;
+}
+
+@media (max-width: 640px) {
+  .composer-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .composer-head > label {
+    white-space: normal;
+  }
+}
+
+/* Do not reserve a blank status row when there is no draft state to report. */
+.draft-status {
+  min-height: 0;
+  margin-top: 0;
+}
+
+.draft-status:not(:empty) {
+  min-height: 12px;
+  margin-top: 4px;
+}
+
+/* Compact reply editor: one header line, auto-growing textarea, no empty footer. */
+.composer {
+  padding: 7px 9px 8px;
+}
+
+.composer-main {
+  gap: 4px;
+}
+
+.composer-head {
+  min-height: 18px;
+  margin-bottom: 4px;
+  gap: 6px;
+}
+
+.composer-head > label {
+  color: var(--muted);
+  font-size: 9.5px;
+  letter-spacing: 0.15px;
+}
+
+.composer-head > .draft-status {
+  flex: 0 1 auto;
+  margin: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: #7fc49a;
+  font-size: 8.5px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-head > .composer-count {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+
+.composer-main > textarea {
+  min-height: 52px;
+  max-height: 180px;
+  padding: 8px 10px;
+  resize: none;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.composer-main > .composer-note {
+  margin-top: 4px;
+  padding: 6px 8px;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.composer .ai-panel {
+  margin-bottom: 5px;
+}
+
+/* Final compact pass for the reply editor. */
+.composer {
+  padding: 5px 8px 7px;
+}
+
+.composer-main > textarea {
+  min-height: 44px;
+  max-height: 160px;
+  padding: 7px 9px;
+}
+
+.composer-main > .composer-note {
+  margin-top: 3px;
+  padding: 4px 7px;
+  font-size: 9.5px;
+  line-height: 1.4;
+}
+
+.composer-head .ai-menu-trigger {
+  height: 22px;
+  min-height: 22px;
+}
+
+/* Compact workbench chrome and ticket header: more room for conversation. */
+body[data-page="workbench"] .topbar {
+  padding: 7px 14px;
+}
+
+body[data-page="workbench"] .brand {
+  gap: 7px;
+}
+
+body[data-page="workbench"] .brand-sub {
+  font-size: 9px;
+}
+
+body[data-page="workbench"] .stats .stat {
+  padding: 6px 5px 5px;
+}
+
+body[data-page="workbench"] .stat-value {
+  font-size: 15px;
+}
+
+body[data-page="workbench"] .stat-label {
+  margin-top: 1px;
+  font-size: 8.5px;
+}
+
+body[data-page="workbench"] .queue-toolbar {
+  gap: 4px;
+  padding: 6px 9px;
+}
+
+body[data-page="workbench"] .queue-search {
+  height: 27px;
+  font-size: 10.5px;
+}
+
+body[data-page="workbench"] .queue-filters .chip {
+  height: 22px;
+  font-size: 9px;
+}
+
+body[data-page="workbench"] .auto-row {
+  padding: 6px 9px;
+}
+
+body[data-page="workbench"] .switch-label {
+  font-size: 11px;
+}
+
+body[data-page="workbench"] .detail {
+  padding: 9px 12px 10px;
+}
+
+body[data-page="workbench"] .detail-wrap {
+  gap: 6px;
+}
+
+body[data-page="workbench"] .detail-title {
+  font-size: 15px;
+}
+
+body[data-page="workbench"] .detail-title .id {
+  font-size: 10px;
+  margin-left: 6px;
+}
+
+body[data-page="workbench"] .badges {
+  gap: 4px;
+}
+
+body[data-page="workbench"] .badge {
+  height: 18px;
+  padding: 0 6px;
+  font-size: 9px;
+}
+
+body[data-page="workbench"] .meta {
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  border-radius: 6px;
+}
+
+body[data-page="workbench"] .meta-item {
+  padding: 4px 7px;
+}
+
+body[data-page="workbench"] .meta-label {
+  margin-bottom: 0;
+  font-size: 7.5px;
+}
+
+body[data-page="workbench"] .meta-value {
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+body[data-page="workbench"] .session-bar {
+  margin: 0;
+  padding: 4px 6px;
+}
+
+body[data-page="workbench"] .session-title {
+  font-size: 8px;
+}
+
+body[data-page="workbench"] .session-ticket {
+  padding: 2px 5px;
+  font-size: 7.5px;
+}
+
+body[data-page="workbench"] .session-continue {
+  height: 22px;
+  min-height: 22px;
+  font-size: 8px;
+}
+
+body[data-page="workbench"] .purpose-hint {
+  margin: 0;
+  padding: 5px 8px;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+@media (max-width: 1100px) {
+  body[data-page="workbench"] .meta {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* Keep the compact header real: theme.css sets a 52px min-height on .topbar. */
+body[data-page="workbench"] .topbar {
+  min-height: 44px;
+  height: 44px;
+  padding: 0 14px;
+}
+
+body[data-page="workbench"] .topbar .btn {
+  height: 27px;
+  min-height: 27px;
+}
+
+body[data-page="workbench"] .queue-search {
+  min-height: 27px !important;
+}
+
+body[data-page="workbench"] .auto-row {
+  padding: 4px 9px;
+}
+
+/* Ticket header: one compact metadata line instead of tile rows. */
+body[data-page="workbench"] .meta {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  min-height: 17px;
+  padding: 0 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  scrollbar-width: none;
+}
+
+body[data-page="workbench"] .meta::-webkit-scrollbar {
+  display: none;
+}
+
+body[data-page="workbench"] .meta-item {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  gap: 4px;
+  padding: 0;
+  background: transparent;
+  white-space: nowrap;
+}
+
+body[data-page="workbench"] .meta-label {
+  display: inline;
+  margin: 0;
+  color: var(--muted);
+  font-size: 8.5px;
+}
+
+body[data-page="workbench"] .meta-value {
+  display: inline;
+  overflow: visible;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+body[data-page="workbench"] .detail-title {
+  font-size: 14.5px;
+}
+
+body[data-page="workbench"] .detail-head {
+  min-height: 26px;
+}
+
+body[data-page="workbench"] .session-bar {
+  min-height: 20px;
+  padding: 2px 5px;
+}
+
+body[data-page="workbench"] .session-title {
+  font-size: 8.5px;
+}
+
+body[data-page="workbench"] .session-owner {
+  font-size: 8px;
+}
+
+body[data-page="workbench"] .session-ticket {
+  padding: 2px 5px;
+  font-size: 8px;
+}
+
+body[data-page="workbench"] .detail-wrap {
+  gap: 4px;
+}
+
+/* Long AI drafts need a readable preview; compact by default, expandable on demand. */
+.composer .ai-panel-body {
+  max-height: 180px;
+}
+
+.composer .ai-panel.expanded .ai-panel-body {
+  max-height: min(55vh, 480px);
+}
+
+.composer .ai-panel-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.composer .ai-panel-body::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.18);
+  background-clip: content-box;
+}
+
+/* Long AI suggestions open as a readable floating preview instead of a clipped strip. */
+.composer .ai-panel.expanded {
+  position: fixed;
+  z-index: 90;
+  top: 50%;
+  left: 50%;
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  margin: 0;
+  transform: translate(-50%, -50%);
+  overflow: hidden;
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.58);
+  background: #111820;
+}
+
+.composer .ai-panel.expanded .ai-panel-body {
+  max-height: min(58vh, 520px);
+  overflow: auto;
+}
+
+.composer .ai-panel.expanded .ai-panel-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-bottom: 6px;
+  background: #111820;
+}
+
+/* Mobile workbench topbar: do not keep the desktop 44px fixed row. */
+@media (max-width: 780px) {
+  body[data-page="workbench"] .topbar {
+    height: auto;
+    min-height: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+  }
+
+  body[data-page="workbench"] .topnav {
+    order: 3;
+    width: 100%;
+    margin: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  body[data-page="workbench"] .topnav::-webkit-scrollbar {
+    display: none;
+  }
+
+  body[data-page="workbench"] .conn {
+    order: 2;
+    width: auto;
+    margin-left: auto;
+  }
+
+  body[data-page="workbench"] .user-label {
+    max-width: 110px;
+  }
+}
+
+/* Mobile action bar: one horizontally scrollable row instead of two tall rows. */
+@media (max-width: 780px) {
+  body[data-page="workbench"] .commandbar {
+    flex-wrap: nowrap;
+    height: 46px;
+    min-height: 46px;
+    padding: 4px 8px;
+    gap: 7px;
+  }
+
+  body[data-page="workbench"] .command-context {
+    width: auto;
+    flex: 0 1 auto;
+  }
+
+  body[data-page="workbench"] .command-state {
+    display: none;
+  }
+
+  body[data-page="workbench"] .command-ticket {
+    max-width: 88px;
+  }
+
+  body[data-page="workbench"] .command-actions {
+    width: auto;
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 0;
+    scrollbar-width: none;
+  }
+
+  body[data-page="workbench"] .command-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  body[data-page="workbench"] .command-actions .btn {
+    flex: 0 0 auto;
+  }
+}
+
+/* Brand icon: human signal mark */
+.brand-icon-wrap {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+}
+
+.brand-icon {
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.brand-icon-wrap .status-dot {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 7px;
+  height: 7px;
+  border: 2px solid #0a0e13;
+  box-shadow: none;
+}
+
+.login-mark {
+  display: block;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  border-radius: 13px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }

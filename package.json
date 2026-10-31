@@ -1,6 +1,6 @@
 {
   "name": "nenggong-zhiren",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "description": "能工智人 — human-backed OpenAI-compatible provider with a login-protected operator console",
@@ -11,6 +11,7 @@
   "scripts": {
     "start": "node server.mjs",
     "dev": "node --watch server.mjs",
+    "test": "node --test",
     "user": "node scripts/user.mjs"
   }
 }

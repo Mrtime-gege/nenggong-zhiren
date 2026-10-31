@@ -4,6 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#090d12" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>能工智人 · 登录</title>
     <link rel="stylesheet" href="/login.css" />
     <link rel="stylesheet" href="/theme.css" />
@@ -12,7 +16,7 @@
     <main class="login-shell">
       <section class="login-card" aria-labelledby="login-title">
         <div class="brand">
-          <span class="brand-mark">能</span>
+          <img class="login-mark" src="/icon.svg" width="46" height="46" alt="" />
           <div>
             <h1 id="login-title">能工智人</h1>
             <p class="brand-sub">NENGGONG ZHIREN · HUMAN PROVIDER</p>
@@ -41,19 +45,25 @@
           </label>
           <label class="field">
             <span>密码</span>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autocomplete="current-password"
-              maxlength="256"
-              required
-            />
+            <div class="password-wrap">
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                maxlength="256"
+                required
+              />
+              <button id="password-toggle" class="password-toggle" type="button" aria-label="显示密码">显示</button>
+            </div>
           </label>
           <button id="login-submit" type="submit">登录控制台</button>
         </form>
 
-        <p class="fineprint">仅限授权的局域网用户 · 会话 12 小时有效 · 失败尝试会被限速</p>
+        <p class="fineprint">
+          仅限授权的局域网用户 · 会话 12 小时有效 · 失败尝试会被限速
+          <a class="guide-link" href="/guide">第一次使用？查看新手教程</a>
+        </p>
       </section>
     </main>
     <script src="/login.js" defer></script>

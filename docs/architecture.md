@@ -1,6 +1,6 @@
 # 架构
 
-## 0.5.1 分层
+## 0.6.0 分层
 
 - **配置层**：`src/config.mjs` 只读取根目录 `config.jsonc`；不读取环境变量，也不接受运行参数。
 - **数据层**：`src/data/models.mjs` 维护运行时模型注册表；`src/data/api-keys.mjs` 管理调用密钥、配额和模型范围；`src/data/usage.mjs` 保存分钟/日/月用量和每日历史；`src/data/state.mjs` 保存完成请求和幂等快照；`src/data/settings.mjs` 保存设置页覆盖值；`src/data/audit.mjs` 追加审计事件；`src/auth.mjs` 负责账号、模型权限、会话、MFA 和登录限速；`src/totp.mjs` 提供 TOTP。
@@ -94,21 +94,27 @@ queued ──claim──► claimed ──chunk/finish──► streaming ──
 
 - `users.json`：账号哈希、角色、MFA 状态；
 - `api-keys.json`：调用密钥哈希、名称、配额和过期时间；
-- `state.json`：已完成票据、运行状态和幂等记录快照；
+- `state.json`：活动/已完成票据、SSE 日志、认领状态和幂等记录快照；
+- `state.json` / `state.json.journal`：旧版状态快照和 journal；SQLite 可用时作为首次迁移来源；
+- `state.db`：票据、活动状态、附件元数据和幂等记录的 SQLite 状态库；没有 `node:sqlite` 时自动回退旧 JSON/journal；
+- `history.db`：已完成票据的 SQLite/FTS5 索引；历史页和 CSV 导出优先走索引，Node 不支持 `node:sqlite` 时回退到内存筛选；
+- `scripts/normalize-image.py`：可选的独立 PIL worker；上传的栅格图片在临时目录中重编码，限制 CPU/内存并剥离 EXIF；
+- `scripts/render-pdf-page.py`：可选的 `pypdfium2` worker；按需把 PDF 单页渲染成 PNG，限制页数、尺寸、CPU、内存和并发；
 - `usage.json`：分钟/日/月计数和每日历史；
 - `settings.json`：设置页覆盖值；
-- `audit.log`：登录、账号、密钥、设置和票据事件。
+- `audit.log`：登录、账号、密钥、设置和票据事件；
+- `attachments/`：附件原件和元数据，目录权限 0700，文件 0600。
 
 仍在内存中的数据：
 
-- 活动等待队列、认领状态和正在发送的 SSE；
+- 当前网络连接和正在写入的 socket；
 - 登录会话、CSRF token、登录失败计数；
 - 当前进程内的并发占用。
 
 因此：
 
 - 不能在多实例间共享队列；
-- 重启后活动请求会中断，调用方需要重试；
+- 重启后活动票据会恢复，但原 socket 不会；带 `Idempotency-Key` 的调用方可以重连；
 - 已完成请求和幂等记录可以恢复；
 - 会话需要重新登录；
 - 单进程运行，没有 HA。

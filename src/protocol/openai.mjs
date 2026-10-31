@@ -4,10 +4,14 @@ import {
   OPENAI_PROTOCOL,
   ProtocolError,
   canonicalMessage,
+  collectFiles,
   collectImages,
+  validateFileId,
   normalizeMaxTokens,
   normalizeStops,
   normalizeToolChoiceOpenAI,
+  MAX_CONTENT_PARTS_PER_MESSAGE,
+  MAX_MESSAGES_PER_REQUEST,
   normalizeToolListOpenAI,
   textPart,
   validateImageUrl,
@@ -33,11 +37,21 @@ function normalizeContent(entry, messageIndex) {
         const value = typeof rawPart.text === "string" ? rawPart.text : "";
         parts.push(textPart(value));
         text += value;
+      } else if (rawPart.type === "file" || rawPart.type === "input_file") {
+        const rawId = rawPart.file?.file_id ?? rawPart.file_id ?? rawPart.input_file?.file_id;
+        if (validateFileId(rawId)) {
+          parts.push({ type: "file", fileId: rawId });
+          text += "\n[file attached]";
+        } else {
+          parts.push({ type: "unknown", originalType: "file" });
+          text += "\n[unsupported file]";
+        }
       } else if (rawPart.type === "image_url" || rawPart.type === "input_image") {
         const rawUrl = typeof rawPart.image_url === "string" ? rawPart.image_url : rawPart.image_url?.url;
         const url = typeof rawUrl === "string" ? rawUrl : "";
         if (validateImageUrl(url)) {
-          parts.push({ type: "image", url, detail: rawPart.image_url?.detail || rawPart.detail || "auto" });
+          const detail = String(rawPart.image_url?.detail || rawPart.detail || "auto").slice(0, 16);
+          parts.push({ type: "image", url, detail });
           text += "\n[image attached]";
         } else {
           parts.push({ type: "unknown", originalType: "image_url" });
@@ -51,6 +65,12 @@ function normalizeContent(entry, messageIndex) {
   } else if (entry.content !== undefined && entry.content !== null) {
     throw new ProtocolError("Message content must be a string or an array.", {
       code: "invalid_messages",
+      param: "messages",
+    });
+  }
+  if (parts.length > MAX_CONTENT_PARTS_PER_MESSAGE) {
+    throw new ProtocolError(`A message may contain at most ${MAX_CONTENT_PARTS_PER_MESSAGE} content parts.`, {
+      code: "too_many_content_parts",
       param: "messages",
     });
   }
@@ -89,6 +109,12 @@ export function normalizeOpenAIRequest(body, { models } = {}) {
   }
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
     throw new ProtocolError("messages must be a non-empty array.", { code: "invalid_messages", param: "messages" });
+  }
+  if (body.messages.length > MAX_MESSAGES_PER_REQUEST) {
+    throw new ProtocolError(`messages may contain at most ${MAX_MESSAGES_PER_REQUEST} entries.`, {
+      code: "too_many_messages",
+      param: "messages",
+    });
   }
 
   const messages = [];
@@ -131,6 +157,7 @@ export function normalizeOpenAIRequest(body, { models } = {}) {
     });
     messages.push(message);
     attachments.push(...collectImages(parts, messageIndex));
+    attachments.push(...collectFiles(parts, messageIndex));
   }
 
   const tools = normalizeToolListOpenAI(body.tools);

@@ -160,6 +160,15 @@ export function loadConfig(file = CONFIG_FILE) {
   const models = objectAt(raw, "models", "models");
   const tls = objectAt(raw, "tls", "tls");
   const logging = objectAt(raw, "logging", "logging");
+  const auditCfg = raw.audit ?? {};
+  const attachments = raw.attachments ?? {};
+  if (typeof attachments !== "object" || Array.isArray(attachments)) {
+    throw new ConfigError("attachments must be an object.");
+  }
+  const alerts = raw.alerts ?? {};
+  if (typeof alerts !== "object" || Array.isArray(alerts)) {
+    throw new ConfigError("alerts must be an object.");
+  }
   const features = raw.features ?? {};
   if (!features || typeof features !== "object" || Array.isArray(features)) {
     throw new ConfigError("features must be an object.");
@@ -179,6 +188,12 @@ export function loadConfig(file = CONFIG_FILE) {
   const settingsFile = resolvePath(stringAt(storage, "settingsFile", "storage.settingsFile", "settings.json"));
   const auditFile = resolvePath(stringAt(storage, "auditFile", "storage.auditFile", "audit.log"));
   const modelsFile = resolvePath(stringAt(storage, "modelsFile", "storage.modelsFile", "models.json"));
+  const attachmentsDir = resolvePath(stringAt(storage, "attachmentsDir", "storage.attachmentsDir", "attachments"));
+  const templatesFile = resolvePath(stringAt(storage, "templatesFile", "storage.templatesFile", "templates.json"));
+  const aiSecretsFile = resolvePath(stringAt(storage, "aiSecretsFile", "storage.aiSecretsFile", "ai-secrets.json"));
+  const aiUsageFile = resolvePath(stringAt(storage, "aiUsageFile", "storage.aiUsageFile", "ai-usage.json"));
+  const historyFile = resolvePath(stringAt(storage, "historyFile", "storage.historyFile", "history.db"));
+  const stateDb = resolvePath(stringAt(storage, "stateDb", "storage.stateDb", "state.db"));
   const modelIds = stringArrayAt(models, "ids", "models.ids", ["human-1", "human-1-fast"]);
   if (!modelIds.length) throw new ConfigError("models.ids must contain at least one model name.");
   const defaultModel = stringAt(models, "default", "models.default", modelIds[0]);
@@ -268,9 +283,10 @@ export function loadConfig(file = CONFIG_FILE) {
       trustedHosts: stringArrayAt(server, "trustedHosts", "server.trustedHosts", []).map((item) =>
         item.toLowerCase(),
       ),
+      trustedProxies: stringArrayAt(server, "trustedProxies", "server.trustedProxies", []),
       corsOrigins: stringArrayAt(server, "corsOrigins", "server.corsOrigins", ["*"]),
     }),
-    storage: Object.freeze({ usersFile, apiKeysFile, stateFile, usageFile, settingsFile, auditFile, modelsFile }),
+    storage: Object.freeze({ usersFile, apiKeysFile, stateFile, usageFile, settingsFile, auditFile, modelsFile, attachmentsDir, templatesFile, aiSecretsFile, aiUsageFile, historyFile, stateDb }),
     auth: Object.freeze({
       sessionTtlMs: integerAt(auth, "sessionTtlMs", "auth.sessionTtlMs", {
         fallback: 12 * 60 * 60_000,
@@ -317,7 +333,7 @@ export function loadConfig(file = CONFIG_FILE) {
       streamDelayMs: integerAt(queue, "streamDelayMs", "queue.streamDelayMs", {
         fallback: 26,
         min: 0,
-        max: 5_000,
+        max: 60_000,
       }),
     }),
     limits: Object.freeze({
@@ -339,17 +355,86 @@ export function loadConfig(file = CONFIG_FILE) {
     }),
     tls: Object.freeze({ enabled: tlsEnabled, certFile, keyFile }),
     logging: Object.freeze({ content: booleanAt(logging, "content", "logging.content", false) }),
+    attachments: Object.freeze({
+      enabled: booleanAt(attachments, "enabled", "attachments.enabled", true),
+      maxBytes: integerAt(attachments, "maxBytes", "attachments.maxBytes", {
+        fallback: 10 * 1024 * 1024,
+        min: 1,
+        max: 50 * 1024 * 1024,
+      }),
+      maxPerRequest: integerAt(attachments, "maxPerRequest", "attachments.maxPerRequest", {
+        fallback: 5,
+        min: 1,
+        max: 20,
+      }),
+      maxImagesPerRequest: integerAt(attachments, "maxImagesPerRequest", "attachments.maxImagesPerRequest", {
+        fallback: 8,
+        min: 1,
+        max: 50,
+      }),
+      maxImageUrlBytes: integerAt(attachments, "maxImageUrlBytes", "attachments.maxImageUrlBytes", {
+        fallback: 2_000_000,
+        min: 16_384,
+        max: 8 * 1024 * 1024,
+      }),
+      reencodeImages: booleanAt(attachments, "reencodeImages", "attachments.reencodeImages", false),
+      pdfPagePreview: booleanAt(attachments, "pdfPagePreview", "attachments.pdfPagePreview", false),
+      maxTextPreviewBytes: integerAt(attachments, "maxTextPreviewBytes", "attachments.maxTextPreviewBytes", {
+        fallback: 262_144,
+        min: 1_024,
+        max: 2 * 1024 * 1024,
+      }),
+      maxPdfTextBytes: integerAt(attachments, "maxPdfTextBytes", "attachments.maxPdfTextBytes", {
+        fallback: 262_144,
+        min: 1_024,
+        max: 2 * 1024 * 1024,
+      }),
+      maxBytesPerKeyPerDay: integerAt(attachments, "maxBytesPerKeyPerDay", "attachments.maxBytesPerKeyPerDay", {
+        fallback: 200 * 1024 * 1024,
+        min: 0,
+        max: 10 * 1024 * 1024 * 1024,
+      }),
+      maxStoreBytes: integerAt(attachments, "maxStoreBytes", "attachments.maxStoreBytes", {
+        fallback: 2 * 1024 * 1024 * 1024,
+        min: 1024 * 1024,
+        max: 100 * 1024 * 1024 * 1024,
+      }),
+      retentionMs: integerAt(attachments, "retentionMs", "attachments.retentionMs", {
+        fallback: 30 * 86_400_000,
+        min: 3_600_000,
+        max: 365 * 86_400_000,
+      }),
+    }),
+    alerts: Object.freeze({
+      webhookUrl: stringAt(alerts, "webhookUrl", "alerts.webhookUrl", "", { allowEmpty: true }),
+      queueDepth: integerAt(alerts, "queueDepth", "alerts.queueDepth", { fallback: 10, min: 1, max: 10_000 }),
+      oldestWaitMs: integerAt(alerts, "oldestWaitMs", "alerts.oldestWaitMs", {
+        fallback: 60_000,
+        min: 1_000,
+        max: 86_400_000,
+      }),
+      cooldownMs: integerAt(alerts, "cooldownMs", "alerts.cooldownMs", {
+        fallback: 300_000,
+        min: 10_000,
+        max: 86_400_000,
+      }),
+    }),
+    audit: Object.freeze({
+      maxBytes: integerAt(auditCfg, "maxBytes", "audit.maxBytes", {
+        fallback: 10 * 1024 * 1024,
+        min: 1024 * 1024,
+        max: 1024 * 1024 * 1024,
+      }),
+      keepFiles: integerAt(auditCfg, "keepFiles", "audit.keepFiles", {
+        fallback: 5,
+        min: 1,
+        max: 20,
+      }),
+    }),
     features: Object.freeze({
-      browserNotifications: booleanAt(features, "browserNotifications", "features.browserNotifications", true),
-      notificationSound: booleanAt(features, "notificationSound", "features.notificationSound", true),
-      autoClaimDefault: booleanAt(features, "autoClaimDefault", "features.autoClaimDefault", false),
       auditLog: booleanAt(features, "auditLog", "features.auditLog", true),
       usageDashboard: booleanAt(features, "usageDashboard", "features.usageDashboard", true),
-      queueAlertSeconds: integerAt(features, "queueAlertSeconds", "features.queueAlertSeconds", {
-        fallback: 120,
-        min: 10,
-        max: 86_400,
-      }),
+      publicGuide: booleanAt(features, "publicGuide", "features.publicGuide", true),
     }),
     allowNullOrigin: false,
   });

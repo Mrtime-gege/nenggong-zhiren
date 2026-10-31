@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0e13" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>能工智人 · 新手教程</title>
+    <link rel="stylesheet" href="/theme.css" />
+    <link rel="stylesheet" href="/guide.css" />
+  </head>
+  <body class="guide-page">
+    <header class="topbar guide-topbar">
+      <a class="brand guide-brand" href="/">
+        <span class="brand-icon-wrap"><img class="brand-icon" src="/icon.svg" alt="" /><span class="status-dot ok"></span></span>
+        <span class="brand-name">能工智人</span>
+        <span class="brand-sub">新手教程</span>
+      </a>
+      <div class="guide-actions">
+        <a class="btn ghost" href="/login">登录</a>
+        <a class="btn primary" href="/console">进入工作台</a>
+      </div>
+    </header>
+
+    <main class="guide-main">
+      <section class="guide-hero">
+        <div class="guide-eyebrow">HUMAN PROVIDER · 5 分钟上手</div>
+        <h1>有人在后台，替你完成每一次回复。</h1>
+        <p class="guide-lead">
+          能工智人是一个兼容 OpenAI 接口的人工回复服务。调用方像调用普通模型一样发请求，
+          回复员在工作台里认领、阅读并写出结果，调用方收到标准格式的回复。
+        </p>
+        <p class="guide-disclaimer">重要：这是人工回复工作台，不是 AI API 中转站、模型代充或自动回复服务。AI 辅助只给回复员提供建议。</p>
+        <div class="guide-hero-actions">
+          <a class="btn primary" href="/console">打开工作台</a>
+          <a class="btn ghost" href="#caller">我是调用方</a>
+          <a class="btn ghost" href="#operator">我是回复员</a>
+        </div>
+      </section>
+
+      <section class="guide-flow" aria-label="使用流程">
+        <div class="guide-flow-card">
+          <span class="guide-step">01</span>
+          <h2>调用方发请求</h2>
+          <p>用 OpenAI SDK、curl 或任意兼容客户端，把请求发到 <code>/v1/chat/completions</code>。</p>
+        </div>
+        <div class="guide-flow-card">
+          <span class="guide-step">02</span>
+          <h2>回复员认领</h2>
+          <p>工作台队列出现票据。认领后阅读上下文，选择思考、正文或直接完成。</p>
+        </div>
+        <div class="guide-flow-card">
+          <span class="guide-step">03</span>
+          <h2>调用方拿到结果</h2>
+          <p>回复按 OpenAI 格式返回；流式请求会逐段推送，客户端体验与普通模型一致。</p>
+        </div>
+      </section>
+
+      <section class="guide-section" id="caller">
+        <div class="guide-section-head">
+          <span class="guide-kicker">CALLER</span>
+          <h2>给调用方</h2>
+          <p>只需要三样东西：服务地址、API Key、模型名。</p>
+        </div>
+
+        <div class="guide-grid two">
+          <div class="guide-card">
+            <h3>连接信息</h3>
+            <dl class="guide-kv">
+              <div><dt>API Base</dt><dd>由管理员提供，格式为 <code>http://&lt;服务地址&gt;/v1</code></dd></div>
+              <div><dt>接口</dt><dd><code>/chat/completions</code></dd></div>
+              <div><dt>模型</dt><dd>使用管理员分配的模型名</dd></div>
+              <div><dt>认证</dt><dd><code>Authorization: Bearer &lt;你的 API Key&gt;</code></dd></div>
+            </dl>
+          </div>
+          <div class="guide-card">
+            <h3>安全提醒</h3>
+            <ul class="guide-list">
+              <li>API Key 只放在服务端或本地环境变量，不要写进前端代码。</li>
+              <li>不要截图或粘贴完整 Key 到聊天、工单和公开仓库。</li>
+              <li>Key 泄露时，请管理员立即撤销并重新生成。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="guide-card">
+          <h3>最小可用 curl</h3>
+<pre class="guide-code"><code>curl "$ZHIREN_BASE_URL/chat/completions" \
+  -H "Authorization: Bearer $ZHIREN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "&lt;模型名&gt;",
+    "messages": [
+      { "role": "user", "content": "你好，请介绍一下自己" }
+    ],
+    "stream": true
+  }'</code></pre>
+          <p class="guide-note">把 <code>ZHIREN_BASE_URL</code> 和模型名换成管理员给你的实际值。普通 JSON 请求把 <code>stream</code> 改成 <code>false</code>。</p>
+        </div>
+      </section>
+
+      <section class="guide-section" id="operator">
+        <div class="guide-section-head">
+          <span class="guide-kicker">OPERATOR</span>
+          <h2>给回复员</h2>
+          <p>登录后大部分时间只需要做三件事：认领、阅读、回复。</p>
+        </div>
+
+        <div class="guide-card">
+          <ol class="guide-steps">
+            <li>
+              <strong>登录工作台</strong>
+              打开 <code>/console</code>，使用管理员分配的账号登录。左侧是队列，中间是对话，右侧是检查器。
+            </li>
+            <li>
+              <strong>认领最上面的票据</strong>
+              点击票据或按「下一张」；队列会显示待认领、进行中、最近结束。认领后票据归你处理。
+            </li>
+            <li>
+              <strong>读上下文</strong>
+              中间「对话与上下文」会显示用户消息、工具结果和历史；右侧可查看工具调用和请求参数。
+            </li>
+            <li>
+              <strong>写回复并发送</strong>
+              在底部统一编辑区输入内容，选择「思考」「正文」或直接「完成」。流式请求会立即推送。
+            </li>
+            <li>
+              <strong>处理完就结束</strong>
+              完成后票据进入「最近结束」；需要放回队列、拒绝或取消时使用底部对应按钮。
+            </li>
+          </ol>
+        </div>
+
+        <div class="guide-grid two">
+          <div class="guide-card">
+            <h3>快捷键</h3>
+            <ul class="guide-shortcuts">
+              <li><span>下一张</span><kbd>Alt</kbd><kbd>J</kbd></li>
+              <li><span>发送思考</span><kbd>Ctrl</kbd><kbd>Enter</kbd></li>
+              <li><span>发送正文</span><kbd>Shift</kbd><kbd>Enter</kbd></li>
+              <li><span>正文并完成</span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>Enter</kbd></li>
+              <li><span>放回队列</span><kbd>Alt</kbd><kbd>B</kbd></li>
+            </ul>
+          </div>
+          <div class="guide-card">
+            <h3>小提示</h3>
+            <ul class="guide-list">
+              <li>草稿会自动保存在当前浏览器，刷新或切走再回来不会丢。</li>
+              <li>消息旁的「引用」会把原文带进回复框，适合逐条回应。</li>
+              <li>工具续跑票据请先看工具结果，再决定继续调用还是直接回复。</li>
+              <li>不确定时先发「思考」，确认方向后再发送正文。</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="guide-section" id="admin">
+        <div class="guide-section-head">
+          <span class="guide-kicker">ADMIN</span>
+          <h2>给管理员</h2>
+          <p>第一次部署时，按这个顺序配置即可。</p>
+        </div>
+        <div class="guide-grid three">
+          <div class="guide-card"><h3>1. 账号</h3><p>在「用户管理」创建回复员账号，分配角色和可用模型。</p></div>
+          <div class="guide-card"><h3>2. 模型</h3><p>在「模型」确认对外模型和权限；回复员只能看到被授权的模型。</p></div>
+          <div class="guide-card"><h3>3. API Key</h3><p>在「API 密钥」为调用方生成 Key，设置并发和用量限制。</p></div>
+        </div>
+        <p class="guide-note">运行状态、历史记录、审计和运行参数分别在顶部「状态」「历史」「审计」「设置」中查看。</p>
+      </section>
+
+      <section class="guide-section" id="faq">
+        <div class="guide-section-head">
+          <span class="guide-kicker">FAQ</span>
+          <h2>常见问题</h2>
+        </div>
+        <div class="guide-grid two">
+          <div class="guide-card"><h3>调用方断开了怎么办？</h3><p>票据可能标记为「调用方已断开」。可以先处理完；若请求已不可达，使用放回、拒绝或取消。</p></div>
+          <div class="guide-card"><h3>为什么看不到某个模型？</h3><p>模型可见性由管理员在用户或模型设置中控制。联系管理员确认账号权限。</p></div>
+          <div class="guide-card"><h3>流式回复为什么没有马上结束？</h3><p>流式票据需要回复员发送正文或完成。只发「思考」不会结束请求。</p></div>
+          <div class="guide-card"><h3>忘记密码怎么办？</h3><p>联系管理员在「用户管理」中重置密码；不要通过聊天发送新密码。</p></div>
+        </div>
+      </section>
+
+      <footer class="guide-footer">
+        <span>能工智人 · 人工回复工作台</span>
+        <span><a href="/console">进入工作台</a> · <a href="/login">登录</a></span>
+      </footer>
+    </main>
+  </body>
+</html>

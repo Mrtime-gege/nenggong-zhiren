@@ -1338,3 +1338,445 @@ body[data-page="keys"] .admin-form {
     transform: none;
   }
 }
+
+/* Global history archive */
+.history-filters {
+  grid-template-columns: minmax(180px, 1.6fr) repeat(6, minmax(110px, 0.7fr));
+}
+
+.history-table {
+  table-layout: fixed;
+}
+
+.history-table th:nth-child(1),
+.history-table td:nth-child(1) { width: 150px; white-space: nowrap; }
+.history-table th:nth-child(2),
+.history-table td:nth-child(2) { width: 112px; white-space: nowrap; }
+.history-table th:nth-child(3),
+.history-table td:nth-child(3) { width: 130px; }
+.history-table th:nth-child(4),
+.history-table td:nth-child(4) { width: 96px; }
+.history-table th:nth-child(5),
+.history-table td:nth-child(5) { width: 78px; }
+.history-table th:nth-child(6),
+.history-table td:nth-child(6) { width: 64px; }
+.history-table th:nth-child(8),
+.history-table td:nth-child(8) { width: 92px; }
+
+.history-preview {
+  overflow: hidden;
+  color: #8d98a8;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-session {
+  color: #8aa4f8;
+  font-size: 9px;
+}
+
+.history-state {
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.history-state.done { color: #7fc49a; }
+.history-state.failed { color: #e69a9a; }
+.history-state.cancelled { color: #7c8796; }
+
+.history-pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.history-pager .btn {
+  height: 28px;
+  min-height: 28px;
+  font-size: 9px;
+}
+
+@media (max-width: 1100px) {
+  .history-filters { grid-template-columns: repeat(3, minmax(130px, 1fr)); }
+  .history-table { min-width: 900px; table-layout: auto; }
+}
+
+
+.alert-strip {
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border: 1px solid rgba(230, 154, 154, 0.35);
+  border-radius: 8px;
+  background: rgba(230, 154, 154, 0.08);
+  color: #efb0b0;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.feature-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+
+.feature-option {
+  min-height: 28px;
+}
+
+.feature-option span {
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+
+/* Settings page: one consistent card/form rhythm across every block. */
+body[data-page="settings"] .admin-main {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+body[data-page="settings"] .admin-head {
+  margin-bottom: 0;
+}
+
+body[data-page="settings"] .admin-card {
+  margin: 0;
+  padding: 18px;
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+body[data-page="settings"] .admin-card-title {
+  margin-bottom: 4px;
+  padding-bottom: 0;
+  color: var(--text);
+  font-size: 13px;
+  letter-spacing: 0.15px;
+}
+
+body[data-page="settings"] .admin-card-title .admin-hint {
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 400;
+}
+
+.admin-card-desc {
+  max-width: 820px;
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+body[data-page="settings"] .admin-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+body[data-page="settings"] .admin-form .field-wide {
+  grid-column: span 2;
+}
+
+body[data-page="settings"] .admin-form .field-full,
+body[data-page="settings"] .settings-switch-group,
+body[data-page="settings"] .settings-subhead {
+  grid-column: 1 / -1;
+}
+
+.settings-switch-group {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settings-switch-group .switch-line {
+  min-height: 42px;
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+body[data-page="settings"] .admin-form > .switch-line.field-full {
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+body[data-page="settings"] .admin-form > .switch-line.field {
+  align-self: end;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.settings-subhead {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.settings-subhead:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+body[data-page="settings"] .admin-form .form-actions {
+  margin-top: 2px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+body[data-page="settings"] .form-error:not(:empty) {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(232, 112, 112, 0.24);
+  border-radius: 7px;
+  background: rgba(232, 112, 112, 0.06);
+}
+
+.mfa-status {
+  display: inline-flex;
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+
+body[data-page="settings"] .readonly-grid {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 1000px) {
+  body[data-page="settings"] .admin-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-switch-group {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  body[data-page="settings"] .admin-form {
+    grid-template-columns: 1fr;
+  }
+
+  body[data-page="settings"] .admin-form .field-wide,
+  body[data-page="settings"] .admin-form .field-full {
+    grid-column: auto;
+  }
+
+  .settings-switch-group {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-subhead {
+    grid-column: auto;
+  }
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+/* Every settings card occupies the same content width and the same vertical rhythm. */
+body[data-page="settings"] .admin-main > .admin-card,
+body[data-page="settings"] .admin-main > .admin-only,
+body[data-page="settings"] .admin-only > .admin-card {
+  width: 100%;
+  min-width: 0;
+}
+
+body[data-page="settings"] .admin-only:not(.hidden) {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+
+.settings-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1200;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 14px;
+  border: 1px solid rgba(110, 220, 186, 0.48);
+  border-radius: 9px;
+  background: rgba(17, 34, 32, 0.97);
+  color: #d9fff2;
+  font-size: 12.5px;
+  line-height: 1.45;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.settings-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.settings-toast.error {
+  border-color: rgba(239, 114, 114, 0.55);
+  background: rgba(41, 20, 22, 0.98);
+  color: #ffd9d9;
+}
+
+.input-invalid {
+  border-color: rgba(239, 114, 114, 0.7) !important;
+  box-shadow: 0 0 0 2px rgba(239, 114, 114, 0.12);
+}
+
+/* Status health and resource meters */
+.status-hero.degraded {
+  border-color: rgba(243, 182, 122, 0.42);
+  background:
+    linear-gradient(120deg, rgba(243, 182, 122, 0.09), transparent 40%),
+    linear-gradient(180deg, rgba(25, 21, 20, 0.94), rgba(12, 11, 12, 0.96));
+}
+
+.status-hero.degraded::after {
+  background: linear-gradient(90deg, transparent, rgba(243, 182, 122, 0.08), transparent);
+}
+
+.status-hero.degraded .orbit-core {
+  border-color: rgba(243, 182, 122, 0.5);
+  background:
+    radial-gradient(circle at 36% 28%, rgba(255, 255, 255, 0.12), transparent 30%),
+    radial-gradient(circle at 50% 70%, rgba(243, 182, 122, 0.2), rgba(20, 15, 12, 0.96) 70%);
+}
+
+.status-hero.degraded .orbit-core strong,
+.status-hero.degraded .hero-metric.accent strong {
+  color: #ffd19c;
+}
+
+.vital-meter {
+  height: 3px;
+  margin-top: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.vital-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(103, 232, 249, 0.28), #67e8f9);
+  transition: width 0.45s ease;
+}
+
+.vital-card.warm .vital-meter span {
+  background: linear-gradient(90deg, rgba(243, 182, 122, 0.28), #f3b67a);
+}
+
+.vault-state.optional {
+  color: #657181;
+}
+
+.sync-stamp {
+  max-width: 210px;
+  text-align: right;
+  white-space: normal;
+}
+
+
+/* Status health chip and idle queue state */
+.status-health {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  margin-top: 11px;
+  padding: 4px 8px;
+  border: 1px solid rgba(127, 196, 154, 0.24);
+  border-radius: 999px;
+  background: rgba(127, 196, 154, 0.06);
+  color: #9bd0ae;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.3px;
+}
+
+.status-health-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #7fc49a;
+  box-shadow: 0 0 8px rgba(127, 196, 154, 0.7);
+}
+
+.status-health.degraded {
+  border-color: rgba(243, 182, 122, 0.32);
+  background: rgba(243, 182, 122, 0.07);
+  color: #f3c18d;
+}
+
+.status-health.degraded .status-health-dot {
+  background: #f3b67a;
+  box-shadow: 0 0 8px rgba(243, 182, 122, 0.7);
+}
+
+.queue-flow[data-idle="true"] .flow-step {
+  opacity: 0.68;
+}
+
+.queue-flow[data-idle="true"] .flow-bar span {
+  min-width: 0 !important;
+}
+
+/* Model speed editor */
+.readonly-input {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
+.admin-table td .btn + .btn {
+  margin-left: 6px;
+}
+
+/* Model form: align labels across fields that include helper text. */
+body[data-page="models"] .admin-form {
+  align-items: start;
+}
+
+body[data-page="models"] .admin-form .field {
+  align-self: start;
+}

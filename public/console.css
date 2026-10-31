@@ -281,7 +281,8 @@ code {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px;
+  /* 顶部留给 group-head 自己，避免 sticky 头下方的 12px padding 露出上一张卡片。 */
+  padding: 0 12px 12px;
   scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent;
 }
@@ -512,15 +513,6 @@ code {
   color: var(--blue);
   border-color: rgba(121, 170, 255, 0.3);
   background: rgba(121, 170, 255, 0.1);
-}
-
-.sidebar-foot {
-  flex: 0 0 auto;
-  padding: 11px 14px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.55;
 }
 
 /* ------------------------------ detail ------------------------------ */
@@ -2337,6 +2329,46 @@ body {
   font-size: 11.5px;
 }
 
+.command-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 2px;
+  background: var(--line);
+  flex: 0 0 auto;
+}
+
+.command-more {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.command-menu {
+  position: fixed;
+  z-index: 620;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+  padding: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: #11151b;
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.45);
+}
+
+.command-menu.hidden {
+  display: none;
+}
+
+.command-menu .command-menu-item {
+  width: 100%;
+  justify-content: space-between;
+  height: 29px;
+  padding: 0 9px;
+  font-size: 11px;
+  text-align: left;
+}
+
 .command-actions kbd,
 .shortcut-row input {
   font-family: var(--mono);
@@ -2357,14 +2389,6 @@ body {
 .btn.primary kbd {
   border-color: rgba(0, 0, 0, 0.2);
   color: rgba(0, 0, 0, 0.55);
-}
-
-.command-hint {
-  margin-left: auto;
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 10px;
-  white-space: nowrap;
 }
 
 .shortcut-modal {
@@ -2425,10 +2449,6 @@ body {
 }
 
 @media (max-width: 1100px) {
-  .command-hint {
-    display: none;
-  }
-
   .command-ticket {
     max-width: 150px;
   }
@@ -2632,4 +2652,315 @@ body {
   .key-create .btn {
     grid-column: auto;
   }
+}
+
+/* Inspector: one capability group at a time, and an optional collapsed mode. */
+.detail-head-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.inspector-toggle {
+  height: 27px;
+  min-height: 27px;
+  padding: 0 9px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.inspector-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 3px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.inspector-tab {
+  flex: 1 1 0;
+  height: 27px;
+  min-height: 27px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10.5px;
+}
+
+.inspector-tab:hover {
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.inspector-tab.active {
+  color: var(--text);
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.065);
+}
+
+.inspector-tab-panel.hidden {
+  display: none;
+}
+
+.workspace.inspector-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace.inspector-collapsed > .inspector,
+.workspace.inspector-collapsed > .splitter {
+  display: none;
+}
+
+@media (max-width: 1080px) {
+  .detail-head-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}
+
+.toolcall-edit {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 1px solid rgba(121, 170, 255, 0.28);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--blue);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.toolcall-edit:hover {
+  border-color: rgba(121, 170, 255, 0.55);
+  background: rgba(121, 170, 255, 0.06);
+}
+
+
+.messages-load-earlier {
+  align-self: flex-start;
+  margin: 0 12px 8px;
+  padding: 4px 8px;
+  border: 1px solid rgba(138, 164, 248, 0.22);
+  border-radius: 6px;
+  background: rgba(138, 164, 248, 0.06);
+  color: var(--text-dim);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.messages-load-earlier:hover {
+  border-color: rgba(138, 164, 248, 0.42);
+  color: var(--text);
+}
+
+/* Narrow workbench: keep the reply composer visible; scroll panes/inspector instead. */
+@media (max-width: 1080px) {
+  .detail {
+    overflow: hidden;
+  }
+
+  .detail-wrap {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .detail-wrap > .workspace {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    overflow-y: auto;
+  }
+
+  .detail-wrap > .workspace > .inspector {
+    max-height: none;
+  }
+
+  .detail-wrap > .composer {
+    position: relative;
+    z-index: 3;
+    flex: 0 0 auto;
+    background: var(--bg-soft);
+  }
+}
+
+
+/* Mobile workbench: switch between queue and conversation instead of stacking both. */
+.mobile-view-tabs {
+  display: none;
+}
+
+@media (max-width: 780px) {
+  .mobile-view-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 5px 10px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel-2);
+  }
+
+  .mobile-view-tab {
+    flex: 1 1 0;
+    height: 32px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .mobile-view-tab.active {
+    border-color: rgba(138, 164, 248, 0.35);
+    background: rgba(138, 164, 248, 0.12);
+    color: var(--text);
+  }
+
+  body[data-mobile-view="queue"] .detail,
+  body[data-mobile-view="detail"] .sidebar {
+    display: none !important;
+  }
+
+  body[data-mobile-view="queue"] .commandbar {
+    display: none;
+  }
+
+  body[data-mobile-view="queue"] .sidebar {
+    max-height: none;
+  }
+
+  body[data-mobile-view="queue"] .queue {
+    max-height: none;
+    flex: 1 1 auto;
+  }
+
+  body[data-mobile-view="detail"] .layout {
+    display: block;
+  }
+}
+
+/* The workbench topbar is one compact row on desktop; on phones it must
+   grow so the nav does not overlap the mobile view switch. */
+@media (max-width: 780px) {
+  body[data-page="workbench"] .topbar {
+    height: auto;
+    min-height: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+  }
+
+  body[data-page="workbench"] .topnav {
+    order: 3;
+    width: 100%;
+    margin: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  body[data-page="workbench"] .topnav::-webkit-scrollbar {
+    display: none;
+  }
+
+  body[data-page="workbench"] .conn {
+    order: 2;
+    width: auto;
+    margin-left: auto;
+  }
+
+  body[data-page="workbench"] .user-label {
+    max-width: 110px;
+  }
+
+  .mobile-view-tabs {
+    flex: 0 0 auto;
+    position: relative;
+    z-index: 2;
+  }
+}
+
+.tool-hint {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.tool-desc-text {
+  max-height: 112px;
+  overflow: auto;
+}
+
+.tool-actions .btn:disabled {
+  opacity: 0.42;
+  filter: saturate(0.55);
+  cursor: not-allowed;
+}
+
+.sent-tools-title {
+  min-width: 0;
+}
+
+
+/* Optional operator guidance for AI generation. */
+.ai-prompt-trigger.has-prompt {
+  border-color: rgba(138, 164, 248, 0.4);
+  color: var(--accent-strong);
+}
+
+.ai-prompt-popover {
+  position: absolute;
+  z-index: 35;
+  right: 0;
+  bottom: calc(100% + 6px);
+  width: min(310px, calc(100vw - 24px));
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: #11171e;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.48);
+}
+
+.ai-prompt-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+
+.ai-prompt-input {
+  width: 100%;
+  min-height: 66px;
+  max-height: 140px;
+  padding: 7px 8px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 11.5px;
+  line-height: 1.5;
+  outline: none;
+}
+
+.ai-prompt-input:focus {
+  border-color: rgba(138, 164, 248, 0.55);
+  box-shadow: 0 0 0 3px rgba(138, 164, 248, 0.08);
+}
+
+.ai-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.ai-prompt-actions .btn {
+  height: 27px;
+  min-height: 27px;
+  font-size: 10px;
 }

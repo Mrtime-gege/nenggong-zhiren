@@ -7,7 +7,9 @@ let role = "";
 let editingUser = "";
 const state = { users: [] };
 let availableModels = [];
+let featureCatalog = [];
 let selectedUserModels = new Set();
+let selectedUserFeatures = {};
 
 async function api(path, { method = "GET", body } = {}) {
   const headers = {};
@@ -82,7 +84,9 @@ function resetForm() {
   $("newRole").disabled = false;
   $("newRole").value = "operator";
   selectedUserModels.clear();
+  selectedUserFeatures = Object.fromEntries(featureCatalog.map((feature) => [feature.key, feature.defaultEnabled]));
   renderUserModelPicker();
+  renderUserFeaturePicker();
   $("userCreateBtn").textContent = "添加用户";
   $("userCancelBtn").classList.add("hidden");
   setError("");
@@ -102,7 +106,14 @@ function beginEdit(user) {
   $("newRole").value = user.role;
   $("newRole").disabled = user.username === operator;
   selectedUserModels = new Set((user.allowedModels || []).filter((model) => availableModels.includes(model)));
+  selectedUserFeatures = Object.fromEntries(
+    featureCatalog.map((feature) => [
+      feature.key,
+      typeof user.features?.[feature.key] === "boolean" ? user.features[feature.key] : feature.defaultEnabled,
+    ]),
+  );
   renderUserModelPicker();
+  renderUserFeaturePicker();
   $("userCreateBtn").textContent = "保存修改";
   $("userCancelBtn").classList.remove("hidden");
   setError("");
@@ -157,6 +168,40 @@ function renderUserModelPicker() {
     : "全部模型 = 不限制；无权限的票据不会出现在该用户队列中。";
 }
 
+function renderUserFeaturePicker() {
+  const picker = $("userFeaturePicker");
+  if (!picker) return;
+  picker.replaceChildren();
+  for (const feature of featureCatalog) {
+    const label = document.createElement("label");
+    label.className = "switch-line feature-option";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = selectedUserFeatures[feature.key] !== false;
+    input.addEventListener("change", () => {
+      selectedUserFeatures[feature.key] = input.checked;
+    });
+    const text = document.createElement("span");
+    text.textContent = feature.label;
+    text.title = feature.description || "";
+    label.append(input, text);
+    picker.append(label);
+  }
+  if (!featureCatalog.length) {
+    picker.append(Object.assign(document.createElement("span"), {
+      className: "admin-hint",
+      textContent: "没有可配置的功能。",
+    }));
+  }
+}
+
+async function loadFeatures() {
+  const data = await api("/op/api/features");
+  featureCatalog = Array.isArray(data.features) ? data.features : [];
+  selectedUserFeatures = Object.fromEntries(featureCatalog.map((feature) => [feature.key, feature.defaultEnabled]));
+  renderUserFeaturePicker();
+}
+
 async function loadModels() {
   const data = await api("/op/api/models");
   availableModels = (data.models || []).map((model) => String(model.id));
@@ -185,6 +230,15 @@ function renderUsers() {
     const modelsCell = document.createElement("td");
     modelsCell.textContent = user.allowedModels?.length ? user.allowedModels.join(", ") : "全部";
     row.append(modelsCell);
+
+    const featuresCell = document.createElement("td");
+    const enabled = featureCatalog
+      .filter((feature) => (typeof user.features?.[feature.key] === "boolean"
+        ? user.features[feature.key]
+        : feature.defaultEnabled))
+      .map((feature) => feature.label);
+    featuresCell.textContent = enabled.length ? enabled.join("、") : "默认关闭";
+    row.append(featuresCell);
 
     const created = document.createElement("td");
     created.textContent = formatDate(user.createdAt);
@@ -242,6 +296,7 @@ async function submitUser(event) {
       if (password) body.password = password;
       if (editingUser !== operator) body.role = nextRole;
       body.allowedModels = selectedUserModelList();
+      body.features = { ...selectedUserFeatures };
       if (!Object.keys(body).length) {
         setError("没有需要保存的修改。输入新密码或修改角色后再保存。");
         return;
@@ -264,7 +319,7 @@ async function submitUser(event) {
     } else {
       await api("/op/api/users", {
         method: "POST",
-        body: { username, password, role: nextRole, allowedModels: selectedUserModelList() },
+        body: { username, password, role: nextRole, allowedModels: selectedUserModelList(), features: { ...selectedUserFeatures } },
       });
       setStatus("用户已添加");
       resetForm();
@@ -294,6 +349,7 @@ async function init() {
   try {
     await loadMe();
     await loadModels();
+    await loadFeatures();
     await loadUsers();
     window.NGZRPasswordStrength?.mount($("newPassword"));
     resetForm();

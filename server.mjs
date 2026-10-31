@@ -12,16 +12,26 @@
 import http from "node:http";
 import https from "node:https";
 import os from "node:os";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import fs, { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { AuthError, AuthService } from "./src/auth.mjs";
 import { ROOT, loadConfig } from "./src/config.mjs";
+import { resolveClientIp } from "./src/net.mjs";
+import { publicFeatureCatalog, userAllowsFeature } from "./src/features.mjs";
 import { ApiKeyError, ApiKeyStore, ModelError, ModelStore } from "./src/data/index.mjs";
 import { QuotaError, StateStore, UsageStore } from "./src/data/index.mjs";
-import { AuditStore, SettingsError, SettingsStore } from "./src/data/index.mjs";
+import { AiUsageStore, SecretStore } from "./src/data/index.mjs";
+import { AttachmentError, AttachmentStore, AuditStore, HistoryIndex, SettingsError, SettingsStore, TemplateError, TemplateStore } from "./src/data/index.mjs";
 import { generateSecret, otpauthUrl } from "./src/totp.mjs";
+import { AiAssistError, suggestWithAi } from "./src/ai/assist.mjs";
+import { suggestNative } from "./src/ai/native.mjs";
+import { relayReply } from "./src/ai/relay.mjs";
+import { normalizeImageBuffer } from "./src/media/image-worker.mjs";
+import { renderPdfPageBuffer } from "./src/media/pdf-worker.mjs";
 import {
   ANTHROPIC_PROTOCOL,
   OPENAI_PROTOCOL,
@@ -38,7 +48,7 @@ import {
 import { validateJsonSchema, formatSchemaErrors } from "./src/schema.mjs";
 
 const PUBLIC_DIR = path.join(ROOT, "public");
-const VERSION = "0.5.1";
+const VERSION = "0.6.0";
 const PUBLIC_CONFIG = (() => {
   try {
     return loadConfig();
@@ -54,10 +64,19 @@ const config = Object.freeze({
   usersFile: PUBLIC_CONFIG.storage.usersFile,
   apiKeysFile: PUBLIC_CONFIG.storage.apiKeysFile,
   stateFile: PUBLIC_CONFIG.storage.stateFile,
+  stateDb: PUBLIC_CONFIG.storage.stateDb,
   usageFile: PUBLIC_CONFIG.storage.usageFile,
   settingsFile: PUBLIC_CONFIG.storage.settingsFile,
   auditFile: PUBLIC_CONFIG.storage.auditFile,
   modelsFile: PUBLIC_CONFIG.storage.modelsFile,
+  attachmentsDir: PUBLIC_CONFIG.storage.attachmentsDir,
+  templatesFile: PUBLIC_CONFIG.storage.templatesFile,
+  aiSecretsFile: PUBLIC_CONFIG.storage.aiSecretsFile,
+  aiUsageFile: PUBLIC_CONFIG.storage.aiUsageFile,
+  historyFile: PUBLIC_CONFIG.storage.historyFile,
+  attachments: PUBLIC_CONFIG.attachments,
+  alerts: PUBLIC_CONFIG.alerts,
+  audit: PUBLIC_CONFIG.audit,
   features: PUBLIC_CONFIG.features,
   sessionTtlMs: PUBLIC_CONFIG.auth.sessionTtlMs,
   sessionIdleMs: PUBLIC_CONFIG.auth.sessionIdleMs,
@@ -70,6 +89,7 @@ const config = Object.freeze({
   tlsCert: PUBLIC_CONFIG.tls.certFile,
   tlsKey: PUBLIC_CONFIG.tls.keyFile,
   trustedHosts: PUBLIC_CONFIG.server.trustedHosts,
+  trustedProxies: PUBLIC_CONFIG.server.trustedProxies,
   corsOrigins: PUBLIC_CONFIG.server.corsOrigins,
   queueTimeoutMs: PUBLIC_CONFIG.queue.waitTimeoutMs,
   responseTimeoutMs: PUBLIC_CONFIG.queue.responseTimeoutMs,
@@ -98,14 +118,44 @@ const settingsStore = new SettingsStore({
       bodyLimitBytes: config.bodyLimitBytes,
     },
     features: { ...config.features },
+    aiAssist: {
+      enabled: false,
+      endpoint: "",
+      model: "",
+      timeoutMs: 20_000,
+      maxInputChars: 12_000,
+      maxOutputChars: 4_000,
+      dailyRequestsPerOperator: 100,
+      dailyTokensPerOperator: 200_000,
+      dailyRequestsTotal: 1_000,
+      maxConcurrent: 4,
+      autoReplyOnReceive: false,
+      autoReplyAfterSeconds: 0,
+      autoClaimEnabled: false,
+    },
   },
   logger: console,
 }).init();
 const live = settingsStore.values;
+const secrets = new SecretStore({
+  file: config.aiSecretsFile,
+  logger: console,
+}).init();
+const aiUsage = new AiUsageStore({
+  file: config.aiUsageFile,
+  logger: console,
+}).init();
+let aiActive = 0;
+const aiTicketLocks = new Set();
+const aiAutoLocks = new Set();
+let pdfRenderActive = 0;
+
 const audit = new AuditStore({
   file: config.auditFile,
   logger: console,
   enabled: () => live.features.auditLog,
+  maxBytes: config.audit.maxBytes,
+  keepFiles: config.audit.keepFiles,
 }).init();
 
 
@@ -129,9 +179,11 @@ function loadRuntimeModels() {
       created: Math.floor(model.createdAt / 1000),
       owned_by: "human-backend",
       humanInTheLoop: true,
-      speedMs: model.id.includes("fast")
-        ? Math.max(2, Math.round(live.queue.streamDelayMs / 4))
-        : live.queue.streamDelayMs,
+      speedMs: Number.isInteger(model.speedMs)
+        ? model.speedMs
+        : model.id.includes("fast")
+          ? Math.max(2, Math.round(live.queue.streamDelayMs / 4))
+          : live.queue.streamDelayMs,
     });
   }
   if (!MODELS.has(runtimeDefaultModel)) runtimeDefaultModel = [...MODELS.keys()][0];
@@ -141,9 +193,11 @@ loadRuntimeModels();
 
 function refreshModelSpeeds() {
   for (const model of MODELS.values()) {
-    model.speedMs = model.id.includes("fast")
-      ? Math.max(2, Math.round(live.queue.streamDelayMs / 4))
-      : live.queue.streamDelayMs;
+    model.speedMs = Number.isInteger(model.speedMs)
+      ? model.speedMs
+      : model.id.includes("fast")
+        ? Math.max(2, Math.round(live.queue.streamDelayMs / 4))
+        : live.queue.streamDelayMs;
   }
 }
 
@@ -157,6 +211,9 @@ function fingerprint(modelId) {
 
 /** @type {Map<string, any>} */
 const tickets = new Map();
+/** Stable conversation buckets, keyed by session id. */
+const sessionRecords = new Map();
+const SESSION_FALLBACK_MS = 6 * 60 * 60_000;
 /** @type {Map<string, number>} */
 const slots = new Map();
 const stats = {
@@ -221,6 +278,27 @@ const usageStore = new UsageStore({
 
 const stateStore = new StateStore({
   file: config.stateFile,
+  dbFile: config.stateDb,
+  logger: console,
+}).init();
+const historyIndex = new HistoryIndex({
+  file: config.historyFile,
+  logger: console,
+}).init();
+
+const templates = new TemplateStore({
+  file: config.templatesFile,
+  logger: console,
+}).init();
+
+const attachments = new AttachmentStore({
+  dir: config.attachmentsDir,
+  maxBytes: config.attachments.maxBytes,
+  maxPerRequest: config.attachments.maxPerRequest,
+  maxTextPreviewBytes: config.attachments.maxTextPreviewBytes,
+  maxPdfTextBytes: config.attachments.maxPdfTextBytes,
+  retentionMs: config.attachments.retentionMs,
+  maxStoreBytes: config.attachments.maxStoreBytes,
   logger: console,
 }).init();
 
@@ -302,7 +380,7 @@ function corsHeaders(req) {
   }
   const headers = {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Headers": "Authorization,Content-Type,Idempotency-Key,X-Api-Key,Anthropic-Version,Anthropic-Beta",
+    "Access-Control-Allow-Headers": "Authorization,Content-Type,Idempotency-Key,X-Api-Key,X-Filename,X-File-Name,X-Upload-Filename,X-Session-Id,X-NGZR-Session-Id,X-Session-Affinity,Anthropic-Version,Anthropic-Beta",
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     "Access-Control-Max-Age": "86400",
   };
@@ -346,7 +424,7 @@ function computeAllowedHosts() {
 const ALLOWED_HOSTS = computeAllowedHosts();
 
 function clientIp(req) {
-  return String(req.socket?.remoteAddress || "").replace(/^::ffff:/, "") || "unknown";
+  return resolveClientIp(req, config.trustedProxies);
 }
 
 function hostAllowed(hostHeader) {
@@ -444,6 +522,17 @@ function sendJson(res, status, payload, extraHeaders = {}) {
   res.end(body);
 }
 
+function sendJsonBody(res, status, body, extraHeaders = {}) {
+  if (!isResOpen(res)) return;
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Content-Length": Buffer.byteLength(body),
+    "Cache-Control": "no-store",
+    ...extraHeaders,
+  });
+  res.end(body);
+}
+
 function sendRaw(res, status, contentType, body, extraHeaders = {}) {
   if (!isResOpen(res)) return;
   res.writeHead(status, {
@@ -480,6 +569,85 @@ async function readBody(req, limit) {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+async function readRawBody(req, limit) {
+  const declared = Number(req.headers["content-length"] || 0);
+  if (declared && declared > limit) {
+    throw new ApiError(413, "Request body too large.", "invalid_request_error", "payload_too_large");
+  }
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) {
+      throw new ApiError(413, "Request body too large.", "invalid_request_error", "payload_too_large");
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+async function readBodyToTemp(req, limit) {
+  const declared = Number(req.headers["content-length"] || 0);
+  if (declared && declared > limit) {
+    throw new ApiError(413, "Request body too large.", "invalid_request_error", "payload_too_large");
+  }
+  const dir = os.tmpdir() && fs.mkdtempSync(path.join(os.tmpdir(), "ngzr-upload-"));
+  const file = path.join(dir, "body.bin");
+  let size = 0;
+  const limiter = new Transform({
+    transform(chunk, encoding, callback) {
+      size += chunk.length;
+      if (size > limit) {
+        callback(new ApiError(413, "Request body too large.", "invalid_request_error", "payload_too_large"));
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
+  try {
+    await pipeline(req, limiter, fs.createWriteStream(file, { mode: 0o600 }));
+    return { dir, file, size };
+  } catch (error) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(400, "Upload stream was interrupted.", "invalid_request_error", "upload_interrupted");
+  }
+}
+
+function parseMultipart(buffer, contentType) {
+  const match = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(String(contentType || ""));
+  const boundary = (match?.[1] || match?.[2] || "").trim();
+  if (!boundary || boundary.length > 200) {
+    throw new ApiError(400, "multipart boundary is missing or invalid.", "invalid_request_error", "invalid_multipart");
+  }
+  const delimiter = Buffer.from(`--${boundary}`);
+  const parts = [];
+  let offset = 0;
+  while (offset < buffer.length && parts.length < 12) {
+    const start = buffer.indexOf(delimiter, offset);
+    if (start < 0) break;
+    offset = start + delimiter.length;
+    if (buffer[offset] === 0x2d && buffer[offset + 1] === 0x2d) break;
+    if (buffer[offset] === 0x0d && buffer[offset + 1] === 0x0a) offset += 2;
+    const headerEnd = buffer.indexOf(Buffer.from("\r\n\r\n"), offset);
+    if (headerEnd < 0) break;
+    const headers = buffer.subarray(offset, headerEnd).toString("latin1");
+    const next = buffer.indexOf(delimiter, headerEnd + 4);
+    if (next < 0) break;
+    let content = buffer.subarray(headerEnd + 4, next);
+    if (content.length >= 2 && content[content.length - 2] === 0x0d && content[content.length - 1] === 0x0a) {
+      content = content.subarray(0, content.length - 2);
+    }
+    const disposition = /content-disposition:\s*([^\r\n]+)/i.exec(headers)?.[1] || "";
+    const name = /(?:^|;)\s*name="([^"]*)"/i.exec(disposition)?.[1] || "";
+    const filename = /(?:^|;)\s*filename="([^"]*)"/i.exec(disposition)?.[1] || "";
+    const type = /content-type:\s*([^\r\n]+)/i.exec(headers)?.[1] || "application/octet-stream";
+    parts.push({ name, filename, type: type.trim(), content });
+    offset = next;
+  }
+  return parts;
+}
+
 async function readJsonWithRaw(req) {
   const raw = await readBody(req, live.limits.bodyLimitBytes);
   if (!raw) return { body: {}, raw: "" };
@@ -509,7 +677,8 @@ const idempotencyRecords = new Map();
 const IDEMPOTENCY_TTL_MS = 30 * 60_000;
 const IDEMPOTENCY_MAX = 2000;
 
-function persistRuntime() {
+let runtimePersistTimer = null;
+function writeRuntimeSnapshot() {
   try {
     stateStore.snapshot(tickets.values(), idempotencyRecords.entries());
   } catch (error) {
@@ -517,13 +686,50 @@ function persistRuntime() {
   }
 }
 
+function persistRuntime({ flush = false } = {}) {
+  // Stream chunks and note/meta edits can arrive much faster than the SQLite
+  // snapshot is worth. Coalesce ordinary writes; critical transitions still
+  // request a synchronous flush.
+  if (!flush) {
+    if (runtimePersistTimer) return;
+    runtimePersistTimer = setTimeout(() => {
+      runtimePersistTimer = null;
+      writeRuntimeSnapshot();
+    }, 200);
+    runtimePersistTimer.unref?.();
+    return;
+  }
+  if (runtimePersistTimer) {
+    clearTimeout(runtimePersistTimer);
+    runtimePersistTimer = null;
+  }
+  writeRuntimeSnapshot();
+  try {
+    stateStore.flush();
+  } catch (error) {
+    log(`[state] flush failed: ${error.message}`);
+  }
+}
+
+const RECONNECT_GRACE_MS = Math.max(
+  10_000,
+  Number(process.env.NGZR_RECONNECT_GRACE_MS) || 2 * 60_000,
+);
 const restoredTickets = stateStore.restoreTickets();
 for (const restored of restoredTickets) tickets.set(restored.id, restored);
 for (const record of stateStore.idempotency) {
   if (record?.key && record?.ticketId) idempotencyRecords.set(record.key, record);
 }
+rebuildSessionRecords();
+for (const restored of restoredTickets) {
+  if (restored.finished) continue;
+  if (restored.state === "queued") armQueueTimeout(restored);
+  else if (["claimed", "streaming", "finishing"].includes(restored.state)) armResponseTimeout(restored);
+  armReconnectExpiry(restored);
+}
 if (restoredTickets.length) {
-  log(`[state] restored ${restoredTickets.length} tickets (${restoredTickets.filter((t) => t.state === "failed").length} interrupted)`);
+  const activeRestored = restoredTickets.filter((ticket) => !ticket.finished).length;
+  log(`[state] restored ${restoredTickets.length} tickets (${activeRestored} active)`);
 }
 
 function requestIdempotencyKey(req, caller) {
@@ -987,73 +1193,6 @@ function normalizeStops(raw) {
   return out;
 }
 
-function extractMessages(raw) {
-  if (!Array.isArray(raw) || raw.length === 0) {
-    throw new ApiError(400, "messages must be a non-empty array.", "invalid_request_error", "invalid_messages", "messages");
-  }
-  const allowedRoles = new Set(["system", "developer", "user", "assistant", "tool", "function"]);
-  const messages = [];
-  const attachments = [];
-
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      throw new ApiError(400, "Each message must be an object.", "invalid_request_error", "invalid_messages", "messages");
-    }
-    const role = typeof entry.role === "string" ? entry.role : "";
-    if (!allowedRoles.has(role)) {
-      throw new ApiError(400, `Invalid role '${role}'.`, "invalid_request_error", "invalid_role", "messages");
-    }
-    const messageIndex = messages.length;
-    let text = "";
-
-    if (typeof entry.content === "string") {
-      text = entry.content;
-    } else if (Array.isArray(entry.content)) {
-      for (const part of entry.content) {
-        if (typeof part === "string") {
-          text += part;
-          continue;
-        }
-        if (!part || typeof part !== "object") continue;
-        const type = part.type;
-        if (type === "text" || type === "input_text") {
-          if (typeof part.text === "string") text += part.text;
-        } else if (type === "image_url" || type === "input_image") {
-          const rawUrl = typeof part.image_url === "string" ? part.image_url : part.image_url?.url;
-          const url = typeof rawUrl === "string" ? rawUrl : "";
-          const safe =
-            /^https?:\/\//i.test(url) || /^data:image\/(?:png|jpe?g|webp|gif)[;,]/i.test(url);
-          if (safe && url.length <= 2_000_000) {
-            attachments.push({
-              messageIndex,
-              url,
-              detail: part.image_url?.detail || part.detail || "auto",
-            });
-            text += "\n[image attached]";
-          } else {
-            text += "\n[unsupported image]";
-          }
-        } else if (type) {
-          text += `\n[${String(type).slice(0, 40)} omitted]`;
-        }
-      }
-    } else if (entry.content !== undefined && entry.content !== null) {
-      throw new ApiError(400, "Message content must be a string or an array.", "invalid_request_error", "invalid_messages", "messages");
-    }
-
-    const toolCalls = role === "assistant" ? normalizeMessageToolCalls(entry.tool_calls) : [];
-    messages.push({
-      role,
-      content: text,
-      ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
-      ...(typeof entry.name === "string" ? { name: entry.name.slice(0, 64) } : {}),
-      ...(typeof entry.tool_call_id === "string" ? { tool_call_id: entry.tool_call_id.slice(0, 128) } : {}),
-    });
-  }
-
-  return { messages, attachments };
-}
-
 function promptTokensFor(messages) {
   return (
     messages.reduce((sum, message) => {
@@ -1093,7 +1232,212 @@ function takeSlot(caller) {
   };
 }
 
-function createTicket({ request, caller, releaseSlot }) {
+function sessionAnchor(messages) {
+  const contextPrefixes = [
+    "Current runtime context.",
+    "Time sampled while preparing",
+    "Browser time zone for this request",
+    "Elapsed since the preceding",
+    "Current working directory:",
+    "<system-reminder>",
+  ];
+  const conversation = (messages || []).filter((message) => !["system", "developer"].includes(message.role));
+  const isContext = (message) => {
+    if (message.role !== "user") return false;
+    const text = String(message.content || "").trimStart();
+    return contextPrefixes.some((prefix) => text.startsWith(prefix));
+  };
+  const firstUser = conversation.find((message) => message.role === "user" && !isContext(message));
+  const source = firstUser?.content || conversation.find((message) => !isContext(message))?.content || "(empty)";
+  return createHash("sha256").update(String(source)).digest("hex").slice(0, 24);
+}
+
+function messagePrefix(previous, next) {
+  if (!Array.isArray(previous) || !Array.isArray(next) || previous.length > next.length) return false;
+  for (let i = 0; i < previous.length; i += 1) {
+    const a = previous[i] || {};
+    const b = next[i] || {};
+    if (a.role !== b.role || String(a.content || "") !== String(b.content || "")) return false;
+  }
+  return true;
+}
+
+function resolveSession(req, request, caller) {
+  const header =
+    String(req.headers["x-session-id"] || req.headers["x-ngzr-session-id"] || req.headers["x-session-affinity"] || "").trim();
+  const anchor = sessionAnchor(request.messages);
+  const now = Date.now();
+  let record = null;
+  if (header) {
+    const id = `s_${createHash("sha256").update(`${caller.key}\0${header}`).digest("hex").slice(0, 16)}`;
+    record = sessionRecords.get(id);
+    if (!record) {
+      record = { id, anchor, callerKey: caller.key, model: request.model, createdAt: now, lastAt: now, turns: 0, preferredOperator: null };
+      sessionRecords.set(id, record);
+    }
+  } else {
+    // Prefer a real conversation prefix over the weak first-message anchor.
+    for (const candidate of sessionRecords.values()) {
+      if (candidate.callerKey !== caller.key) continue;
+      if (candidate.model !== request.model) continue;
+      if (now - candidate.lastAt > SESSION_FALLBACK_MS) continue;
+      if (!candidate.lastMessages || !messagePrefix(candidate.lastMessages, request.messages)) continue;
+      record = candidate;
+      break;
+    }
+    if (!record) {
+      for (const candidate of sessionRecords.values()) {
+        if (candidate.callerKey !== caller.key) continue;
+        if (candidate.model !== request.model) continue;
+        if (candidate.anchor !== anchor) continue;
+        if (now - candidate.lastAt > SESSION_FALLBACK_MS) continue;
+        record = candidate;
+        break;
+      }
+    }
+    if (!record) {
+      const id = `s_${createHash("sha256").update(`${caller.key}\0${request.model}\0${anchor}`).digest("hex").slice(0, 16)}`;
+      record = sessionRecords.get(id) || { id, anchor, callerKey: caller.key, model: request.model, createdAt: now, lastAt: now, turns: 0, preferredOperator: null };
+      sessionRecords.set(id, record);
+    }
+  }
+  record.lastMessages = request.messages;
+  record.lastAt = now;
+  record.turns += 1;
+  return {
+    id: record.id,
+    turn: record.turns,
+    preferredOperator: record.preferredOperator || null,
+    startedAt: record.createdAt,
+    lastAt: record.lastAt,
+  };
+}
+
+function rebuildSessionRecords() {
+  sessionRecords.clear();
+  for (const ticket of tickets.values()) {
+    if (!ticket.sessionId) continue;
+    let record = sessionRecords.get(ticket.sessionId);
+    if (!record) {
+      record = {
+        id: ticket.sessionId,
+        anchor: ticket.sessionAnchor || sessionAnchor(ticket.messages || []),
+        callerKey: ticket.callerKey,
+        model: ticket.model,
+        createdAt: ticket.sessionStartedAt || ticket.created,
+        lastAt: ticket.sessionLastAt || ticket.created,
+        turns: 0,
+        preferredOperator: null,
+      };
+      sessionRecords.set(ticket.sessionId, record);
+    }
+    record.turns = Math.max(record.turns, Number(ticket.sessionTurn) || 0);
+    record.lastAt = Math.max(record.lastAt, Number(ticket.sessionLastAt) || Number(ticket.created) || 0);
+    if (!record.lastMessages && ticket.messages?.length) record.lastMessages = ticket.messages;
+    if (ticket.claimedBy) record.preferredOperator = ticket.claimedBy;
+  }
+}
+
+function rememberPreferredOperator(ticket) {
+  const record = sessionRecords.get(ticket.sessionId);
+  if (record && ticket.claimedBy) record.preferredOperator = ticket.claimedBy;
+}
+
+function scheduleReceiveAiReply(ticket) {
+  clearTimeout(ticket.timers.aiReply);
+  const seconds = Number(live.aiAssist.autoReplyAfterSeconds) || 0;
+  if (seconds <= 0 || !live.aiAssist.autoReplyOnReceive) return;
+  if (ticket.state !== "queued" || ticket.claimedBy || ticket.aiPending?.status !== "ready") return;
+  ticket.timers.aiReply = setTimeout(() => {
+    deliverAutoAiReply(ticket).catch((error) => {
+      log(`[auto-ai-reply] ${ticket.id} failed: ${error.message}`);
+    });
+  }, seconds * 1000);
+  ticket.timers.aiReply.unref?.();
+}
+
+async function deliverAutoAiReply(ticket) {
+  if (ticket.finished || ticket.state !== "queued" || ticket.claimedBy) return false;
+  if (ticket.sessionId && [...tickets.values()].some((other) =>
+    other.id !== ticket.id &&
+    other.sessionId === ticket.sessionId &&
+    ["claimed", "streaming", "finishing"].includes(other.state),
+  )) return false;
+  const pending = ticket.aiPending;
+  if (!pending || pending.status !== "ready") return false;
+  let toolCalls;
+  try {
+    toolCalls = normalizeOperatorToolCalls(ticket, pending.toolCalls || []);
+  } catch (error) {
+    log(`[auto-ai-reply] ${ticket.id} tool validation failed: ${error.message}`);
+    return false;
+  }
+  if (!pending.content && !toolCalls.length) return false;
+  if (ticket.responseFormat && toolCalls.length) return false;
+  try {
+    if (ticket.stream) beginStream(ticket);
+    if (pending.content) appendText(ticket, pending.content);
+    if (toolCalls.length) ticket.toolCalls = toolCalls;
+    if (isJsonMode(ticket) && ticket.text) validateStructuredText(ticket, ticket.text);
+    ticket.state = "finishing";
+    if (ticket.stream) await queueFlush(ticket, true);
+    finalize(ticket, toolCalls.length ? "tool_calls" : "stop");
+    ticket.aiPending = { ...pending, autoRepliedAt: Date.now() };
+    audit.append({ actor: "system", action: "ai.auto_reply", target: ticket.id, detail: `${toolCalls.length} tools` });
+    persistRuntime({ flush: true });
+    return true;
+  } catch (error) {
+    log(`[auto-ai-reply] ${ticket.id} delivery failed: ${error.message}`);
+    return false;
+  }
+}
+
+function startAiRelayForTicket(ticket, source, actor = "system") {
+  if (!ticket || ticket.finished || ticket.aiPending?.status === "running") return;
+  if (!live.aiAssist.enabled || !live.aiAssist.endpoint || !live.aiAssist.model || !secrets.has("aiApiKey")) return;
+  if (source === "auto_receive" && !live.aiAssist.autoReplyOnReceive) return;
+  if (source === "auto_claim") {
+    if (live.aiAssist.autoClaimEnabled !== true) return;
+    const user = auth.getUser(actor);
+    if (!userAllowsFeature(user, "aiAssist")) return;
+    if (auth.getPreferences(actor).autoAiOnClaim !== true) return;
+  }
+  if (ticket.aiPending?.status === "ready") return;
+  ticket.aiPending = { status: "running", source, actor, createdAt: Date.now() };
+  persistRuntime();
+  setImmediate(async () => {
+    if (aiActive >= live.aiAssist.maxConcurrent || aiTicketLocks.has(ticket.id)) {
+      ticket.aiPending = { status: "error", source, actor, error: "AI 辅助当前繁忙。", createdAt: Date.now() };
+      persistRuntime();
+      return;
+    }
+    aiActive += 1;
+    aiTicketLocks.add(ticket.id);
+    try {
+      const result = await relayReply({ settings: live.aiAssist, apiKey: secrets.get("aiApiKey"), ticket });
+      ticket.aiPending = {
+        status: "ready",
+        source,
+        actor,
+        content: result.content || "",
+        toolCalls: result.toolCalls || [],
+        finishReason: result.finishReason || "",
+        usage: result.usage || null,
+        createdAt: Date.now(),
+      };
+      persistRuntime();
+      if (source === "auto_receive") scheduleReceiveAiReply(ticket);
+    } catch (error) {
+      ticket.aiPending = { status: "error", source, actor, error: String(error.message || "AI 求助失败").slice(0, 500), createdAt: Date.now() };
+      persistRuntime();
+    } finally {
+      aiActive = Math.max(0, aiActive - 1);
+      aiTicketLocks.delete(ticket.id);
+    }
+  });
+}
+
+function createTicket({ request, caller, releaseSlot, session }) {
   const created = Date.now();
   let resolveDone;
   const donePromise = new Promise((resolve) => {
@@ -1113,6 +1457,12 @@ function createTicket({ request, caller, releaseSlot }) {
     attachments: request.attachments,
     callerKey: caller.key,
     callerLabel: caller.label,
+    sessionId: session.id,
+    sessionTurn: session.turn,
+    sessionPreferredOperator: session.preferredOperator,
+    sessionStartedAt: session.startedAt,
+    sessionLastAt: session.lastAt,
+    sessionAnchor: sessionAnchor(request.messages),
     promptTokens: promptTokensFor(request.messages),
     maxTokens: request.maxTokens,
     stops: request.stops,
@@ -1121,6 +1471,9 @@ function createTicket({ request, caller, releaseSlot }) {
     parallelToolCalls: request.parallelToolCalls !== false,
     toolCalls: [],
     responseFormat: request.responseFormat,
+    tags: [],
+    priority: 1,
+    notes: [],
     reasoning: "",
     reasoningDelivered: 0,
     effort: request.effort || "",
@@ -1139,6 +1492,8 @@ function createTicket({ request, caller, releaseSlot }) {
     finishedAt: null,
     finished: false,
     clientGone: false,
+    detached: false,
+    idempotencyKey: null,
     text: "",
     delivered: 0,
     finishReason: null,
@@ -1165,12 +1520,16 @@ function requireTicket(id) {
 function clearTicketTimers(ticket) {
   clearTimeout(ticket.timers.queue);
   clearTimeout(ticket.timers.response);
+  clearTimeout(ticket.timers.reconnect);
+  clearTimeout(ticket.timers.aiReply);
   if (ticket.heartbeat) {
     clearInterval(ticket.heartbeat);
     ticket.heartbeat = null;
   }
   ticket.timers.queue = null;
   ticket.timers.response = null;
+  ticket.timers.reconnect = null;
+  ticket.timers.aiReply = null;
 }
 
 function releaseTicketSlot(ticket) {
@@ -1270,29 +1629,103 @@ function emitSse(ticket, payload) {
   return sendSse(ticket.res, payload);
 }
 
-function beginStream(ticket) {
-  if (ticket.headersSent) return;
-  ticket.headersSent = true;
-  ticket.state = "streaming";
-  const res = ticket.res;
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream; charset=utf-8",
-    "Cache-Control": "no-cache, no-transform",
-    "Connection": "keep-alive",
-    "X-Accel-Buffering": "no",
-  });
-  res.flushHeaders?.();
-  if (ticket.protocol === ANTHROPIC_PROTOCOL) startAnthropicStream(ticket);
-  else emitSse(ticket, chunkPayload(ticket, { role: "assistant", content: "" }));
+function armHeartbeat(ticket) {
+  if (ticket.heartbeat) clearInterval(ticket.heartbeat);
+  ticket.heartbeat = null;
+  if (!isResOpen(ticket.res)) return;
   ticket.heartbeat = setInterval(() => {
-    if (!isResOpen(res)) return;
+    if (!isResOpen(ticket.res)) return;
     try {
-      res.write(": keep-alive\n\n");
+      ticket.res.write(": keep-alive\n\n");
     } catch {
       /* socket closed; the close handler will clean up */
     }
   }, 15_000);
   ticket.heartbeat.unref?.();
+}
+
+function armReconnectExpiry(ticket) {
+  clearTimeout(ticket.timers.reconnect);
+  ticket.timers.reconnect = setTimeout(() => {
+    if (ticket.detached && !ticket.finished) {
+      log(`[reconnect-expired] ${ticket.id} state=${ticket.state} claimed=${ticket.claimedBy || "-"}`);
+      abandonTicket(ticket);
+    }
+  }, RECONNECT_GRACE_MS);
+  ticket.timers.reconnect.unref?.();
+}
+
+function detachTicket(ticket) {
+  if (ticket.finished || ticket.detached) return;
+  ticket.detached = true;
+  ticket.clientGone = true;
+  ticket.res = null;
+  if (ticket.heartbeat) {
+    clearInterval(ticket.heartbeat);
+    ticket.heartbeat = null;
+  }
+  armReconnectExpiry(ticket);
+  persistRuntime({ flush: true });
+  log(`[client-detached] ${ticket.id} state=${ticket.state} grace=${RECONNECT_GRACE_MS}ms`);
+}
+
+function replayActiveStream(ticket) {
+  const res = ticket.res;
+  if (!isResOpen(res)) return false;
+  res.writeHead(200, sseHeaders());
+  res.flushHeaders?.();
+  if (ticket.protocol === ANTHROPIC_PROTOCOL) {
+    for (const frame of ticket.anthLog || []) res.write(frame);
+  } else {
+    for (const payload of ticket.sseLog || []) sendSse(res, payload);
+  }
+  armHeartbeat(ticket);
+  return true;
+}
+
+function attachTicketResponse(ticket, res) {
+  clearTimeout(ticket.timers.reconnect);
+  ticket.timers.reconnect = null;
+  ticket.res = res;
+  res.ngzrProtocol = ticket.protocol;
+  ticket.clientGone = false;
+  ticket.detached = false;
+  ticket.restored = false;
+  res.on("close", () => {
+    if (ticket.finished || res.writableEnded) return;
+    if (ticket.idempotencyKey) detachTicket(ticket);
+    else abandonTicket(ticket);
+  });
+  if (ticket.stream) {
+    if (ticket.headersSent) return replayActiveStream(ticket);
+    if (["claimed", "streaming", "finishing"].includes(ticket.state)) {
+      beginStream(ticket);
+      return true;
+    }
+  }
+  return false;
+}
+
+function beginStream(ticket) {
+  if (ticket.headersSent) return;
+  ticket.headersSent = true;
+  ticket.state = "streaming";
+  const res = ticket.res;
+  if (isResOpen(res)) {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    res.flushHeaders?.();
+  }
+  if (ticket.protocol === ANTHROPIC_PROTOCOL) {
+    if (isResOpen(res)) startAnthropicStream(ticket);
+  } else {
+    emitSse(ticket, chunkPayload(ticket, { role: "assistant", content: "" }));
+  }
+  armHeartbeat(ticket);
 }
 
 function usageFor(ticket) {
@@ -1413,8 +1846,10 @@ function writeStreamFinal(ticket, usage) {
       ticket.delivered = ticket.text.length;
     }
     if (ticket.toolCalls.length) appendAnthropicToolCalls(ticket);
-    finishAnthropicStream(ticket, usage);
-    res.end();
+    if (isResOpen(res)) {
+      finishAnthropicStream(ticket, usage);
+      res.end();
+    }
     return;
   }
   if (ticket.refusal) writeRefusal(ticket);
@@ -1432,12 +1867,15 @@ function writeStreamFinal(ticket, usage) {
       usage,
     });
   }
-  res.write("data: [DONE]\n\n");
-  res.end();
+  if (isResOpen(res)) {
+    res.write("data: [DONE]\n\n");
+    res.end();
+  }
 }
 
 async function flushPending(ticket, paced) {
-  if (!ticket.stream || ticket.finished || ticket.clientGone) return;
+  if (!ticket.stream || ticket.finished) return;
+  if (ticket.clientGone && !ticket.detached && !ticket.restored) return;
   if (ticket.delivered >= ticket.text.length) return;
   if (!ticket.headersSent) beginStream(ticket);
 
@@ -1447,13 +1885,13 @@ async function flushPending(ticket, paced) {
   const parts = paced ? splitForStream(pending) : [pending];
 
   for (const part of parts) {
-    if (ticket.clientGone || ticket.finished) return;
+    if (ticket.finished || (ticket.clientGone && !ticket.detached && !ticket.restored)) return;
     if (ticket.protocol === ANTHROPIC_PROTOCOL) {
       appendAnthropicText(ticket, part);
     } else if (!emitSse(ticket, chunkPayload(ticket, { content: part }))) {
       return;
     }
-    if (paced && live.queue.streamDelayMs > 0) {
+    if (paced && ticket.speedMs > 0) {
       const delay = Math.max(0, Math.round(ticket.speedMs * (0.6 + Math.random() * 0.8)));
       if (delay > 0) await sleep(delay);
     }
@@ -1496,7 +1934,7 @@ function finalize(ticket, finishReason) {
   }
 
   if (ticket.stream) {
-    if (ticket.headersSent && !ticket.clientGone && isResOpen(ticket.res)) {
+    if (ticket.headersSent && (ticket.detached || ticket.restored || (!ticket.clientGone && isResOpen(ticket.res)))) {
       writeStreamFinal(ticket, usage);
     } else if (!ticket.headersSent && !ticket.clientGone && isResOpen(ticket.res)) {
       // Defensive: a stream that was finalized before headers were flushed.
@@ -1524,7 +1962,7 @@ function finalize(ticket, finishReason) {
     `[done] ${ticket.id} reason=${ticket.finishReason} chars=${ticket.text.length} tokens=${usage.completion_tokens} operator=${ticket.claimedBy || "-"}`,
   );
   ticket.resolveDone?.(ticket);
-  persistRuntime();
+  persistRuntime({ flush: true });
   scheduleRetention(ticket);
 }
 
@@ -1552,7 +1990,7 @@ function finalizeError(ticket, status, message, type, code, headers = {}) {
 
   log(`[error] ${ticket.id} status=${status} code=${code} ${message}`);
   ticket.resolveDone?.(ticket);
-  persistRuntime();
+  persistRuntime({ flush: true });
   scheduleRetention(ticket);
 }
 
@@ -1567,7 +2005,7 @@ function abandonTicket(ticket) {
   stats.cancelled += 1;
   log(`[client-gone] ${ticket.id}`);
   ticket.resolveDone?.(ticket);
-  persistRuntime();
+  persistRuntime({ flush: true });
   scheduleRetention(ticket);
 }
 
@@ -1589,6 +2027,11 @@ function publicTicket(ticket) {
     claimedBy: ticket.claimedBy,
     caller: ticket.callerLabel,
     clientGone: ticket.clientGone,
+    sessionId: ticket.sessionId || null,
+    sessionTurn: ticket.sessionTurn || 1,
+    preferredOperator: ticket.sessionPreferredOperator || sessionRecords.get(ticket.sessionId)?.preferredOperator || null,
+    sessionStartedAt: ticket.sessionStartedAt || null,
+    sessionLastAt: ticket.sessionLastAt || null,
     text: ticket.text,
     messages: ticket.messages,
     attachments: ticket.attachments,
@@ -1597,10 +2040,16 @@ function publicTicket(ticket) {
     parallelToolCalls: ticket.parallelToolCalls,
     toolCalls: ticket.toolCalls,
     responseFormat: ticket.responseFormat,
+    tags: Array.isArray(ticket.tags) ? ticket.tags : [],
+    priority: Number.isInteger(ticket.priority) ? ticket.priority : 1,
+    notes: Array.isArray(ticket.notes) ? ticket.notes : [],
     reasoning: ticket.reasoning,
     effort: ticket.effort || "",
     refusal: ticket.refusal,
     finishReason: ticket.finishReason,
+    autoAiAt: ticket.autoAiAt || null,
+    aiProposal: ticket.aiProposal || null,
+    aiPending: ticket.aiPending || null,
     maxTokens: ticket.maxTokens,
     stops: ticket.stops,
     promptTokens: ticket.promptTokens,
@@ -1610,6 +2059,90 @@ function publicTicket(ticket) {
     handleMs: ticket.claimedAt ? end - ticket.claimedAt : null,
     includeUsage: ticket.includeUsage,
   };
+}
+
+function ticketPreview(ticket) {
+  const text = String(ticket.text || "").replace(/\s+/g, " ").trim();
+  if (text) return text.slice(0, 220);
+  const messages = ticket.messages || [];
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === "user") return String(messages[i].content || "").replace(/\s+/g, " ").trim().slice(0, 220);
+  }
+  return "(空请求)";
+}
+
+function ticketPurpose(ticket) {
+  const messages = ticket.messages || [];
+  if (messages.some((message) => message.role === "tool")) return { id: "tool_result", label: "工具续跑", detail: "工具结果续跑", tone: "active", rank: 1 };
+  if (!(ticket.tools || []).length && messages.length <= 3) {
+    const text = messages
+      .filter((message) => message.role === "system" || message.role === "user")
+      .map((message) => message.content || "")
+      .join("\n");
+    if (/create a concise title|generate the session title|session title/i.test(text)) return { id: "session_title", label: "会话标题", detail: "会话标题请求", tone: "queued", rank: 2 };
+  }
+  return { id: "chat", label: "主请求", detail: "主请求", tone: "mine", rank: 0 };
+}
+
+function ticketSummarySignature(ticket) {
+  const preferred = ticket.sessionPreferredOperator || sessionRecords.get(ticket.sessionId)?.preferredOperator || "";
+  return JSON.stringify([
+    ticket.state,
+    ticket.claimedBy,
+    ticket.finishedAt,
+    ticket.sessionTurn,
+    preferred,
+    ticket.tags || [],
+    ticket.priority,
+    (ticket.notes || []).length,
+    ticket.text?.length || 0,
+    ticket.text?.slice(-24) || "",
+    ticket.finishReason,
+    ticket.usage?.completion_tokens ?? null,
+    ticket.messages?.length || 0,
+    ticket.toolCalls?.length || 0,
+    ticket.aiPending?.status || "",
+    ticket.aiPending?.createdAt || 0,
+  ]);
+}
+
+function publicTicketSummary(ticket) {
+  const active = ["queued", "claimed", "streaming", "finishing"].includes(ticket.state);
+  const cacheable = !active;
+  const signature = cacheable ? ticketSummarySignature(ticket) : "";
+  if (cacheable && ticket._summaryCache?.signature === signature) return ticket._summaryCache.value;
+  const full = publicTicket(ticket);
+  delete full.messages;
+  delete full.attachments;
+  delete full.tools;
+  delete full.toolChoice;
+  delete full.toolCalls;
+  delete full.responseFormat;
+  delete full.notes;
+  if (full.aiPending) {
+    full.aiPending = {
+      status: full.aiPending.status,
+      source: full.aiPending.source,
+      createdAt: full.aiPending.createdAt,
+      ...(full.aiPending.error ? { error: full.aiPending.error } : {}),
+    };
+  }
+  const summary = {
+    ...full,
+    preview: ticketPreview(ticket),
+    purpose: ticketPurpose(ticket),
+    noteCount: (ticket.notes || []).length,
+    searchText: [
+      ticket.id,
+      ticket.model,
+      ticket.claimedBy,
+      ticket.callerLabel,
+      ...(ticket.messages || []).map((message) => message.content),
+      ...(ticket.tags || []),
+    ].filter(Boolean).join(" ").toLowerCase(),
+  };
+  if (cacheable) ticket._summaryCache = { signature, value: summary };
+  return summary;
 }
 
 function liveCounts() {
@@ -1633,6 +2166,254 @@ function publicStats() {
     avgClaimMs: stats.claimCount ? Math.round(stats.claimWaitMs / stats.claimCount) : 0,
     avgHandleMs: stats.handledCount ? Math.round(stats.handledMs / stats.handledCount) : 0,
     uptimeSec: Math.round(process.uptime()),
+  };
+}
+
+const alertState = { active: [], lastSentAt: 0, lastQueueDepth: 0, lastOldestWaitMs: 0 };
+
+function queueHealth() {
+  let queued = 0;
+  let oldestWaitMs = 0;
+  const now = Date.now();
+  for (const ticket of tickets.values()) {
+    if (ticket.state !== "queued") continue;
+    queued += 1;
+    oldestWaitMs = Math.max(oldestWaitMs, now - ticket.created);
+  }
+  return { queued, oldestWaitMs };
+}
+
+function metricsText() {
+  const counts = liveCounts();
+  const health = queueHealth();
+  const memory = process.memoryUsage();
+  const models = [...MODELS.keys()];
+  const lines = [
+    "# HELP ngzr_up Whether the service is running.",
+    "# TYPE ngzr_up gauge",
+    "ngzr_up 1",
+    `ngzr_uptime_seconds ${Math.round(process.uptime())}`,
+    `ngzr_process_start_time_seconds ${Math.floor(Date.now() / 1000 - process.uptime())}`,
+    "# HELP ngzr_tickets_total Tickets retained in the current process.",
+    "# TYPE ngzr_tickets_total gauge",
+    `ngzr_tickets_total ${tickets.size}`,
+    "# HELP ngzr_tickets_state Live tickets by state.",
+    "# TYPE ngzr_tickets_state gauge",
+    ...Object.entries(counts).map(([state, value]) => `ngzr_tickets_state{state="${state}"} ${value}`),
+    "# HELP ngzr_requests_total Accepted chat requests.",
+    "# TYPE ngzr_requests_total counter",
+    `ngzr_requests_total ${stats.created}`,
+    "# HELP ngzr_completed_total Completed tickets.",
+    "# TYPE ngzr_completed_total counter",
+    `ngzr_completed_total ${stats.completed}`,
+    "# HELP ngzr_failed_total Failed tickets.",
+    "# TYPE ngzr_failed_total counter",
+    `ngzr_failed_total ${stats.failed}`,
+    "# HELP ngzr_cancelled_total Cancelled tickets.",
+    "# TYPE ngzr_cancelled_total counter",
+    `ngzr_cancelled_total ${stats.cancelled}`,
+    "# HELP ngzr_claim_wait_ms_total Total queue wait before claims.",
+    "# TYPE ngzr_claim_wait_ms_total counter",
+    `ngzr_claim_wait_ms_total ${stats.claimWaitMs}`,
+    "# HELP ngzr_handle_ms_total Total operator handling time.",
+    "# TYPE ngzr_handle_ms_total counter",
+    `ngzr_handle_ms_total ${stats.handledMs}`,
+    "# HELP ngzr_completion_tokens_total Operator-authored completion tokens.",
+    "# TYPE ngzr_completion_tokens_total counter",
+    `ngzr_completion_tokens_total ${stats.completionTokens}`,
+    "# HELP ngzr_queue_oldest_wait_ms Age of the oldest queued ticket.",
+    "# TYPE ngzr_queue_oldest_wait_ms gauge",
+    `ngzr_queue_oldest_wait_ms ${health.oldestWaitMs}`,
+    "# HELP ngzr_sessions_total Conversation sessions seen by this process.",
+    "# TYPE ngzr_sessions_total gauge",
+    `ngzr_sessions_total ${sessionRecords.size}`,
+    "# HELP ngzr_memory_bytes Process memory.",
+    "# TYPE ngzr_memory_bytes gauge",
+    `ngzr_memory_bytes{type="rss"} ${memory.rss}`,
+    `ngzr_memory_bytes{type="heap_used"} ${memory.heapUsed}`,
+    "# HELP ngzr_alerts_active Currently firing alert names.",
+    "# TYPE ngzr_alerts_active gauge",
+    `ngzr_alerts_active ${alertState.active.length}`,
+    "# HELP ngzr_build_info Build metadata.",
+    "# TYPE ngzr_build_info gauge",
+    `ngzr_build_info{version="${VERSION}"} 1`,
+    "# HELP ngzr_models_configured Number of models in the runtime registry.",
+    "# TYPE ngzr_models_configured gauge",
+    `ngzr_models_configured ${models.length}`,
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+async function evaluateAlerts() {
+  const health = queueHealth();
+  alertState.lastQueueDepth = health.queued;
+  alertState.lastOldestWaitMs = health.oldestWaitMs;
+  const next = [];
+  if (health.queued >= config.alerts.queueDepth) next.push("queue_depth");
+  if (health.oldestWaitMs >= config.alerts.oldestWaitMs) next.push("oldest_wait");
+  const changed = next.join(",") !== alertState.active.join(",");
+  alertState.active = next;
+  if (!next.length) return;
+  if (!changed && Date.now() - alertState.lastSentAt < config.alerts.cooldownMs) return;
+  alertState.lastSentAt = Date.now();
+  audit.append({
+    actor: "system",
+    action: "alert.fire",
+    target: next.join(","),
+    detail: `queued=${health.queued} oldest=${health.oldestWaitMs}ms`,
+  });
+  log(`[alert] ${next.join(",")} queued=${health.queued} oldest=${health.oldestWaitMs}ms`);
+  if (!config.alerts.webhookUrl) return;
+  try {
+    await fetch(config.alerts.webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": `nenggong-zhiren/${VERSION}` },
+      body: JSON.stringify({
+        service: "nenggong-zhiren",
+        version: VERSION,
+        event: "alert",
+        alerts: next,
+        queue: health,
+        thresholds: {
+          queueDepth: config.alerts.queueDepth,
+          oldestWaitMs: config.alerts.oldestWaitMs,
+          cooldownMs: config.alerts.cooldownMs,
+        },
+        at: new Date().toISOString(),
+      }),
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch (error) {
+    log(`[alert] webhook failed: ${error.message}`);
+  }
+}
+
+setInterval(() => { evaluateAlerts().catch((error) => log(`[alert] evaluate failed: ${error.message}`)); }, 15_000).unref?.();
+
+const ARCHIVE_STATES = new Set(["done", "failed", "cancelled"]);
+
+function historyPreview(ticket) {
+  const text = String(ticket.text || "").replace(/\s+/g, " ").trim();
+  if (text) return text.slice(0, 220);
+  const messages = ticket.messages || [];
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === "user") {
+      return String(messages[i].content || "").replace(/\s+/g, " ").trim().slice(0, 220);
+    }
+  }
+  return "(空请求)";
+}
+
+function historySummary(ticket) {
+  return {
+    id: ticket.id,
+    sessionId: ticket.sessionId || null,
+    sessionTurn: ticket.sessionTurn || 1,
+    model: ticket.model,
+    protocol: ticket.protocol,
+    caller: ticket.callerLabel || "",
+    operator: ticket.claimedBy || "",
+    state: ticket.state,
+    finishReason: ticket.finishReason || "",
+    createdAt: ticket.createdAt || ticket.created || 0,
+    finishedAt: ticket.finishedAt || 0,
+    promptTokens: ticket.promptTokens || 0,
+    completionTokens: ticket.usage?.completion_tokens || 0,
+    preview: historyPreview(ticket),
+  };
+}
+
+const historyTextCache = new Map();
+
+function historySearchText(ticket) {
+  const key = `${ticket.id}:${ticket.finishedAt || ticket.createdAt || 0}`;
+  const cached = historyTextCache.get(key);
+  if (cached !== undefined) return cached;
+  const text = [
+    ticket.id,
+    ticket.model,
+    ticket.callerLabel,
+    ticket.claimedBy,
+    ticket.sessionId,
+    ticket.text,
+    ...(ticket.messages || []).map((message) => message.content),
+    ...(ticket.tags || []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  historyTextCache.set(key, text);
+  if (historyTextCache.size > 2000) historyTextCache.delete(historyTextCache.keys().next().value);
+  return text;
+}
+
+function historyMatches(ticket, filters) {
+  if (!ARCHIVE_STATES.has(ticket.state)) return false;
+  if (filters.model && ticket.model !== filters.model) return false;
+  if (filters.state && ticket.state !== filters.state) return false;
+  if (filters.operator && (ticket.claimedBy || "") !== filters.operator) return false;
+  if (filters.caller && !String(ticket.callerLabel || "").toLowerCase().includes(filters.caller.toLowerCase())) return false;
+  if (filters.session && ticket.sessionId !== filters.session) return false;
+  const at = ticket.finishedAt || ticket.createdAt || 0;
+  if (filters.from && at < filters.from) return false;
+  if (filters.to && at > filters.to) return false;
+  if (filters.q && !historySearchText(ticket).includes(filters.q.toLowerCase())) return false;
+  return true;
+}
+
+function parseHistoryFilters(url) {
+  const parseDate = (value, endOfDay = false) => {
+    if (!value) return 0;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      throw new ApiError(400, "日期格式必须是 YYYY-MM-DD。", "invalid_request_error", "invalid_date");
+    }
+    const timestamp = Date.parse(`${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}Z`);
+    if (!Number.isFinite(timestamp)) {
+      throw new ApiError(400, "日期无效。", "invalid_request_error", "invalid_date");
+    }
+    return timestamp;
+  };
+  return {
+    q: String(url.searchParams.get("q") || "").trim().slice(0, 200),
+    model: String(url.searchParams.get("model") || "").trim(),
+    state: String(url.searchParams.get("state") || "").trim(),
+    operator: String(url.searchParams.get("operator") || "").trim(),
+    caller: String(url.searchParams.get("caller") || "").trim(),
+    session: String(url.searchParams.get("session") || "").trim(),
+    from: parseDate(url.searchParams.get("from")),
+    to: parseDate(url.searchParams.get("to"), true),
+    limit: Math.min(200, Math.max(1, Number(url.searchParams.get("limit")) || 50)),
+    offset: Math.max(0, Number(url.searchParams.get("offset")) || 0),
+  };
+}
+
+function historyRows(url, { all = false } = {}) {
+  const filters = parseHistoryFilters(url);
+  const indexedRecords = stateStore.tickets
+    .filter((ticket) => ticket && ARCHIVE_STATES.has(ticket.state))
+    .map((ticket) => ({
+      id: ticket.id,
+      finishedAt: Number(ticket.finishedAt) || Number(ticket.createdAt) || Number(ticket.created) || 0,
+      model: String(ticket.model || ""),
+      state: String(ticket.state || ""),
+      caller: String(ticket.callerLabel || ""),
+      operator: String(ticket.claimedBy || ""),
+      sessionId: String(ticket.sessionId || ""),
+      searchText: historySearchText(ticket),
+      summaryJson: JSON.stringify(historySummary(ticket)),
+    }));
+  historyIndex.sync(indexedRecords);
+  const indexed = historyIndex.query(filters, { all });
+  if (indexed) return { filters, ...indexed };
+  const rows = stateStore.tickets
+    .filter((ticket) => ticket && historyMatches(ticket, filters))
+    .sort((a, b) => (b.finishedAt || b.createdAt || 0) - (a.finishedAt || a.createdAt || 0));
+  return {
+    filters,
+    total: rows.length,
+    items: (all ? rows.slice(0, 5000) : rows.slice(filters.offset, filters.offset + filters.limit)).map(historySummary),
+    models: [...new Set(stateStore.tickets.filter((t) => ARCHIVE_STATES.has(t.state)).map((t) => t.model))].sort(),
+    operators: [...new Set(stateStore.tickets.filter((t) => t.claimedBy).map((t) => t.claimedBy))].sort(),
   };
 }
 
@@ -1664,6 +2445,8 @@ function providerJson() {
     version: VERSION,
     mode: "human-in-the-loop",
     disclosure: "Responses are produced by human responders, not by a trained model.",
+    not_ai_proxy: true,
+    not_ai_proxy_notice: "This is a human reply workplace, not an AI API relay, reseller, or auto-chat service.",
     protocols: ["openai-chat-completions", "anthropic-messages"],
     default_model: runtimeDefaultModel,
     models: [...MODELS.values()].map(modelJson),
@@ -1673,7 +2456,161 @@ function providerJson() {
       queue_timeout_ms: live.queue.waitTimeoutMs,
       response_timeout_ms: live.queue.responseTimeoutMs,
     },
+    attachments: {
+      enabled: config.attachments.enabled,
+      max_bytes: config.attachments.maxBytes,
+      max_per_request: config.attachments.maxPerRequest,
+      types: ["text/plain", "text/csv", "application/json", "image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"],
+    },
   };
+}
+
+function attachmentError(error) {
+  if (error instanceof AttachmentError) {
+    if (error.code === "invalid_attachment_id") {
+      return new ApiError(404, "附件不存在。", "invalid_request_error", "attachment_not_found");
+    }
+    return new ApiError(error.status, error.message, "invalid_request_error", error.code);
+  }
+  return error;
+}
+
+function attachmentDisposition(filename) {
+  const fallback = String(filename || "attachment")
+    .replace(/[^\x20-\x7e]/g, "_")
+    .replace(/["\\]/g, "_")
+    .slice(0, 120) || "attachment";
+  const encoded = encodeURIComponent(String(filename || "attachment")).replace(/['()]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`).slice(0, 800);
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
+async function handleFileUpload(req, res) {
+  if (!config.attachments.enabled) {
+    throw new ApiError(404, "Attachments are disabled.", "invalid_request_error", "attachments_disabled");
+  }
+  const caller = authenticateCaller(req);
+  const contentType = String(req.headers["content-type"] || "");
+  const limit = config.attachments.maxBytes + 1024 * 1024;
+  const spool = await readBodyToTemp(req, limit);
+  let buffer;
+  try {
+    buffer = await readFile(spool.file);
+  } catch {
+    try { fs.rmSync(spool.dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    throw new ApiError(400, "Uploaded file could not be read.", "invalid_request_error", "upload_unreadable");
+  }
+  try {
+  let filename = String(req.headers["x-filename"] || req.headers["x-file-name"] || req.headers["x-upload-filename"] || "").trim();
+  let declaredType = contentType;
+  let content = buffer;
+  if (/^multipart\/form-data/i.test(contentType)) {
+    const parts = parseMultipart(buffer, contentType);
+    const files = parts.filter((part) => part.filename);
+    if (files.length !== 1) {
+      throw new ApiError(400, "Upload exactly one file part.", "invalid_request_error", "invalid_multipart");
+    }
+    filename = files[0].filename;
+    declaredType = files[0].type;
+    content = files[0].content;
+  }
+  if (!filename) {
+    throw new ApiError(400, "A filename is required (X-Filename header or multipart filename).", "invalid_request_error", "missing_filename");
+  }
+  const ownerHash = createHash("sha256").update(caller.key).digest("hex");
+  if (config.attachments.reencodeImages !== false && attachments.looksLikeImage(content)) {
+    try {
+      const normalized = await normalizeImageBuffer(content, {
+        script: path.join(ROOT, "scripts", "normalize-image.py"),
+        maxBytes: config.attachments.maxBytes,
+      });
+      const stem = filename.replace(/\.[^.]+$/, "") || "image";
+      content = normalized.buffer;
+      filename = `${stem}.${normalized.mime === "image/png" ? "png" : "jpg"}`;
+      declaredType = normalized.mime;
+    } catch (error) {
+      // Re-encoding is defense in depth; a worker/toolchain failure must not
+      // turn every valid image upload into a server error.
+      log(`[attachment] image normalize skipped: ${error.message}`);
+    }
+  }
+  try {
+    usageStore.checkUploadQuota(caller.id, content.length, config.attachments.maxBytesPerKeyPerDay);
+  } catch (error) {
+    if (error instanceof QuotaError) {
+      throw new ApiError(429, error.message, "rate_limit_error", error.code, null, {
+        "Retry-After": String(Math.max(1, Math.ceil(error.retryAfterMs / 1000))),
+      });
+    }
+    throw error;
+  }
+  let record;
+  try {
+    record = attachments.create({
+      buffer: content,
+      filename,
+      declaredType,
+      ownerHash,
+    });
+  } catch (error) {
+    throw attachmentError(error);
+  }
+  usageStore.addUploadBytes(caller.id, record.bytes);
+  audit.append({
+    actor: `key:${caller.label}`,
+    action: "attachment.upload",
+    target: record.id,
+    detail: `${record.kind} ${record.bytes}B ${record.filename}`,
+  });
+  log(`[attachment] uploaded ${record.id} kind=${record.kind} bytes=${record.bytes} caller=${caller.label}`);
+  return sendJson(res, 201, {
+    id: record.id,
+    object: "file",
+    bytes: record.bytes,
+    filename: record.filename,
+    mime_type: record.mime,
+    sha256: record.sha256,
+    created_at: Math.floor(record.createdAt / 1000),
+    status: record.status,
+  });
+  } finally {
+    try { fs.rmSync(spool.dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+}
+
+function handleFileApi(req, res, url) {
+  const caller = authenticateCaller(req);
+  const ownerHash = createHash("sha256").update(caller.key).digest("hex");
+  const match = /^\/v1\/files\/([^/]+)(?:\/(content))?$/.exec(url.pathname);
+  if (!match) throw new ApiError(404, "File not found.", "invalid_request_error", "not_found");
+  let record;
+  let blob;
+  try {
+    record = attachments.getOwned(decodeURIComponent(match[1]), ownerHash);
+    if (match[2]) blob = attachments.readBlob(record.id);
+  } catch (error) {
+    throw attachmentError(error);
+  }
+  if (match[2]) {
+    res.writeHead(200, {
+      "Content-Type": "application/octet-stream",
+      "Content-Disposition": attachmentDisposition(record.filename),
+      "Content-Length": String(blob.buffer.length),
+      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "no-store",
+    });
+    res.end(blob.buffer);
+    return;
+  }
+  return sendJson(res, 200, {
+    id: record.id,
+    object: "file",
+    bytes: record.bytes,
+    filename: record.filename,
+    mime_type: record.mime,
+    sha256: record.sha256,
+    created_at: Math.floor(record.createdAt / 1000),
+    status: record.status,
+  });
 }
 
 function handleModels(req, res, url) {
@@ -1704,6 +2641,50 @@ function protocolToApiError(error) {
   return error;
 }
 
+function resolveRequestAttachments(request, caller) {
+  const items = Array.isArray(request.attachments) ? request.attachments : [];
+  const images = items.filter((item) => item?.type === "image" || (item?.type !== "file" && typeof item?.url === "string"));
+  if (images.length > config.attachments.maxImagesPerRequest) {
+    throw new ApiError(
+      400,
+      `At most ${config.attachments.maxImagesPerRequest} image URLs are allowed per request.`,
+      "invalid_request_error",
+      "too_many_images",
+    );
+  }
+  let imageUrlBytes = 0;
+  for (const image of images) imageUrlBytes += Buffer.byteLength(String(image.url || ""), "utf8");
+  if (imageUrlBytes > config.attachments.maxImageUrlBytes) {
+    throw new ApiError(
+      400,
+      `Image URLs may total at most ${config.attachments.maxImageUrlBytes} bytes per request.`,
+      "invalid_request_error",
+      "image_payload_too_large",
+    );
+  }
+  const files = items.filter((item) => item?.type === "file");
+  if (!files.length) return items;
+  if (!config.attachments.enabled) {
+    throw new ApiError(404, "Attachments are disabled.", "invalid_request_error", "attachments_disabled");
+  }
+  if (files.length > config.attachments.maxPerRequest) {
+    throw new ApiError(400, `At most ${config.attachments.maxPerRequest} file attachments are allowed.`, "invalid_request_error", "too_many_files");
+  }
+  const ownerHash = createHash("sha256").update(caller.key).digest("hex");
+  const cache = new Map();
+  return items.map((item) => {
+    if (item?.type !== "file") return item;
+    if (!cache.has(item.fileId)) {
+      try {
+        cache.set(item.fileId, attachments.summary(attachments.getOwned(item.fileId, ownerHash)));
+      } catch (error) {
+        throw attachmentError(error);
+      }
+    }
+    return { ...item, ...cache.get(item.fileId) };
+  });
+}
+
 async function handleChatRequest(req, res, protocol) {
   res.ngzrProtocol = protocol;
   const caller = authenticateCaller(req);
@@ -1725,6 +2706,7 @@ async function handleChatRequest(req, res, protocol) {
       "model",
     );
   }
+  request.attachments = resolveRequestAttachments(request, caller);
   consumeQuota(caller);
 
   const idempotencyKey = requestIdempotencyKey(req, caller);
@@ -1746,8 +2728,19 @@ async function handleChatRequest(req, res, protocol) {
         throw new ApiError(410, "The idempotent request has expired.", "invalid_request_error", "idempotency_expired");
       }
       if (!existingTicket.finished) {
-        log(`[idempotency-wait] ${existingTicket.id} caller=${caller.label}`);
-        await existingTicket.donePromise;
+        if ((existingTicket.detached || existingTicket.restored) && existingTicket.idempotencyKey) {
+          const streamActive = attachTicketResponse(existingTicket, res);
+          if (streamActive) {
+            log(`[idempotency-reattach] ${existingTicket.id} caller=${caller.label}`);
+            return;
+          }
+          log(`[idempotency-wait] ${existingTicket.id} caller=${caller.label} reattached`);
+          await existingTicket.donePromise;
+          if (res.writableEnded) return;
+        } else {
+          log(`[idempotency-wait] ${existingTicket.id} caller=${caller.label}`);
+          await existingTicket.donePromise;
+        }
       }
       log(`[idempotency-replay] ${existingTicket.id} caller=${caller.label}`);
       return replayTicket(existingTicket, res);
@@ -1768,15 +2761,18 @@ async function handleChatRequest(req, res, protocol) {
 
   let ticket;
   try {
-    ticket = createTicket({ request, caller, releaseSlot });
+    const session = resolveSession(req, request, caller);
+    ticket = createTicket({ request, caller, releaseSlot, session });
   } catch (error) {
     releaseSlot();
     throw error;
   }
 
   ticket.res = res;
+  ticket.idempotencyKey = idempotencyKey;
   tickets.set(ticket.id, ticket);
   stats.created += 1;
+  startAiRelayForTicket(ticket, "auto_receive", "system");
   persistRuntime();
   if (idempotencyKey) {
     idempotencyRecords.set(idempotencyKey, {
@@ -1788,7 +2784,9 @@ async function handleChatRequest(req, res, protocol) {
   }
 
   res.on("close", () => {
-    if (!ticket.finished && !res.writableEnded) abandonTicket(ticket);
+    if (ticket.finished || res.writableEnded) return;
+    if (ticket.idempotencyKey) detachTicket(ticket);
+    else abandonTicket(ticket);
   });
 
   armQueueTimeout(ticket);
@@ -1852,6 +2850,7 @@ function publicUser(user) {
     role: user.role,
     createdAt: user.createdAt,
     allowedModels: [...(user.allowedModels || [])],
+    features: auth.getUser(user.username)?.features || user.features || {},
     mfaEnabled: user.mfaEnabled === true,
   };
 }
@@ -1879,10 +2878,144 @@ function dateIso(value) {
   return Number.isFinite(number) && number > 0 ? new Date(number).toISOString() : "";
 }
 
+function normalizeTicketTags(value) {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value)) {
+    throw new ApiError(400, "tags must be an array.", "invalid_request_error", "invalid_tags");
+  }
+  if (value.length > 8) {
+    throw new ApiError(400, "At most 8 tags are allowed.", "invalid_request_error", "too_many_tags");
+  }
+  const tags = [];
+  const seen = new Set();
+  for (const item of value) {
+    const tag = String(item || "").trim();
+    if (!tag) continue;
+    if (tag.length > 24) {
+      throw new ApiError(400, "Each tag must be at most 24 characters.", "invalid_request_error", "tag_too_long");
+    }
+    if (!/^[\p{L}\p{N}_ .:#-]+$/u.test(tag)) {
+      throw new ApiError(400, "Tag contains unsupported characters.", "invalid_request_error", "invalid_tag");
+    }
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(tag);
+  }
+  return tags;
+}
+
+function normalizeTicketPriority(value) {
+  if (value === undefined || value === null) return null;
+  const priority = Number(value);
+  if (!Number.isInteger(priority) || priority < 0 || priority > 3) {
+    throw new ApiError(400, "priority must be 0, 1, 2 or 3.", "invalid_request_error", "invalid_priority");
+  }
+  return priority;
+}
+
 async function handleOperator(req, res, url, session) {
   const pathname = url.pathname;
   const body = ["POST", "PATCH"].includes(req.method) ? await readJson(req) : {};
   const operator = session.username;
+
+  const attachmentMatch = /^\/op\/api\/tickets\/([^/]+)\/attachments\/([^/]+)\/(meta|preview|raw|image|pdf-page)$/.exec(pathname);
+  if (attachmentMatch) {
+    if (req.method !== "GET") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    const ticketId = decodeURIComponent(attachmentMatch[1]);
+    const fileId = decodeURIComponent(attachmentMatch[2]);
+    const mode = attachmentMatch[3];
+    const ticket = requireTicket(ticketId);
+    if (!canSeeModel(session, ticket.model)) {
+      throw new ApiError(404, "Ticket not found.", "invalid_request_error", "ticket_not_found");
+    }
+    const listed = (ticket.attachments || []).some((item) => item.type === "file" && item.fileId === fileId);
+    if (!listed) throw new ApiError(404, "Attachment not found.", "invalid_request_error", "attachment_not_found");
+    let record;
+    try {
+      record = attachments.get(fileId);
+    } catch (error) {
+      throw attachmentError(error);
+    }
+    if (mode === "image") {
+      if (record.kind !== "image") throw new ApiError(404, "Attachment is not an image.", "invalid_request_error", "attachment_not_image");
+      audit.append({ actor: session.username, action: "attachment.preview", target: fileId, detail: ticket.id });
+      const blob = attachments.readBlob(fileId);
+      res.writeHead(200, {
+        "Content-Type": record.mime,
+        "Content-Disposition": `inline; filename="${String(record.filename).replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_")}"`,
+        "Content-Length": String(blob.buffer.length),
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+        "Cache-Control": "private, no-store",
+      });
+      res.end(blob.buffer);
+      return;
+    }
+    if (mode === "pdf-page") {
+      if (record.kind !== "pdf") throw new ApiError(404, "Attachment is not a PDF.", "invalid_request_error", "attachment_not_pdf");
+      if (config.attachments.pdfPagePreview === false) {
+        throw new ApiError(503, "PDF 页图预览已关闭。", "server_error", "pdf_preview_disabled");
+      }
+      const page = Number(url.searchParams.get("page"));
+      if (!Number.isInteger(page) || page < 1 || page > 200) {
+        throw new ApiError(400, "page must be an integer from 1 to 200.", "invalid_request_error", "invalid_page");
+      }
+      if (pdfRenderActive >= 2) {
+        throw new ApiError(503, "PDF 页图预览当前繁忙，请稍后重试。", "server_error", "pdf_preview_busy");
+      }
+      pdfRenderActive += 1;
+      let rendered;
+      try {
+        rendered = await renderPdfPageBuffer(attachments.readBlob(fileId).buffer, page, {
+          script: path.join(ROOT, "scripts", "render-pdf-page.py"),
+        });
+      } catch (error) {
+        throw new ApiError(503, "PDF 页图预览不可用，请下载原文件或查看文字预览。", "server_error", "pdf_preview_unavailable");
+      } finally {
+        pdfRenderActive = Math.max(0, pdfRenderActive - 1);
+      }
+      audit.append({ actor: session.username, action: "attachment.preview", target: fileId, detail: `${ticket.id} page=${page}` });
+      res.writeHead(200, {
+        "Content-Type": "image/png",
+        "Content-Length": String(rendered.buffer.length),
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self' data:",
+        "Cache-Control": "private, no-store",
+      });
+      res.end(rendered.buffer);
+      return;
+    }
+    if (mode === "raw") {
+      const blob = attachments.readBlob(fileId);
+      audit.append({ actor: session.username, action: "attachment.download", target: fileId, detail: ticket.id });
+      res.writeHead(200, {
+        "Content-Type": "application/octet-stream",
+        "Content-Disposition": attachmentDisposition(record.filename),
+        "Content-Length": String(blob.buffer.length),
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox",
+        "Cache-Control": "private, no-store",
+      });
+      res.end(blob.buffer);
+      return;
+    }
+    const payload = attachments.preview(fileId);
+    if (mode === "preview") {
+      if (record.kind === "image") throw new ApiError(400, "Use image mode for image previews.", "invalid_request_error", "image_preview_mode");
+      audit.append({ actor: session.username, action: "attachment.preview", target: fileId, detail: ticket.id });
+      res.writeHead(200, {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Disposition": "inline",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox; default-src 'none'",
+        "Cache-Control": "private, no-store",
+      });
+      res.end(payload.preview?.text || "");
+      return;
+    }
+    return sendJson(res, 200, { ok: true, ...payload });
+  }
 
   if (pathname === "/op/api/mfa/setup") {
     requireAdmin(session);
@@ -1920,16 +3053,23 @@ async function handleOperator(req, res, url, session) {
   }
 
   if (pathname === "/op/api/operators" && req.method === "GET") {
+    if (!auth.getSession(req)) throw new ApiError(401, "Authentication required.", "authentication_error", "login_required");
+    const ticketId = String(url.searchParams.get("ticket") || "").trim();
+    if (!ticketId) {
+      throw new ApiError(400, "ticket is required for the transfer target list.", "invalid_request_error", "ticket_required");
+    }
+    const transferTicket = requireTicket(ticketId);
+    if (!canSeeModel(session, transferTicket.model)) {
+      throw new ApiError(404, "Ticket not found.", "invalid_request_error", "ticket_not_found");
+    }
     const online = auth.onlineUsers();
-    const model = String(url.searchParams.get("model") || "").trim();
     return sendJson(res, 200, {
       ok: true,
       operators: auth.listUsers()
-        .filter((user) => !model || user.role === "admin" || !user.allowedModels?.length || user.allowedModels.includes(model))
+        .filter((user) => user.role === "admin" || !user.allowedModels?.length || user.allowedModels.includes(transferTicket.model))
         .map((user) => ({
           username: user.username,
           role: user.role,
-          allowedModels: [...(user.allowedModels || [])],
           online: online.has(user.username),
         })),
     });
@@ -1973,12 +3113,88 @@ async function handleOperator(req, res, url, session) {
     return sendCsv(res, "audit.csv", rows);
   }
 
+  if (pathname === "/op/api/features" && req.method === "GET") {
+    requireAdmin(session);
+    return sendJson(res, 200, { ok: true, features: publicFeatureCatalog() });
+  }
+
+  if (pathname === "/op/api/templates") {
+    if (req.method === "GET") {
+      return sendJson(res, 200, { ok: true, templates: templates.listFor(session.username, session.role) });
+    }
+    if (req.method === "POST") {
+      const record = templates.create({
+        username: session.username,
+        role: session.role,
+        name: body.name,
+        content: body.content,
+        scope: body.scope,
+        visibility: body.visibility,
+      });
+      audit.append({ actor: session.username, action: "template.create", target: record.id, ip: clientIp(req), detail: record.visibility });
+      return sendJson(res, 201, { ok: true, template: record });
+    }
+    throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+  }
+
+  const templateUseMatch = /^\/op\/api\/templates\/([^/]+)\/use$/.exec(pathname);
+  if (templateUseMatch) {
+    if (req.method !== "POST") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    const record = templates.markUsed(decodeURIComponent(templateUseMatch[1]), session);
+    return sendJson(res, 200, { ok: true, template: record });
+  }
+
+  const templateMatch = /^\/op\/api\/templates\/([^/]+)$/.exec(pathname);
+  if (templateMatch) {
+    const templateId = decodeURIComponent(templateMatch[1]);
+    if (req.method === "PATCH") {
+      const record = templates.update(templateId, {
+        username: session.username,
+        role: session.role,
+        name: body.name,
+        content: body.content,
+        scope: body.scope,
+        visibility: body.visibility,
+      });
+      audit.append({ actor: session.username, action: "template.update", target: record.id, ip: clientIp(req), detail: record.visibility });
+      return sendJson(res, 200, { ok: true, template: record });
+    }
+    if (req.method === "DELETE") {
+      templates.remove(templateId, session);
+      audit.append({ actor: session.username, action: "template.delete", target: templateId, ip: clientIp(req) });
+      return sendJson(res, 200, { ok: true });
+    }
+    throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+  }
+
+  if (pathname === "/op/api/preferences") {
+    if (req.method === "GET") {
+      return sendJson(res, 200, { ok: true, preferences: auth.getPreferences(session.username) });
+    }
+    if (req.method === "PATCH") {
+      const preferences = auth.setPreferences(session.username, body);
+      audit.append({
+        actor: session.username,
+        action: "preferences.update",
+        target: session.username,
+        ip: clientIp(req),
+        detail: JSON.stringify(preferences).slice(0, 480),
+      });
+      return sendJson(res, 200, { ok: true, preferences });
+    }
+    throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+  }
+
   if (pathname === "/op/api/settings") {
     requireAdmin(session);
     if (req.method === "GET") {
       return sendJson(res, 200, {
         ok: true,
         settings: settingsStore.get(),
+        aiAssistKey: {
+          configured: secrets.has("aiApiKey"),
+          hint: secrets.hint("aiApiKey"),
+        },
         mfaEnabled: auth.mfaEnabled(session.username),
         readonly: {
           host: config.host,
@@ -2001,16 +3217,22 @@ async function handleOperator(req, res, url, session) {
       });
     }
     if (req.method === "PATCH") {
-      const next = settingsStore.update(body);
+      const next = settingsStore.update({ aiAssist: body.aiAssist, queue: body.queue, limits: body.limits, features: body.features });
+      if (body.clearAiKey === true) secrets.clear("aiApiKey");
+      else if (typeof body.apiKey === "string" && body.apiKey.trim()) secrets.set("aiApiKey", body.apiKey.trim());
       refreshModelSpeeds();
       audit.append({
         actor: session.username,
         action: "settings.update",
         target: "runtime",
         ip: clientIp(req),
-        detail: JSON.stringify({ queue: next.queue, limits: next.limits, features: next.features }).slice(0, 480),
+        detail: JSON.stringify({ queue: next.queue, limits: next.limits, features: next.features, aiAssist: next.aiAssist }).slice(0, 480),
       });
-      return sendJson(res, 200, { ok: true, settings: next });
+      return sendJson(res, 200, {
+        ok: true,
+        settings: next,
+        aiAssistKey: { configured: secrets.has("aiApiKey"), hint: secrets.hint("aiApiKey") },
+      });
     }
     throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
   }
@@ -2070,26 +3292,85 @@ async function handleOperator(req, res, url, session) {
         return { exists: false, bytes: 0, mode: null };
       }
     };
+    const memory = process.memoryUsage();
+    const loadAverage = os.loadavg();
     return sendJson(res, 200, {
       ok: true,
       version: VERSION,
       uptimeSec: Math.round(process.uptime()),
       node: process.version,
-      memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+      memoryMb: Math.round(memory.rss / 1024 / 1024),
+      memory: {
+        rssMb: Math.round(memory.rss / 1024 / 1024),
+        heapUsedMb: Math.round(memory.heapUsed / 1024 / 1024),
+        heapTotalMb: Math.round(memory.heapTotal / 1024 / 1024),
+        externalMb: Math.round(memory.external / 1024 / 1024),
+      },
+      loadAverage: loadAverage.map((value) => Math.round(value * 100) / 100),
+      cpuCount: os.cpus().length,
+      stats: {
+        created: stats.created,
+        completed: stats.completed,
+        failed: stats.failed,
+        cancelled: stats.cancelled,
+        timedOut: stats.timedOut,
+        claimCount: stats.claimCount,
+        avgClaimMs: stats.claimCount ? Math.round(stats.claimWaitMs / stats.claimCount) : 0,
+        avgHandleMs: stats.handledCount ? Math.round(stats.handledMs / stats.handledCount) : 0,
+        completionTokens: stats.completionTokens,
+      },
       queue: liveCounts(),
       ticketsTotal: tickets.size,
       settings: settingsStore.get(),
+      alerts: { active: alertState.active, queueDepth: alertState.lastQueueDepth, oldestWaitMs: alertState.lastOldestWaitMs },
       protocol: providerJson(),
       storage: {
         users: fileInfo(config.usersFile),
         api_keys: fileInfo(config.apiKeysFile),
         state: fileInfo(config.stateFile),
+        state_db: fileInfo(config.stateDb),
+        history: fileInfo(config.historyFile),
         usage: fileInfo(config.usageFile),
         models: fileInfo(config.modelsFile),
+        attachments: fileInfo(config.attachmentsDir),
         audit: fileInfo(config.auditFile),
       },
       audit: audit.list({ limit: 20 }),
     });
+  }
+
+  if (pathname === "/op/api/history" || pathname === "/op/api/history.csv") {
+    requireAdmin(session);
+    if (req.method !== "GET") {
+      throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    }
+    const result = pathname.endsWith(".csv") ? historyRows(url, { all: true }) : historyRows(url);
+    if (pathname.endsWith(".csv")) {
+      const header = ["finished_at", "id", "session_id", "session_turn", "model", "state", "finish_reason", "caller", "operator", "prompt_tokens", "completion_tokens", "preview"];
+      const escapeCsv = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+      const lines = [header.join(","), ...result.items.map((row) => [
+        new Date(row.finishedAt || row.createdAt).toISOString(),
+        row.id,
+        row.sessionId || "",
+        row.sessionTurn,
+        row.model,
+        row.state,
+        row.finishReason,
+        row.caller,
+        row.operator,
+        row.promptTokens,
+        row.completionTokens,
+        row.preview,
+      ].map(escapeCsv).join(","))];
+      res.writeHead(200, {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="nenggong-zhiren-history.csv"',
+        "Cache-Control": "no-store",
+      });
+      res.end(`\uFEFF${lines.join("\n")}\n`);
+      return;
+    }
+    return sendJson(res, 200, { ok: true, ...result });
   }
 
   if (pathname === "/op/api/keys") {
@@ -2181,6 +3462,7 @@ async function handleOperator(req, res, url, session) {
         contextWindow: body.contextWindow,
         maxOutputTokens: body.maxOutputTokens,
         capabilities: body.capabilities,
+        speedMs: body.speedMs,
       });
       loadRuntimeModels();
       refreshModelSpeeds();
@@ -2195,6 +3477,21 @@ async function handleOperator(req, res, url, session) {
   if (modelMatch) {
     requireAdmin(session);
     const modelId = decodeURIComponent(modelMatch[1]);
+    if (req.method === "PATCH") {
+      const record = modelStore.update(modelId, {
+        name: body.name,
+        description: body.description,
+        contextWindow: body.contextWindow,
+        maxOutputTokens: body.maxOutputTokens,
+        capabilities: body.capabilities,
+        speedMs: body.speedMs,
+      });
+      loadRuntimeModels();
+      refreshModelSpeeds();
+      audit.append({ actor: session.username, action: "model.update", target: record.id, ip: clientIp(req), detail: JSON.stringify({ speedMs: record.speedMs }) });
+      log(`[admin] model updated id=${record.id} by=${session.username}`);
+      return sendJson(res, 200, { ok: true, model: record, defaultModel: runtimeDefaultModel });
+    }
     if (req.method === "DELETE") {
       const usedByKey = apiKeys.list().find((key) => key.allowedModels?.includes(modelId));
       if (usedByKey) {
@@ -2228,6 +3525,7 @@ async function handleOperator(req, res, url, session) {
         body.password,
         body.role || "operator",
         validateAllowedModels(body.allowedModels || []),
+        body.features,
       );
       audit.append({ actor: session.username, action: "user.create", target: user.username, ip: clientIp(req), detail: user.role });
       log(`[admin] user added username=${user.username} role=${user.role} by=${session.username}`);
@@ -2246,6 +3544,10 @@ async function handleOperator(req, res, url, session) {
         auth.setPassword(target, body.password);
         user = auth.listUsers().find((item) => item.username === target);
       }
+      if (body.features !== undefined) {
+        auth.setUserFeatures(target, body.features);
+        user = auth.listUsers().find((item) => item.username === target);
+      }
       if (body.role !== undefined) {
         if (target === session.username) {
           throw new ApiError(409, "You cannot change your own role.", "invalid_request_error", "cannot_change_own_role");
@@ -2255,8 +3557,8 @@ async function handleOperator(req, res, url, session) {
       if (body.allowedModels !== undefined) {
         user = auth.setAllowedModels(target, validateAllowedModels(body.allowedModels));
       }
-      if (!user && body.password === undefined && body.role === undefined && body.allowedModels === undefined) {
-        throw new ApiError(400, "Provide password, role and/or allowedModels.", "invalid_request_error", "empty_update");
+      if (!user && body.password === undefined && body.role === undefined && body.allowedModels === undefined && body.features === undefined) {
+        throw new ApiError(400, "Provide password, role, allowedModels and/or features.", "invalid_request_error", "empty_update");
       }
       audit.append({ actor: session.username, action: "user.update", target, ip: clientIp(req) });
       log(`[admin] user updated username=${target} by=${session.username}`);
@@ -2299,23 +3601,301 @@ async function handleOperator(req, res, url, session) {
   if (pathname === "/op/api/tickets" && req.method === "GET") {
     const all = [...tickets.values()].filter((ticket) => canSeeModel(session, ticket.model));
     const activeStates = new Set(["queued", "claimed", "streaming", "finishing"]);
+    const compact = url.searchParams.get("compact") === "1";
+    const stats = publicStats();
+    const anyActive = all.some((ticket) => activeStates.has(ticket.state));
+    // Revalidate from a compact revision signature before serializing every
+    // ticket (and its preview/search text) for a request that may end in 304.
+    const revisionTickets = all.map((ticket) => [
+      ticket.id,
+      ticket.state,
+      ticket.claimedBy,
+      ticket.sessionPreferredOperator || sessionRecords.get(ticket.sessionId)?.preferredOperator || "",
+      ticket.createdAt,
+      ticket.claimedAt,
+      ticket.finishedAt,
+      ticket.text?.length || 0,
+      ticket.text?.slice(-24) || "",
+      ticket.messages?.length || 0,
+      ticket.tools?.length || 0,
+      ticket.toolCalls?.length || 0,
+      ticket.attachments?.length || 0,
+      (ticket.tags || []).join("\u0000"),
+      ticket.priority,
+      ticket.notes?.length || 0,
+      ticket.aiPending?.status || "",
+      ticket.aiPending?.createdAt || 0,
+      ticket.aiPending?.content?.length || 0,
+      ticket.aiPending?.toolCalls?.length || 0,
+      ticket.sseLog?.length || 0,
+      ticket.anthLog?.length || 0,
+    ]);
+    const revisionStats = { ...stats, uptimeSec: null };
+    const revision = JSON.stringify({
+      compact,
+      activeSecond: anyActive ? Math.floor(Date.now() / 1000) : 0,
+      tickets: revisionTickets,
+      stats: revisionStats,
+    });
+    const etag = `"t-${createHash("sha256").update(revision).digest("hex").slice(0, 24)}"`;
+    if (String(req.headers["if-none-match"] || "") === etag) {
+      res.writeHead(304, { ETag: etag, "Cache-Control": "no-store" });
+      res.end();
+      return;
+    }
+    const serialize = compact ? publicTicketSummary : publicTicket;
     const active = all
       .filter((ticket) => activeStates.has(ticket.state))
       .sort((a, b) => a.created - b.created)
-      .map(publicTicket);
+      .map(serialize);
     const recent = all
       .filter((ticket) => !activeStates.has(ticket.state))
       .sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0))
       .slice(0, 30)
-      .map(publicTicket);
-    return sendJson(res, 200, {
-      ok: true,
-      tickets: [...active, ...recent],
-      stats: publicStats(),
-    });
+      .map(serialize);
+    const payload = { ok: true, tickets: [...active, ...recent], stats };
+    return sendJsonBody(res, 200, JSON.stringify(payload), { ETag: etag });
   }
 
-  const match = /^\/op\/api\/tickets\/([^/]+)(?:\/(claim|chunk|finish|release|cancel|transfer|reasoning))?$/.exec(pathname);
+  const relayMatch = /^\/op\/api\/tickets\/([^/]+)\/ai\/relay$/.exec(pathname);
+  if (relayMatch) {
+    if (req.method !== "POST") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    if (!live.aiAssist.enabled) throw new ApiError(403, "AI 辅助未启用。", "invalid_request_error", "ai_disabled");
+    const relayTicket = requireTicket(decodeURIComponent(relayMatch[1]));
+    if (!canSeeModel(session, relayTicket.model)) throw new ApiError(404, "Ticket not found.", "invalid_request_error", "ticket_not_found");
+    const relayUser = auth.getUser(operator);
+    if (!userAllowsFeature(relayUser, "aiAssist")) throw new ApiError(403, "当前账号没有 AI 辅助权限。", "invalid_request_error", "feature_disabled");
+    if (!live.aiAssist.endpoint || !live.aiAssist.model || !secrets.has("aiApiKey")) {
+      throw new ApiError(503, "AI 辅助尚未配置完整。", "server_error", "ai_not_configured");
+    }
+    const relayEditable = ["claimed", "streaming"].includes(relayTicket.state) && relayTicket.claimedBy === operator;
+    if (!relayEditable) throw new ApiError(409, "先认领票据，再请求 AI 回复。", "invalid_request_error", "ai_reply_not_editable");
+    if (aiTicketLocks.has(relayTicket.id)) throw new ApiError(409, "该票据已有 AI 生成任务。", "invalid_request_error", "ai_busy");
+    if (aiActive >= live.aiAssist.maxConcurrent) throw new ApiError(503, "AI 辅助当前繁忙，请稍后重试。", "server_error", "ai_busy");
+    try {
+      aiUsage.checkRequest(operator, live.aiAssist);
+    } catch (error) {
+      if (error instanceof QuotaError) {
+        throw new ApiError(429, error.message, "rate_limit_error", error.code, null, { "Retry-After": String(Math.max(1, Math.ceil(error.retryAfterMs / 1000))) });
+      }
+      throw error;
+    }
+    aiActive += 1;
+    aiTicketLocks.add(relayTicket.id);
+    aiUsage.addRequest(operator);
+    const relayStarted = Date.now();
+    const instruction = String(body.instruction || "").trim().slice(0, 500);
+    try {
+      const result = await relayReply({ settings: live.aiAssist, apiKey: secrets.get("aiApiKey"), ticket: relayTicket, instruction });
+      aiUsage.addTokens(operator, result.usage.inputTokens + result.usage.outputTokens);
+      audit.append({
+        actor: operator,
+        action: "ai.relay",
+        target: relayTicket.id,
+        ip: clientIp(req),
+        detail: JSON.stringify({ model: result.model, toolCalls: result.toolCalls.length, finishReason: result.finishReason, latencyMs: Date.now() - relayStarted }).slice(0, 480),
+      });
+      return sendJson(res, 200, { ok: true, ...result });
+    } catch (error) {
+      const mapped = error instanceof AiAssistError
+        ? new ApiError(error.status, error.message, "ai_assist_error", error.code, null, error.retryAfterMs ? { "Retry-After": String(Math.ceil(error.retryAfterMs / 1000)) } : undefined)
+        : error;
+      audit.append({ actor: operator, action: "ai.relay", target: relayTicket.id, ip: clientIp(req), detail: JSON.stringify({ status: "error", latencyMs: Date.now() - relayStarted }).slice(0, 480) });
+      throw mapped;
+    } finally {
+      aiActive = Math.max(0, aiActive - 1);
+      aiTicketLocks.delete(relayTicket.id);
+    }
+  }
+
+  const aiMatch = /^\/op\/api\/tickets\/([^/]+)\/ai\/suggest$/.exec(pathname);
+  if (aiMatch) {
+    if (req.method !== "POST") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    if (!live.aiAssist.enabled) throw new ApiError(403, "AI 辅助未启用。", "invalid_request_error", "ai_disabled");
+    const aiTicket = requireTicket(decodeURIComponent(aiMatch[1]));
+    if (!canSeeModel(session, aiTicket.model)) {
+      throw new ApiError(404, "Ticket not found.", "invalid_request_error", "ticket_not_found");
+    }
+    const user = auth.getUser(operator);
+    if (!userAllowsFeature(user, "aiAssist")) {
+      throw new ApiError(403, "当前账号没有 AI 辅助权限。", "invalid_request_error", "feature_disabled");
+    }
+    if (!live.aiAssist.endpoint || !live.aiAssist.model || !secrets.has("aiApiKey")) {
+      throw new ApiError(503, "AI 辅助尚未配置完整。", "server_error", "ai_not_configured");
+    }
+    const task = String(body.task || "").trim();
+    const auto = body.auto === true;
+    if (task === "reply") {
+      const editable = ["claimed", "streaming"].includes(aiTicket.state) && aiTicket.claimedBy === operator;
+      if (auto) {
+        if (aiTicket.autoAiAt) {
+          throw new ApiError(409, "该票据已经执行过自动 AI。", "invalid_request_error", "auto_ai_already_run");
+        }
+        if (aiAutoLocks.has(aiTicket.id)) {
+          throw new ApiError(409, "该票据的自动 AI 正在执行。", "invalid_request_error", "auto_ai_busy");
+        }
+        if (aiTicket.state !== "queued" && !editable) {
+          throw new ApiError(409, "当前票据状态不能执行自动 AI。", "invalid_request_error", "auto_ai_not_allowed");
+        }
+      } else if (!editable) {
+        throw new ApiError(409, "先认领票据，再生成回复或工具调用。", "invalid_request_error", "ai_reply_not_editable");
+      }
+    }
+    const selection = String(body.selection || "").slice(0, 4_000);
+    const instruction = String(body.instruction || "").slice(0, 500);
+    const targetLanguage = String(body.targetLanguage || "zh-CN").slice(0, 16);
+    if (aiTicketLocks.has(aiTicket.id)) {
+      throw new ApiError(409, "该票据已有 AI 生成任务。", "invalid_request_error", "ai_busy");
+    }
+    if (aiActive >= live.aiAssist.maxConcurrent) {
+      throw new ApiError(503, "AI 辅助当前繁忙，请稍后重试。", "server_error", "ai_busy");
+    }
+    try {
+      aiUsage.checkRequest(operator, live.aiAssist);
+    } catch (error) {
+      if (error instanceof QuotaError) {
+        throw new ApiError(429, error.message, "rate_limit_error", error.code, null, {
+          "Retry-After": String(Math.max(1, Math.ceil(error.retryAfterMs / 1000))),
+        });
+      }
+      throw error;
+    }
+    aiActive += 1;
+    aiTicketLocks.add(aiTicket.id);
+    if (auto) aiAutoLocks.add(aiTicket.id);
+    aiUsage.addRequest(operator);
+    const startedAt = Date.now();
+    try {
+      let result;
+      if (task === "reply" && live.aiAssist.replyMode !== "structured") {
+        try {
+          result = await suggestNative({
+            settings: live.aiAssist,
+            apiKey: secrets.get("aiApiKey"),
+            ticket: aiTicket,
+            instruction,
+          });
+        } catch (error) {
+          if (live.aiAssist.replyMode !== "hybrid") throw error;
+          result = await suggestWithAi({
+            settings: live.aiAssist,
+            apiKey: secrets.get("aiApiKey"),
+            ticket: aiTicket,
+            task,
+            selection,
+            instruction,
+            targetLanguage,
+          });
+        }
+      } else {
+        result = await suggestWithAi({
+          settings: live.aiAssist,
+          apiKey: secrets.get("aiApiKey"),
+          ticket: aiTicket,
+          task,
+          selection,
+          instruction,
+          targetLanguage,
+        });
+      }
+      aiUsage.addTokens(operator, result.usage.inputTokens + result.usage.outputTokens);
+      if (auto) {
+        aiTicket.autoAiAt = Date.now();
+        persistRuntime();
+      }
+      audit.append({
+        actor: operator,
+        action: "ai.suggest",
+        target: aiTicket.id,
+        ip: clientIp(req),
+        detail: JSON.stringify({
+          task,
+          model: result.model,
+          inputTokens: result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          latencyMs: Date.now() - startedAt,
+        }).slice(0, 480),
+      });
+      return sendJson(res, 200, { ok: true, ...result });
+    } catch (error) {
+      const mapped = error instanceof AiAssistError
+        ? new ApiError(error.status, error.message, "ai_assist_error", error.code, null, error.retryAfterMs ? { "Retry-After": String(Math.ceil(error.retryAfterMs / 1000)) } : undefined)
+        : error;
+      audit.append({
+        actor: operator,
+        action: "ai.suggest",
+        target: aiTicket.id,
+        ip: clientIp(req),
+        detail: JSON.stringify({ task, status: "error", latencyMs: Date.now() - startedAt }).slice(0, 480),
+      });
+      throw mapped;
+    } finally {
+      aiActive = Math.max(0, aiActive - 1);
+      aiTicketLocks.delete(aiTicket.id);
+      if (auto) aiAutoLocks.delete(aiTicket.id);
+    }
+  }
+
+  const notesMatch = /^\/op\/api\/tickets\/([^/]+)\/notes$/.exec(pathname);
+  if (notesMatch) {
+    const noteTicket = requireTicket(decodeURIComponent(notesMatch[1]));
+    if (!canSeeModel(session, noteTicket.model)) {
+      throw new ApiError(404, "Ticket not found.", "invalid_request_error", "ticket_not_found");
+    }
+    if (!Array.isArray(noteTicket.notes)) noteTicket.notes = [];
+    if (req.method === "GET") {
+      return sendJson(res, 200, { ok: true, notes: noteTicket.notes });
+    }
+    if (req.method !== "POST") {
+      throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    }
+    const text = String(body.text || "").trim();
+    if (!text) throw new ApiError(400, "Note text is required.", "invalid_request_error", "invalid_note");
+    if (text.length > 2000) throw new ApiError(400, "Note is too long.", "invalid_request_error", "note_too_long");
+    if (noteTicket.notes.length >= 100) {
+      throw new ApiError(409, "This ticket has too many internal notes.", "invalid_request_error", "too_many_notes");
+    }
+    const note = {
+      id: `note_${randomUUID().replaceAll("-", "").slice(0, 24)}`,
+      author: operator,
+      text,
+      kind: "note",
+      createdAt: Date.now(),
+    };
+    noteTicket.notes.push(note);
+    persistRuntime();
+    audit.append({ actor: operator, action: "ticket.note", target: noteTicket.id, ip: clientIp(req) });
+    return sendJson(res, 201, { ok: true, note, notes: noteTicket.notes });
+  }
+
+  const metaMatch = /^\/op\/api\/tickets\/([^/]+)\/meta$/.exec(pathname);
+  if (metaMatch) {
+    if (req.method !== "PATCH") {
+      throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    }
+    const metaTicket = requireTicket(decodeURIComponent(metaMatch[1]));
+    if (!canSeeModel(session, metaTicket.model)) {
+      throw new ApiError(404, "Ticket not found.", "invalid_request_error", "ticket_not_found");
+    }
+    const tags = normalizeTicketTags(body.tags);
+    const priority = normalizeTicketPriority(body.priority);
+    if (tags === null && priority === null) {
+      throw new ApiError(400, "Provide tags or priority.", "invalid_request_error", "empty_ticket_meta");
+    }
+    if (tags !== null) metaTicket.tags = tags;
+    if (priority !== null) metaTicket.priority = priority;
+    persistRuntime();
+    audit.append({
+      actor: operator,
+      action: "ticket.meta",
+      target: metaTicket.id,
+      ip: clientIp(req),
+      detail: JSON.stringify({ tags: metaTicket.tags, priority: metaTicket.priority }).slice(0, 480),
+    });
+    return sendJson(res, 200, { ok: true, ticket: publicTicket(metaTicket) });
+  }
+
+  const match = /^\/op\/api\/tickets\/([^/]+)(?:\/(claim|chunk|finish|release|cancel|transfer|takeover|reasoning))?$/.exec(pathname);
   if (!match) {
     throw new ApiError(404, "Operator route not found.", "invalid_request_error", "not_found");
   }
@@ -2350,14 +3930,34 @@ async function handleOperator(req, res, url, session) {
     if (ticket.state !== "queued") {
       throw new ApiError(409, `Ticket is already ${ticket.state}.`, "invalid_request_error", "ticket_not_queued");
     }
-    if (ticket.clientGone || !isResOpen(ticket.res)) {
+    if (!ticket.detached && !ticket.restored && (ticket.clientGone || !isResOpen(ticket.res))) {
       abandonTicket(ticket);
       throw new ApiError(410, "The caller disconnected before the ticket was claimed.", "invalid_request_error", "client_gone");
+    }
+    if (ticket.sessionId) {
+      const conflict = [...tickets.values()].find((other) =>
+        other.id !== ticket.id &&
+        other.sessionId === ticket.sessionId &&
+        ["claimed", "streaming", "finishing"].includes(other.state),
+      );
+      if (conflict) {
+        throw new ApiError(
+          409,
+          "该会话已有进行中的轮次，请先完成当前轮次。",
+          "invalid_request_error",
+          "conversation_busy",
+        );
+      }
     }
 
     ticket.state = "claimed";
     ticket.claimedBy = operator;
     ticket.claimedAt = Date.now();
+    clearTimeout(ticket.timers.aiReply);
+    ticket.timers.aiReply = null;
+    clearTimeout(ticket.timers.reconnect);
+    ticket.timers.reconnect = null;
+    rememberPreferredOperator(ticket);
     stats.claimCount += 1;
     stats.claimWaitMs += ticket.claimedAt - ticket.created;
     clearTimeout(ticket.timers.queue);
@@ -2365,8 +3965,53 @@ async function handleOperator(req, res, url, session) {
     armResponseTimeout(ticket);
     if (ticket.stream) beginStream(ticket);
     audit.append({ actor: operator, action: "ticket.claim", target: ticket.id, ip: clientIp(req), detail: ticket.model });
-    persistRuntime();
+    persistRuntime({ flush: true });
+    startAiRelayForTicket(ticket, "auto_claim", operator);
     log(`[claim] ${ticket.id} operator=${operator} wait=${ticket.claimedAt - ticket.created}ms`);
+    return sendJson(res, 200, { ok: true, ticket: publicTicket(ticket) });
+  }
+
+  if (action === "takeover") {
+    if (session.role !== "admin") {
+      throw new ApiError(403, "Only an administrator can take over a ticket.", "invalid_request_error", "admin_required");
+    }
+    if (ticket.finished) {
+      throw new ApiError(409, `Ticket is already ${ticket.state}.`, "invalid_request_error", "ticket_closed");
+    }
+    if (ticket.state !== "claimed") {
+      throw new ApiError(409, "Only a claimed, not-yet-streaming ticket can be taken over.", "invalid_request_error", "ticket_not_takeoverable");
+    }
+    if (!ticket.claimedBy) {
+      throw new ApiError(409, "Ticket has no current operator.", "invalid_request_error", "no_current_operator");
+    }
+    if (ticket.claimedBy === operator) {
+      throw new ApiError(409, "You already own this ticket.", "invalid_request_error", "already_owner");
+    }
+    const previous = ticket.claimedBy;
+    ticket.claimedBy = operator;
+    ticket.claimedAt = Date.now();
+    clearTimeout(ticket.timers.aiReply);
+    ticket.timers.aiReply = null;
+    rememberPreferredOperator(ticket);
+    armResponseTimeout(ticket);
+    if (Array.isArray(ticket.notes) && ticket.notes.length < 100) {
+      ticket.notes.push({
+        id: `note_${randomUUID().replaceAll("-", "").slice(0, 24)}`,
+        author: operator,
+        text: `管理员接管：${previous} → ${operator}`,
+        kind: "takeover",
+        createdAt: Date.now(),
+      });
+    }
+    audit.append({
+      actor: operator,
+      action: "ticket.takeover",
+      target: ticket.id,
+      ip: clientIp(req),
+      detail: `${previous} -> ${operator}`,
+    });
+    persistRuntime({ flush: true });
+    log(`[takeover] ${ticket.id} ${previous} -> ${operator} by=${operator}`);
     return sendJson(res, 200, { ok: true, ticket: publicTicket(ticket) });
   }
 
@@ -2394,9 +4039,27 @@ async function handleOperator(req, res, url, session) {
     if (targetUser?.role !== "admin" && targetUser?.allowedModels?.length && !targetUser.allowedModels.includes(ticket.model)) {
       throw new ApiError(403, "Target operator cannot handle this model.", "invalid_request_error", "target_model_forbidden");
     }
+    const handoffNote = String(body.note || "").trim();
+    if (handoffNote) {
+      if (handoffNote.length > 2000) {
+        throw new ApiError(400, "Handoff note is too long.", "invalid_request_error", "note_too_long");
+      }
+      if (!Array.isArray(ticket.notes)) ticket.notes = [];
+      if (ticket.notes.length >= 100) {
+        throw new ApiError(409, "This ticket has too many internal notes.", "invalid_request_error", "too_many_notes");
+      }
+      ticket.notes.push({
+        id: `note_${randomUUID().replaceAll("-", "").slice(0, 24)}`,
+        author: operator,
+        text: handoffNote,
+        kind: "handoff",
+        createdAt: Date.now(),
+      });
+    }
     const previous = ticket.claimedBy;
     ticket.claimedBy = targetName;
     ticket.claimedAt = Date.now();
+    rememberPreferredOperator(ticket);
     armResponseTimeout(ticket);
     audit.append({
       actor: operator,
@@ -2412,7 +4075,7 @@ async function handleOperator(req, res, url, session) {
 
   if (action === "reasoning") {
     requireClaimant("stream reasoning");
-    if (ticket.finished || ticket.clientGone) {
+    if (ticket.finished || (ticket.clientGone && !ticket.detached && !ticket.restored)) {
       throw new ApiError(410, "The caller is no longer connected.", "invalid_request_error", "client_gone");
     }
     if (!["claimed", "streaming"].includes(ticket.state)) {
@@ -2442,7 +4105,7 @@ async function handleOperator(req, res, url, session) {
 
   if (action === "chunk") {
     requireClaimant("edit");
-    if (ticket.finished || ticket.clientGone) {
+    if (ticket.finished || (ticket.clientGone && !ticket.detached && !ticket.restored)) {
       throw new ApiError(410, "The caller is no longer connected.", "invalid_request_error", "client_gone");
     }
     if (!["claimed", "streaming"].includes(ticket.state)) {
@@ -2483,7 +4146,7 @@ async function handleOperator(req, res, url, session) {
     if (ticket.finished) {
       return sendJson(res, 200, { ok: true, state: ticket.state, alreadyFinished: true });
     }
-    if (ticket.clientGone) {
+    if (ticket.clientGone && !ticket.detached && !ticket.restored) {
       abandonTicket(ticket);
       throw new ApiError(410, "The caller is no longer connected.", "invalid_request_error", "client_gone");
     }
@@ -2633,14 +4296,24 @@ const PUBLIC_FILES = new Map([
   ["/admin.css", { file: "admin.css", type: "text/css; charset=utf-8" }],
   ["/theme.css", { file: "theme.css", type: "text/css; charset=utf-8" }],
   ["/navigation.js", { file: "navigation.js", type: "text/javascript; charset=utf-8" }],
+  ["/guide.css", { file: "guide.css", type: "text/css; charset=utf-8" }],
   ["/password-strength.js", { file: "password-strength.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-settings.js", { file: "admin-settings.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-usage.js", { file: "admin-usage.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-audit.js", { file: "admin-audit.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-status.js", { file: "admin-status.js", type: "text/javascript; charset=utf-8" }],
+  ["/admin-history.js", { file: "admin-history.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-users.js", { file: "admin-users.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-keys.js", { file: "admin-keys.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-models.js", { file: "admin-models.js", type: "text/javascript; charset=utf-8" }],
+  ["/icon.svg", { file: "icon.svg", type: "image/svg+xml" }],
+  ["/favicon.ico", { file: "favicon.ico", type: "image/x-icon" }],
+  ["/icon-16.png", { file: "icon-16.png", type: "image/png" }],
+  ["/icon-32.png", { file: "icon-32.png", type: "image/png" }],
+  ["/icon-192.png", { file: "icon-192.png", type: "image/png" }],
+  ["/icon-512.png", { file: "icon-512.png", type: "image/png" }],
+  ["/apple-touch-icon.png", { file: "apple-touch-icon.png", type: "image/png" }],
+  ["/manifest.webmanifest", { file: "manifest.webmanifest", type: "application/manifest+json" }],
 ]);
 
 function escapeHtml(value) {
@@ -2816,11 +4489,23 @@ async function handleMe(req, res) {
       username: session.username,
       role: session.role,
       allowedModels: [...(user?.allowedModels || [])],
+      features: auth.getUser(session.username)?.features || {},
     },
     csrfToken: session.csrf,
+    preferences: auth.getPreferences(session.username),
     expiresAt: session.expiresAt,
     version: VERSION,
     models: visibleModelsFor(session),
+    aiAssist: {
+      enabled: live.aiAssist.enabled === true,
+      configured: Boolean(live.aiAssist.endpoint && live.aiAssist.model && secrets.has("aiApiKey")),
+      allowed: userAllowsFeature(user, "aiAssist"),
+      autoClaimEnabled: live.aiAssist.autoClaimEnabled === true,
+      limits: {
+        dailyRequestsPerOperator: live.aiAssist.dailyRequestsPerOperator,
+        dailyTokensPerOperator: live.aiAssist.dailyTokensPerOperator,
+      },
+    },
     config: {
       queueTimeoutMs: live.queue.waitTimeoutMs,
       responseTimeoutMs: live.queue.responseTimeoutMs,
@@ -2854,6 +4539,15 @@ async function route(req, res) {
         return;
       }
       throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    }
+
+    if (pathname === "/metrics" && req.method === "GET") {
+      res.writeHead(200, {
+        "Content-Type": "text/plain; version=0.0.4; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+      res.end(metricsText());
+      return;
     }
 
     if ((pathname === "/provider" || pathname === "/v1/provider") && req.method === "GET") {
@@ -2891,6 +4585,24 @@ async function route(req, res) {
         return;
       }
       return serveLoginPage(res, { next: safeNextPath(url.searchParams.get("next"), "/console") });
+    }
+
+    if (pathname === "/guide" || pathname === "/guide/") {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      }
+      if (auth.getSession(req)) {
+        res.writeHead(302, { Location: "/console/guide" });
+        res.end();
+        return;
+      }
+      if (!live.features.publicGuide) {
+        res.writeHead(302, { Location: `/login?next=${encodeURIComponent("/guide")}` });
+        res.end();
+        return;
+      }
+      res.setHeader("X-Robots-Tag", "noindex, nofollow");
+      return servePage(req, res, "guide.html", "Guide not found.");
     }
 
     if (pathname === "/auth/login" && req.method === "POST") {
@@ -2946,9 +4658,28 @@ async function route(req, res) {
       return serveAdminPage(req, res, "keys.html");
     }
 
+    if (pathname === "/console/guide" || pathname === "/console/guide/") {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      }
+      const guideSession = auth.getSession(req);
+      if (!guideSession) {
+        res.writeHead(302, { Location: `/login?next=${encodeURIComponent("/console/guide")}` });
+        res.end();
+        return;
+      }
+      res.setHeader("X-Robots-Tag", "noindex, nofollow");
+      return servePage(req, res, "guide.html", "Guide not found.");
+    }
     if (pathname === "/console/settings" || pathname === "/console/settings/") {
       if (req.method !== "GET" && req.method !== "HEAD") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
-      return serveAdminPage(req, res, "settings.html");
+      const settingsSession = auth.getSession(req);
+      if (!settingsSession) {
+        res.writeHead(302, { Location: `/login?next=${encodeURIComponent("/console/settings")}` });
+        res.end();
+        return;
+      }
+      return servePage(req, res, settingsSession.role === "admin" ? "settings.html" : "settings-operator.html");
     }
     if (pathname === "/console/usage" || pathname === "/console/usage/") {
       if (req.method !== "GET" && req.method !== "HEAD") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
@@ -2958,6 +4689,10 @@ async function route(req, res) {
       if (req.method !== "GET" && req.method !== "HEAD") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
       return serveAdminPage(req, res, "audit.html");
     }
+    if (pathname === "/console/history" || pathname === "/console/history/") {
+      if (req.method !== "GET" && req.method !== "HEAD") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      return serveAdminPage(req, res, "history.html");
+    }
     if (pathname === "/console/status" || pathname === "/console/status/") {
       if (req.method !== "GET" && req.method !== "HEAD") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
       return serveAdminPage(req, res, "status.html");
@@ -2965,6 +4700,22 @@ async function route(req, res) {
 
     const publicFile = PUBLIC_FILES.get(pathname);
     if (publicFile) return serveStatic(req, res, publicFile);
+
+    if (pathname === "/v1/files") {
+      applyCorsTo(req, res);
+      if (req.method !== "POST") {
+        throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      }
+      return handleFileUpload(req, res);
+    }
+
+    if (pathname.startsWith("/v1/files/")) {
+      applyCorsTo(req, res);
+      if (req.method !== "GET") {
+        throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      }
+      return handleFileApi(req, res, url);
+    }
 
     if (pathname === "/v1/models" || pathname.startsWith("/v1/models/")) {
       applyCorsTo(req, res);
@@ -3010,11 +4761,11 @@ function handleError(res, error) {
   const apiError =
     error instanceof ApiError
       ? error
-      : error instanceof AuthError || error instanceof ApiKeyError || error instanceof ModelError || error instanceof SettingsError
+      : error instanceof AuthError || error instanceof ApiKeyError || error instanceof ModelError || error instanceof SettingsError || error instanceof AttachmentError || error instanceof TemplateError
         ? new ApiError(error.status, error.message, "invalid_request_error", error.code)
         : new ApiError(500, "The server had an error while processing your request.", "server_error", "internal_error");
 
-  if (!(error instanceof ApiError) && !(error instanceof AuthError) && !(error instanceof ApiKeyError) && !(error instanceof ModelError) && !(error instanceof SettingsError)) {
+  if (!(error instanceof ApiError) && !(error instanceof AuthError) && !(error instanceof ApiKeyError) && !(error instanceof ModelError) && !(error instanceof SettingsError) && !(error instanceof TemplateError)) {
     console.error(nowIso(), "[unhandled]", error);
   }
 

@@ -4,6 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#070b10" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>能工智人 · 状态</title>
     <link rel="stylesheet" href="/console.css" />
     <link rel="stylesheet" href="/admin.css" />
@@ -11,7 +15,7 @@
   </head>
   <body data-page="status">
     <header class="topbar">
-      <div class="brand"><span class="status-dot ok"></span><span class="brand-name">能工智人</span><span class="brand-sub">管理后台</span></div>
+      <div class="brand"><span class="brand-icon-wrap"><img class="brand-icon" src="/icon.svg" alt="" /><span class="status-dot ok"></span></span><span class="brand-name">能工智人</span><span class="brand-sub">管理后台</span></div>
       <nav id="topnav" class="topnav" aria-label="主导航"></nav>
       <div class="conn"><span id="userLabel" class="user-label">正在加载…</span><button id="logout" class="btn ghost" type="button">退出</button><span id="status" class="conn-status">连接中…</span></div>
     </header>
@@ -34,6 +38,7 @@
           <span class="status-kicker">RUNTIME / SIGNAL CORE</span>
           <h1>系统生命体征</h1>
           <p>进程、队列、存储和操作信号的实时切片。这个页面每 15 秒自动呼吸一次。</p>
+          <div id="heroHealth" class="status-health online"><span class="status-health-dot"></span><span id="heroHealthText">运行正常</span></div>
           <div class="hero-metrics" id="heroMetrics"></div>
         </div>
         <div class="status-actions">
@@ -42,12 +47,14 @@
         </div>
       </section>
 
+      <section id="alertStrip" class="alert-strip hidden" aria-live="polite"></section>
+
       <section class="status-vitals" id="statusStats"></section>
 
       <section class="status-card queue-flow-card">
         <div class="status-card-head">
           <div><span class="status-kicker">FLOW / QUEUE</span><h2>请求流</h2></div>
-          <span class="card-note">当前队列切片</span>
+          <span id="flowNote" class="card-note">当前队列切片</span>
         </div>
         <div id="queueFlow" class="queue-flow"></div>
       </section>

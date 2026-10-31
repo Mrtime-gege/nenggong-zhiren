@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { verifyTotp } from "./totp.mjs";
+import { normalizeUserFeatures } from "./features.mjs";
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9_.-]{2,31}$/;
 const ROLES = new Set(["admin", "operator"]);
@@ -17,6 +18,29 @@ const PASSWORD_MIN = 8;
 const PASSWORD_MAX = 256;
 const SCRYPT_OPTIONS = Object.freeze({ N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
 const HASH_BYTES = 64;
+const DEFAULT_PREFERENCES = Object.freeze({
+  browserNotifications: true,
+  notificationSound: true,
+  autoClaimDefault: false,
+  autoAiOnClaim: false,
+  queueAlertSeconds: 120,
+});
+
+function normalizePreferences(raw, fallback = DEFAULT_PREFERENCES) {
+  const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const bool = (key) => (typeof source[key] === "boolean" ? source[key] : fallback[key]);
+  const queueAlertSeconds = Number(source.queueAlertSeconds ?? fallback.queueAlertSeconds);
+  return {
+    browserNotifications: bool("browserNotifications"),
+    notificationSound: bool("notificationSound"),
+    autoClaimDefault: bool("autoClaimDefault"),
+    autoAiOnClaim: bool("autoAiOnClaim"),
+    queueAlertSeconds:
+      Number.isInteger(queueAlertSeconds) && queueAlertSeconds >= 10 && queueAlertSeconds <= 86_400
+        ? queueAlertSeconds
+        : fallback.queueAlertSeconds,
+  };
+}
 
 
 export class AuthError extends Error {
@@ -210,6 +234,8 @@ export class AuthService {
         hash: raw.hash,
         createdAt: Number(raw.createdAt) || this.now(),
         allowedModels: normalizeAllowedModels(raw.allowedModels || []),
+        features: normalizeUserFeatures(raw.features),
+        preferences: normalizePreferences(raw.preferences),
         totpSecret: typeof raw.totpSecret === "string" ? raw.totpSecret : "",
         mfaEnabled: raw.mfaEnabled === true && typeof raw.totpSecret === "string" && raw.totpSecret.length > 0,
       });
@@ -227,6 +253,8 @@ export class AuthService {
         hash: user.hash,
         createdAt: user.createdAt,
         allowedModels: user.allowedModels || [],
+        features: normalizeUserFeatures(user.features),
+        preferences: normalizePreferences(user.preferences),
         totpSecret: user.totpSecret || undefined,
         mfaEnabled: user.mfaEnabled === true,
       })),
@@ -243,11 +271,12 @@ export class AuthService {
 
   listUsers() {
     return [...this.users.values()]
-      .map(({ username, role, createdAt, allowedModels, mfaEnabled }) => ({
+      .map(({ username, role, createdAt, allowedModels, features, mfaEnabled }) => ({
         username,
         role,
         createdAt,
         allowedModels: [...(allowedModels || [])],
+        features: normalizeUserFeatures(features),
         mfaEnabled: mfaEnabled === true,
       }))
       .sort((a, b) => a.username.localeCompare(b.username));
@@ -313,7 +342,7 @@ export class AuthService {
     return this.users.size > 0;
   }
 
-  addUser(username, password, role = "operator", allowedModels = []) {
+  addUser(username, password, role = "operator", allowedModels = [], features = undefined) {
     const normalized = normalizeUsername(username);
     assertPassword(password);
     if (!ROLES.has(role)) throw new AuthError("角色只能是 admin 或 operator。", "invalid_role");
@@ -326,6 +355,8 @@ export class AuthService {
       hash: hashPassword(password, salt).toString("hex"),
       createdAt: this.now(),
       allowedModels: normalizeAllowedModels(allowedModels),
+      features: normalizeUserFeatures(features),
+      preferences: { ...DEFAULT_PREFERENCES },
     };
     this.users.set(normalized, user);
     this.persistUsers();
@@ -334,7 +365,37 @@ export class AuthService {
       role: user.role,
       createdAt: user.createdAt,
       allowedModels: [...user.allowedModels],
+      features: normalizeUserFeatures(user.features),
     };
+  }
+
+  getPreferences(username) {
+    const user = this.users.get(normalizeUsername(username));
+    if (!user) throw new AuthError("用户不存在。", "user_not_found", 404);
+    return normalizePreferences(user.preferences);
+  }
+
+  setPreferences(username, patch) {
+    const normalized = normalizeUsername(username);
+    const user = this.users.get(normalized);
+    if (!user) throw new AuthError("用户不存在。", "user_not_found", 404);
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+      throw new AuthError("个性化设置必须是对象。", "invalid_preferences");
+    }
+    user.preferences = normalizePreferences({ ...normalizePreferences(user.preferences), ...patch });
+    this.users.set(normalized, user);
+    this.persistUsers();
+    return normalizePreferences(user.preferences);
+  }
+
+  setUserFeatures(username, features) {
+    const normalized = normalizeUsername(username);
+    const user = this.users.get(normalized);
+    if (!user) throw new AuthError("用户不存在。", "user_not_found", 404);
+    user.features = normalizeUserFeatures({ ...normalizeUserFeatures(user.features), ...(features || {}) });
+    this.users.set(normalized, user);
+    this.persistUsers();
+    return normalizeUserFeatures(user.features);
   }
 
   setAllowedModels(username, allowedModels) {
@@ -355,6 +416,8 @@ export class AuthService {
       role: user.role,
       createdAt: user.createdAt,
       allowedModels: [...(user.allowedModels || [])],
+      features: normalizeUserFeatures(user.features),
+      preferences: normalizePreferences(user.preferences),
       mfaEnabled: user.mfaEnabled === true,
     };
   }

@@ -4,7 +4,11 @@ import {
   ANTHROPIC_PROTOCOL,
   ProtocolError,
   canonicalMessage,
+  collectFiles,
   collectImages,
+  validateFileId,
+  MAX_CONTENT_PARTS_PER_MESSAGE,
+  MAX_MESSAGES_PER_REQUEST,
   normalizeMaxTokens,
   normalizeStops,
   normalizeToolChoiceAnthropic,
@@ -46,11 +50,19 @@ function parseBlocks(blocks, messageIndex, role) {
     if (block.type === "text") {
       const text = typeof block.text === "string" ? block.text : "";
       parts.push(textPart(text));
+    } else if (block.type === "document") {
+      const source = block.source;
+      if (source?.type === "file" && validateFileId(source.file_id)) {
+        parts.push({ type: "file", fileId: source.file_id });
+        attachments.push({ messageIndex, type: "file", fileId: source.file_id });
+      } else {
+        parts.push({ type: "unknown", originalType: "document" });
+      }
     } else if (block.type === "image") {
       const part = imagePart(block.source);
       if (part) {
         parts.push(part);
-        attachments.push({ messageIndex, url: part.url, detail: "auto" });
+        attachments.push({ messageIndex, type: "image", url: part.url, detail: "auto" });
       } else {
         parts.push({ type: "unknown", originalType: "image" });
       }
@@ -78,7 +90,7 @@ function parseBlocks(blocks, messageIndex, role) {
             const part = imagePart(item.source);
             if (part) {
               nestedParts.push(part);
-              attachments.push({ messageIndex, url: part.url, detail: "auto" });
+              attachments.push({ messageIndex, type: "image", url: part.url, detail: "auto" });
             }
           }
         }
@@ -96,6 +108,12 @@ function parseBlocks(blocks, messageIndex, role) {
     } else {
       parts.push({ type: "unknown", originalType: String(block.type || "unknown").slice(0, 40) });
     }
+  }
+  if (parts.length > MAX_CONTENT_PARTS_PER_MESSAGE) {
+    throw new ProtocolError(`A message may contain at most ${MAX_CONTENT_PARTS_PER_MESSAGE} content parts.`, {
+      code: "too_many_content_parts",
+      param: "messages",
+    });
   }
   return { parts, toolCalls, attachments };
 }
@@ -132,6 +150,12 @@ export function normalizeAnthropicRequest(body, { models } = {}) {
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
     throw new ProtocolError("messages: Field required", {
       code: "invalid_request_error",
+      param: "messages",
+    });
+  }
+  if (body.messages.length > MAX_MESSAGES_PER_REQUEST) {
+    throw new ProtocolError(`messages may contain at most ${MAX_MESSAGES_PER_REQUEST} entries.`, {
+      code: "too_many_messages",
       param: "messages",
     });
   }

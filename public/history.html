@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0e13" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>能工智人 · 历史</title>
+    <link rel="stylesheet" href="/console.css" />
+    <link rel="stylesheet" href="/admin.css" />
+    <link rel="stylesheet" href="/theme.css" />
+  </head>
+  <body data-page="history">
+    <header class="topbar">
+      <div class="brand"><span class="brand-icon-wrap"><img class="brand-icon" src="/icon.svg" alt="" /><span class="status-dot ok"></span></span><span class="brand-name">能工智人</span><span class="brand-sub">管理后台</span></div>
+      <nav id="topnav" class="topnav" aria-label="主导航"></nav>
+      <div class="conn"><span id="userLabel" class="user-label">正在加载…</span><button id="logout" class="btn ghost" type="button">退出</button><span id="status" class="conn-status">连接中…</span></div>
+    </header>
+    <main class="admin-main">
+      <div class="admin-head">
+        <div><h1>历史</h1><p>全局检索已结束的请求，支持会话、模型、调用方、回复员、状态、日期和全文关键字。保留最近 1000 张票据，可导出当前筛选结果。</p></div>
+        <a id="exportHistory" class="btn" href="/op/api/history.csv" download="nenggong-zhiren-history.csv">导出 CSV</a>
+      </div>
+
+      <div class="admin-card">
+        <form id="historyFilters" class="admin-form history-filters">
+          <label class="field"><span class="field-label">关键字</span><input id="historyQ" type="search" placeholder="内容 / 票据 ID / 调用方" autocomplete="off" /></label>
+          <label class="field"><span class="field-label">模型</span><select id="historyModel"><option value="">全部模型</option></select></label>
+          <label class="field"><span class="field-label">状态</span><select id="historyState"><option value="">全部状态</option><option value="done">已完成</option><option value="failed">失败</option><option value="cancelled">已取消</option></select></label>
+          <label class="field"><span class="field-label">回复员</span><input id="historyOperator" type="text" placeholder="用户名" autocomplete="off" /></label>
+          <label class="field"><span class="field-label">开始日期</span><input id="historyFrom" type="date" /></label>
+          <label class="field"><span class="field-label">结束日期</span><input id="historyTo" type="date" /></label>
+          <label class="field"><span class="field-label">每页</span><select id="historyLimit"><option>25</option><option selected>50</option><option>100</option></select></label>
+          <div class="form-actions"><button class="btn primary" type="submit">检索</button><button id="historyReset" class="btn ghost" type="button">重置</button></div>
+        </form>
+      </div>
+
+      <div class="admin-card">
+        <div class="admin-card-title">归档记录 <span id="historyCount" class="admin-hint">—</span></div>
+        <div class="admin-table-wrap">
+          <table class="admin-table history-table">
+            <thead><tr><th>结束时间</th><th>会话</th><th>模型</th><th>调用方</th><th>回复员</th><th>状态</th><th>内容预览</th><th>Tokens</th></tr></thead>
+            <tbody id="historyTable"></tbody>
+          </table>
+        </div>
+        <div id="historyEmpty" class="admin-empty hidden">没有匹配的历史记录。</div>
+        <div class="history-pager">
+          <button id="historyPrev" class="btn ghost" type="button">上一页</button>
+          <span id="historyPage" class="admin-hint">—</span>
+          <button id="historyNext" class="btn ghost" type="button">下一页</button>
+        </div>
+      </div>
+    </main>
+    <script src="/navigation.js"></script>
+    <script src="/admin-history.js"></script>
+  </body>
+</html>

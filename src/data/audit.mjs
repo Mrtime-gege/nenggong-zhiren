@@ -6,11 +6,13 @@ import path from "node:path";
 const MAX_RETURN = 5000;
 
 export class AuditStore {
-  constructor({ file, logger = console, enabled = () => true, now = Date.now } = {}) {
+  constructor({ file, logger = console, enabled = () => true, now = Date.now, maxBytes = 10 * 1024 * 1024, keepFiles = 5 } = {}) {
     this.file = path.resolve(file);
     this.logger = logger;
     this.enabled = enabled;
     this.now = now;
+    this.maxBytes = Math.max(1024 * 1024, Number(maxBytes) || 0);
+    this.keepFiles = Math.max(1, Math.min(20, Number(keepFiles) || 1));
     this.ready = false;
   }
 
@@ -25,7 +27,30 @@ export class AuditStore {
       /* non-POSIX */
     }
     this.ready = true;
+    this.rotateIfNeeded();
     return this;
+  }
+
+  rotateIfNeeded(force = false) {
+    if (!this.ready) return;
+    let size = 0;
+    try { size = fs.statSync(this.file).size; } catch { return; }
+    if (!force && size <= this.maxBytes) return;
+    try {
+      for (let index = this.keepFiles - 1; index >= 1; index -= 1) {
+        const source = `${this.file}.${index}`;
+        const destination = `${this.file}.${index + 1}`;
+        if (fs.existsSync(source)) {
+          if (index === this.keepFiles - 1) fs.rmSync(destination, { force: true });
+          fs.renameSync(source, destination);
+        }
+      }
+      fs.renameSync(this.file, `${this.file}.1`);
+      fs.writeFileSync(this.file, "", { mode: 0o600 });
+      fs.chmodSync(this.file, 0o600);
+    } catch (error) {
+      this.logger.error?.(`[audit] rotation failed: ${error.message}`);
+    }
   }
 
   append({ actor = "system", action, target = "", ip = "", detail = "" }) {
@@ -41,6 +66,7 @@ export class AuditStore {
     };
     try {
       fs.appendFileSync(this.file, `${JSON.stringify(record)}\n`, { mode: 0o600 });
+      this.rotateIfNeeded();
     } catch (error) {
       this.logger.error?.(`[audit] append failed: ${error.message}`);
     }

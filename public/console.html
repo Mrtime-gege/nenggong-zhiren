@@ -4,6 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0a0e13" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>能工智人 · 网页工作台</title>
     <link rel="stylesheet" href="/console.css" />
     <link rel="stylesheet" href="/theme.css" />
@@ -11,7 +15,7 @@
   <body data-page="workbench">
     <header class="topbar">
       <div class="brand">
-        <span class="status-dot" id="statusDot"></span>
+        <span class="brand-icon-wrap"><img class="brand-icon" src="/icon.svg" alt="" /><span class="status-dot" id="statusDot"></span></span>
         <span class="brand-name">能工智人</span>
         <span class="brand-sub">网页工作台</span>
       </div>
@@ -23,6 +27,11 @@
       </div>
     </header>
 
+    <div class="mobile-view-tabs" id="mobileViewTabs" role="tablist" aria-label="移动端视图">
+      <button class="mobile-view-tab active" type="button" data-mobile-view="queue" role="tab" aria-selected="true">队列 <span id="mobileQueueCount"></span></button>
+      <button class="mobile-view-tab" type="button" data-mobile-view="detail" role="tab" aria-selected="false">会话</button>
+    </div>
+
     <main class="layout">
       <aside class="sidebar">
         <div class="stats" id="stats"></div>
@@ -33,6 +42,7 @@
             <button class="chip" type="button" data-filter="queued">待认领</button>
             <button class="chip" type="button" data-filter="active">进行中</button>
             <button class="chip" type="button" data-filter="recent">最近</button>
+            <button class="chip" type="button" data-filter="mine">我的</button>
           </div>
         </div>
         <div class="auto-row">
@@ -46,9 +56,6 @@
             <div class="queue-group-head"><span>登录</span></div>
             <div class="qitem-preview">正在验证会话…</div>
           </div>
-        </div>
-        <div class="sidebar-foot">
-          调用方通过 <code>/v1/chat/completions</code> 发来请求，认领后即可开始“生成”。
         </div>
       </aside>
 
@@ -68,17 +75,25 @@
       </div>
       <div class="command-actions">
         <button id="cmdClaim" class="btn" type="button">认领 <kbd data-shortcut="claim"></kbd></button>
-        <button id="cmdTemplates" class="btn ghost" type="button">快捷回复</button>
-        <button id="cmdTransfer" class="btn ghost" type="button">转交</button>
+        <button id="cmdNext" class="btn ghost" type="button">下一张 <kbd data-shortcut="next"></kbd></button>
+        <span class="command-divider" aria-hidden="true"></span>
         <button id="cmdThink" class="btn ghost" type="button">思考 <kbd data-shortcut="think"></kbd></button>
         <button id="cmdPush" class="btn" type="button">正文 <kbd data-shortcut="push"></kbd></button>
         <button id="cmdFinish" class="btn primary" type="button">完成 <kbd data-shortcut="finish"></kbd></button>
-        <button id="cmdRelease" class="btn ghost" type="button">放回 <kbd data-shortcut="release"></kbd></button>
-        <button id="cmdRefuse" class="btn danger" type="button">拒答 <kbd data-shortcut="refuse"></kbd></button>
-        <button id="cmdCancel" class="btn danger" type="button">取消 <kbd data-shortcut="cancel"></kbd></button>
-        <button id="cmdShortcuts" class="btn ghost" type="button">快捷键 <kbd data-shortcut="help"></kbd></button>
+        <span class="command-divider" aria-hidden="true"></span>
+        <button id="cmdTemplates" class="btn ghost" type="button">快捷回复</button>
+        <button id="cmdTransfer" class="btn ghost" type="button">转交</button>
+        <button id="cmdTakeover" class="btn ghost hidden" type="button" title="管理员接管其他回复员已认领的票据">接管</button>
+        <div class="command-more">
+          <button id="cmdMore" class="btn ghost" type="button" aria-haspopup="menu" aria-expanded="false">更多</button>
+          <div id="commandMenu" class="command-menu hidden" role="menu" aria-label="更多操作">
+            <button id="cmdRelease" class="btn ghost command-menu-item" type="button" role="menuitem">放回 <kbd data-shortcut="release"></kbd></button>
+            <button id="cmdRefuse" class="btn danger command-menu-item" type="button" role="menuitem">拒答 <kbd data-shortcut="refuse"></kbd></button>
+            <button id="cmdCancel" class="btn danger command-menu-item" type="button" role="menuitem">取消 <kbd data-shortcut="cancel"></kbd></button>
+            <button id="cmdShortcuts" class="btn ghost command-menu-item" type="button" role="menuitem">快捷键 <kbd data-shortcut="help"></kbd></button>
+          </div>
+        </div>
       </div>
-      <div class="command-hint" id="commandHint">选择票据后启用操作</div>
     </footer>
 
     <div id="subpageOverlay" class="subpage-overlay hidden" aria-label="子页面内容">
@@ -198,7 +213,7 @@
         <div class="modal-head">
           <div>
             <h2 id="templateTitle">快捷回复</h2>
-            <p class="hint">模板只保存在当前浏览器；插入时替换变量。可点击“编辑”修改模板。</p>
+            <p class="hint">共享模板对所有回复员可见；个人模板只属于当前账号。插入时替换变量。</p>
           </div>
           <button id="templateClose" class="btn ghost" type="button">关闭</button>
         </div>
@@ -208,6 +223,10 @@
               <div class="template-form-head"><span id="templateFormTitle">新建模板</span><button id="templateReset" class="btn ghost" type="button">清空</button></div>
               <label class="field"><span class="field-label">名称 <em class="req">必填</em></span><input id="templateName" type="text" maxlength="40" required placeholder="例如：收到 / 处理中" /></label>
               <label class="field"><span class="field-label">内容 <em class="req">必填</em></span><textarea id="templateContent" rows="5" required placeholder="回复内容，可使用 {{caller}}、{{model}}、{{ticket}}、{{operator}}、{{date}}、{{time}}"></textarea></label>
+              <div class="template-form-grid">
+                <label class="field"><span class="field-label">可见范围</span><select id="templateVisibility"><option value="personal">个人</option><option value="shared">共享（管理员）</option></select></label>
+                <label class="field"><span class="field-label">适用模型</span><select id="templateScope"><option value="">全部模型</option></select></label>
+              </div>
               <div class="form-actions"><button class="btn primary" type="submit">保存模板</button><span class="admin-hint">变量：caller / model / ticket / operator / date / time</span></div>
             <div id="templateError" class="form-error" role="alert"></div>
           </form>
@@ -222,8 +241,23 @@
           <button id="transferClose" class="btn ghost" type="button">关闭</button>
         </div>
         <label class="field"><span class="field-label">转交给 <em class="req">必填</em></span><select id="transferTarget"></select></label>
+        <label class="field"><span class="field-label">交接说明 <em class="opt">选填</em></span><textarea id="transferNote" rows="3" maxlength="2000" placeholder="给下一位回复员留下上下文、进度或注意事项"></textarea></label>
         <div id="transferError" class="form-error" role="alert"></div>
         <div class="form-actions"><button id="transferConfirm" class="btn primary" type="button">确认转交</button><button id="transferCancel" class="btn ghost" type="button">取消</button></div>
+      </section>
+    </div>
+
+    <div id="attachmentModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="attachmentTitle">
+      <section class="modal attachment-modal">
+        <div class="modal-head">
+          <div><h2 id="attachmentTitle">附件预览</h2><p id="attachmentMeta" class="admin-hint"></p></div>
+          <button id="attachmentClose" class="btn ghost" type="button">关闭</button>
+        </div>
+        <div id="attachmentBody" class="attachment-body"></div>
+        <div class="attachment-actions">
+          <a id="attachmentDownload" class="btn" href="#" download>下载原文件</a>
+          <span id="attachmentWarning" class="admin-hint"></span>
+        </div>
       </section>
     </div>
 

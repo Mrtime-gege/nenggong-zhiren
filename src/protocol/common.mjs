@@ -32,6 +32,7 @@ export function canonicalText(parts) {
     if (!part) continue;
     if (part.type === "text") text += part.text;
     else if (part.type === "image") text += "\n[image attached]";
+    else if (part.type === "file") text += "\n[file attached]";
     else if (part.type === "tool_use") text += `\n[tool use: ${part.name}]`;
     else if (part.type === "tool_result") text += "\n[tool result]";
     else if (part.type === "thinking") text += "\n[thinking]";
@@ -40,11 +41,27 @@ export function canonicalText(parts) {
   return text;
 }
 
+export function validateFileId(value) {
+  return typeof value === "string" && /^file_[A-Za-z0-9_-]{8,80}$/.test(value);
+}
+
+export const MAX_MESSAGES_PER_REQUEST = 256;
+export const MAX_CONTENT_PARTS_PER_MESSAGE = 512;
+
+export function collectFiles(parts, messageIndex) {
+  const attachments = [];
+  for (const part of parts) {
+    if (part?.type !== "file" || !part.fileId) continue;
+    attachments.push({ messageIndex, type: "file", fileId: part.fileId });
+  }
+  return attachments;
+}
+
 export function collectImages(parts, messageIndex) {
   const attachments = [];
   for (const part of parts) {
     if (part?.type !== "image" || !part.url) continue;
-    attachments.push({ messageIndex, url: part.url, detail: part.detail || "auto" });
+    attachments.push({ messageIndex, type: "image", url: part.url, detail: part.detail || "auto" });
   }
   return attachments;
 }

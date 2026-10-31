@@ -4,6 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0a0e13" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>能工智人 · 用户管理</title>
     <link rel="stylesheet" href="/console.css" />
     <link rel="stylesheet" href="/admin.css" />
@@ -12,7 +16,7 @@
   <body data-page="users">
     <header class="topbar">
       <div class="brand">
-        <span class="status-dot ok"></span>
+        <span class="brand-icon-wrap"><img class="brand-icon" src="/icon.svg" alt="" /><span class="status-dot ok"></span></span>
         <span class="brand-name">能工智人</span>
         <span class="brand-sub">管理后台</span>
       </div>
@@ -55,6 +59,11 @@
               <div id="userModelPicker" class="model-picker" role="group" aria-label="可回复模型"></div>
               <span id="userModelHint" class="admin-hint">全部模型 = 不限制；无权限的票据不会出现在该用户队列中。</span>
             </div>
+            <div class="field field-full">
+              <span class="field-label">功能权限 <em class="opt">按账号</em></span>
+              <div id="userFeaturePicker" class="feature-picker" role="group" aria-label="用户功能权限"></div>
+              <span id="userFeatureHint" class="admin-hint">关闭后该账号看不到对应功能；管理员始终可以修改这些开关。</span>
+            </div>
             <div class="form-actions">
               <button id="userCreateBtn" class="btn primary" type="submit">添加用户</button>
               <button id="userCancelBtn" class="btn ghost hidden" type="button">取消编辑</button>
@@ -72,6 +81,7 @@
                   <th>用户</th>
                   <th>角色</th>
                   <th>可回复模型</th>
+                  <th>功能</th>
                   <th>创建时间</th>
                   <th>操作</th>
                 </tr>

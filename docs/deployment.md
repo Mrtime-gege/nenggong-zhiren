@@ -31,7 +31,72 @@ npm start
 首次启动若还没有 `users.json`，终端会打印一次随机管理员密码。把它保存到密码管理器，
 登录后可在 Web「用户管理」里添加回复员或改密，并在「调用密钥」里生成调用密钥。
 
-### systemd
+### Windows + WSL mirrored 网络
+
+WSL 使用 `networkingMode=mirrored` 时，Windows 和 WSL 共用同一个 LAN IP。
+Windows 本机访问自己的 LAN IP 不会经过 WSL 的入站路径，因此需要 Windows portproxy：
+
+```powershell
+netsh interface portproxy add v4tov4 `
+  listenaddress=<LAN-IP> listenport=7355 `
+  connectaddress=127.0.0.1 connectport=7356
+
+netsh interface portproxy add v4tov4 `
+  listenaddress=127.0.0.1 listenport=7355 `
+  connectaddress=127.0.0.1 connectport=7356
+
+Restart-Service iphlpsvc
+```
+
+对应配置：
+
+```jsonc
+"server": {
+  "host": "127.0.0.1",
+  "port": 7356,
+  "trustedHosts": ["127.0.0.1:7355", "<LAN-IP>:7355"]
+}
+```
+
+局域网入口是 Windows 的 `7355`，WSL 内部监听 `7356`。
+不要同时让 WSL 监听 `7355`，否则 Windows portproxy 无法绑定该端口。
+
+## 可选媒体 worker
+
+基础的上传、文字预览和图片预览不需要额外依赖。以下能力都是可选的，默认关闭；开启前
+先确认服务账号能执行对应的 `python3` 模块。
+
+### 图片重编码
+
+默认配置为 `attachments.reencodeImages: false`。需要 Python 3 与 Pillow 时才开启：
+
+```bash
+python3 -c "import PIL"
+```
+
+没有 Pillow 时上传仍可用，但图片不会被重新编码。
+
+### PDF 页图
+
+默认配置为 `attachments.pdfPagePreview: false`。需要可选的 `pypdfium2` 时才开启：
+
+```bash
+python3 -m pip install --user pypdfium2
+```
+
+生产账号必须能执行同一个 `python3` 并导入该包。systemd 的 `ProtectHome=true` 可能阻止
+用户级 site-packages；此时建议创建专用 venv，并在 unit 中设置 `PATH`/`PYTHONPATH`，
+或安装到可读的系统位置。
+
+没有 `pypdfium2` 时，PDF 上传、文字抽取和下载仍可用，页图接口会返回
+`503 pdf_preview_unavailable`，前端回退为文字预览。
+
+### SQLite
+
+Node 24 自带 `node:sqlite`；如果运行环境没有该模块，状态和历史会自动回退到旧 JSON/内存
+路径。不要同时手工编辑 `state.db` 和 `state.json`，SQLite 可用时以 `state.db` 为准。
+
+## systemd
 
 ```ini
 # /etc/systemd/system/nenggong-zhiren.service
@@ -208,7 +273,27 @@ DSH 会热重载。然后在模型选择器里选 Human 1（或 Human 1 Fast）�
 curl -fsS http://127.0.0.1:7355/healthz
 ```
 
-`/healthz` 只返回服务名、版本、uptime，不泄露队列、用户或 key。
+`/healthz` 只返回服务名、版本、uptime，不泄露队列、用户或 key。`/metrics` 返回 Prometheus 聚合指标：
+服务状态、运行时间、内存、票据状态计数、请求/完成/失败、累计等待、最老等待、会话数和版本。
+指标不包含聊天内容或密钥；建议只在反向代理/内网限制访问。
+
+```bash
+curl -fsS http://127.0.0.1:7355/metrics
+```
+
+队列告警在 `config.jsonc` 的 `alerts` 中配置：
+
+```jsonc
+"alerts": {
+  "webhookUrl": "",
+  "queueDepth": 10,
+  "oldestWaitMs": 60000,
+  "cooldownMs": 300000
+}
+```
+
+`webhookUrl` 留空时只记录状态页告警和审计；填写后发送 JSON POST。状态页会显示当前告警。
+
 建议监控：
 
 - HTTP 5xx / 401 / 403 / 421 / 429；
@@ -230,8 +315,9 @@ journalctl -u nenggong-zhiren -f
 - 备份 `users.json`（密码哈希/角色/MFA 状态，按敏感文件处理）；
 - 备份 `api-keys.json`（密钥哈希、配额、过期时间）；
 - 备份 `state.json`、`usage.json`、`settings.json`、`audit.log`；
-- 活动队列和会话在内存，不备份；重启后活动请求中断，调用方需重试；
-- 已完成请求和幂等记录会从 `state.json` 恢复；
+- 备份 `attachments/`（原件和元数据；按敏感数据保护，权限 0700/0600）；
+- `state.json` 现在也包含活动票据、认领状态和 SSE 日志；重启后活动队列会恢复，调用方可凭 `Idempotency-Key` 重连；
+- 登录会话、CSRF token 和限速计数仍在内存，重启后需重新登录；
 - 恢复账号/密钥文件后重启，或让用户文件热重载生效（会清空受影响账号的会话）。
 
 ## 8. 端口与网络

@@ -24,6 +24,15 @@ function normalizeCapabilities(raw) {
   return out.length ? out : ["text", "streaming"];
 }
 
+function normalizeSpeedMs(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0 || number > 5_000) {
+    throw new ModelError("输出速度必须是 0–60000 的整数毫秒，留空表示跟随全局。", "invalid_model_speed");
+  }
+  return number;
+}
+
 function normalizeModel(raw) {
   const id = String(raw?.id ?? "").trim();
   if (!MODEL_ID_RE.test(id)) {
@@ -37,6 +46,7 @@ function normalizeModel(raw) {
     contextWindow: Number(raw?.contextWindow) || 131072,
     maxOutputTokens: Number(raw?.maxOutputTokens) || 8192,
     capabilities: normalizeCapabilities(raw?.capabilities),
+    speedMs: normalizeSpeedMs(raw?.speedMs),
     deprecated: raw?.deprecated === true,
     createdAt: Number(raw?.createdAt) || Date.now(),
   };
@@ -95,6 +105,7 @@ export class ModelStore {
         contextWindow: record.contextWindow,
         maxOutputTokens: record.maxOutputTokens,
         capabilities: record.capabilities,
+        speedMs: record.speedMs,
         deprecated: record.deprecated,
         createdAt: record.createdAt,
       })),
@@ -124,7 +135,7 @@ export class ModelStore {
     return record ? { ...record, capabilities: [...record.capabilities] } : null;
   }
 
-  add({ id, name, description, contextWindow, maxOutputTokens, capabilities } = {}) {
+  add({ id, name, description, contextWindow, maxOutputTokens, capabilities, speedMs } = {}) {
     if (this.records.size >= MAX_MODELS) throw new ModelError(`最多保留 ${MAX_MODELS} 个模型。`, "too_many_models", 409);
     const record = normalizeModel({
       id,
@@ -133,10 +144,27 @@ export class ModelStore {
       contextWindow,
       maxOutputTokens,
       capabilities,
+      speedMs,
       createdAt: Date.now(),
     });
     if (this.records.has(record.id)) throw new ModelError("模型名已存在。", "model_exists", 409);
     this.records.set(record.id, record);
+    this.persist();
+    return { ...record, capabilities: [...record.capabilities] };
+  }
+
+  update(id, patch = {}) {
+    const key = String(id);
+    const existing = this.records.get(key);
+    if (!existing) throw new ModelError("模型不存在。", "model_not_found", 404);
+    const defined = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
+    const record = normalizeModel({
+      ...existing,
+      ...defined,
+      id: existing.id,
+      createdAt: existing.createdAt,
+    });
+    this.records.set(key, record);
     this.persist();
     return { ...record, capabilities: [...record.capabilities] };
   }
