@@ -89,6 +89,13 @@ const els = {
   attachmentDownload: $("attachmentDownload"),
   attachmentWarning: $("attachmentWarning"),
   attachmentClose: $("attachmentClose"),
+  windowMenuBtn: $("windowMenuBtn"),
+  windowMenu: $("windowMenu"),
+  windowMenuItems: $("windowMenuItems"),
+  windowReset: $("windowReset"),
+  windowDockToggle: $("windowDockToggle"),
+  sidebar: document.querySelector(".sidebar"),
+  layout: document.querySelector(".layout"),
   messageCenterBtn: $("messageCenterBtn"),
   messageUnread: $("messageUnread"),
   messageCenter: $("messageCenter"),
@@ -984,6 +991,369 @@ function submitWorkspacePrefs(event) {
   }
   closeWorkspacePrefs();
   toast("工作台偏好已保存");
+}
+
+/* ------------------------------ floating windows ------------------------------ */
+
+const WINDOW_LAYOUT_KEY = "ngzr.windowLayout.v1";
+const WINDOW_MODE_KEY = "ngzr.windowMode";
+let windowMode = "floating";
+let windowZ = 20;
+const windowRecords = new Map();
+
+function loadWindowLayouts() {
+  try {
+    return JSON.parse(localStorage.getItem(WINDOW_LAYOUT_KEY) || "{}") || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveWindowLayouts() {
+  const data = {};
+  for (const [id, win] of windowRecords) {
+    if (win?.el) data[id] = { ...win.rect, hidden: win.hidden === true };
+  }
+  try { localStorage.setItem(WINDOW_LAYOUT_KEY, JSON.stringify(data)); } catch { /* optional */ }
+}
+
+function windowCanvasBox() {
+  return els.layout?.getBoundingClientRect() || { width: 1200, height: 700 };
+}
+
+function defaultWindowRect(id, box = windowCanvasBox()) {
+  const gap = 12;
+  const width = Math.max(260, Math.min(320, Math.round(box.width * 0.235)));
+  const height = Math.max(320, Math.round(box.height - gap * 2));
+  if (id === "queue") return { x: gap, y: gap, w: width, h: height };
+  return { x: gap + width + gap, y: gap, w: Math.max(420, Math.round(box.width - width - gap * 3)), h: height };
+}
+
+function clampWindowRect(rect, id, box = windowCanvasBox()) {
+  const minW = id === "queue" ? 250 : 460;
+  const minH = id === "queue" ? 280 : 340;
+  const width = Math.min(box.width - 8, Math.max(minW, Number(rect.w) || minW));
+  const height = Math.min(box.height - 8, Math.max(minH, Number(rect.h) || minH));
+  return {
+    x: Math.max(0, Math.min(box.width - width, Number(rect.x) || 0)),
+    y: Math.max(0, Math.min(box.height - height, Number(rect.y) || 0)),
+    w: width,
+    h: height,
+  };
+}
+
+function applyWindowRect(win) {
+  const { el, rect } = win;
+  el.style.left = `${Math.round(rect.x)}px`;
+  el.style.top = `${Math.round(rect.y)}px`;
+  el.style.width = `${Math.round(rect.w)}px`;
+  el.style.height = `${Math.round(rect.h)}px`;
+}
+
+function restoreWindowChrome(id) {
+  const win = windowRecords.get(id);
+  if (!win?.el) return;
+  if (!win.titlebar?.isConnected) win.el.append(win.titlebar);
+  for (const handle of win.handles || []) {
+    if (!handle.isConnected) win.el.append(handle);
+  }
+  applyWindowRect(win);
+  if (win.hidden) win.el.classList.add("window-hidden");
+}
+
+function frontWindow(win) {
+  windowZ = windowZ >= 40 ? 21 : windowZ + 1;
+  win.el.style.zIndex = String(windowZ);
+}
+
+function installWindow(id, element, title, defaultRect) {
+  if (!element) return null;
+  if (windowRecords.has(id)) return windowRecords.get(id);
+  const stored = loadWindowLayouts()[id];
+  const win = {
+    id,
+    el: element,
+    title,
+    rect: clampWindowRect(stored || defaultRect, id),
+    hidden: Boolean(stored?.hidden),
+  };
+  windowRecords.set(id, win);
+  element.classList.add("float-window");
+  element.dataset.windowId = id;
+
+  const bar = el("div", "float-titlebar");
+  const titleEl = el("span", "float-title", title);
+  const actions = el("div", "float-window-actions");
+  const minimize = el("button", "float-window-action", "−");
+  minimize.type = "button";
+  minimize.title = "最小化";
+  minimize.addEventListener("click", (event) => {
+    event.stopPropagation();
+    win.minimized = !win.minimized;
+    win.el.classList.toggle("float-minimized", win.minimized);
+    minimize.textContent = win.minimized ? "▢" : "−";
+    minimize.title = win.minimized ? "还原" : "最小化";
+  });
+  const close = el("button", "float-window-action", "×");
+  close.type = "button";
+  close.title = "关闭窗口";
+  close.addEventListener("click", (event) => {
+    event.stopPropagation();
+    hideWindow(id);
+  });
+  actions.append(minimize, close);
+  bar.append(titleEl, actions);
+  element.append(bar);
+  win.titlebar = bar;
+  win.titleEl = titleEl;
+  win.minimizeButton = minimize;
+
+  bar.addEventListener("pointerdown", (event) => beginWindowDrag(event, win));
+  bar.addEventListener("dblclick", () => toggleWindowMaximize(win));
+  element.addEventListener("pointerdown", () => frontWindow(win));
+
+  const directions = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
+  win.handles = [];
+  for (const dir of directions) {
+    const handle = el("div", `window-resize window-resize-${dir}`);
+    handle.dataset.dir = dir;
+    handle.addEventListener("pointerdown", (event) => beginWindowResize(event, win, dir));
+    element.append(handle);
+    win.handles.push(handle);
+  }
+
+  if (win.hidden) element.classList.add("window-hidden");
+  applyWindowRect(win);
+  frontWindow(win);
+  return win;
+}
+
+function beginWindowDrag(event, win) {
+  if (event.button !== 0 || event.target.closest("button")) return;
+  event.preventDefault();
+  const start = { x: event.clientX, y: event.clientY, left: win.rect.x, top: win.rect.y };
+  const box = windowCanvasBox();
+  win.el.classList.add("dragging");
+  frontWindow(win);
+  const move = (moveEvent) => {
+    win.rect.x = Math.max(0, Math.min(box.width - win.rect.w, start.left + moveEvent.clientX - start.x));
+    win.rect.y = Math.max(0, Math.min(box.height - win.rect.h, start.top + moveEvent.clientY - start.y));
+    applyWindowRect(win);
+  };
+  const end = () => {
+    win.el.classList.remove("dragging");
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+    saveWindowLayouts();
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+}
+
+function beginWindowResize(event, win, dir) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  event.stopPropagation();
+  frontWindow(win);
+  const start = { x: event.clientX, y: event.clientY, rect: { ...win.rect } };
+  const box = windowCanvasBox();
+  win.el.classList.add("resizing");
+  const move = (moveEvent) => {
+    const dx = moveEvent.clientX - start.x;
+    const dy = moveEvent.clientY - start.y;
+    let { x, y, w, h } = start.rect;
+    if (dir.includes("e")) w = Math.min(box.width - x, Math.max(240, w + dx));
+    if (dir.includes("s")) h = Math.min(box.height - y, Math.max(220, h + dy));
+    if (dir.includes("w")) {
+      const nextW = Math.max(240, w - dx);
+      x = Math.max(0, x + w - nextW);
+      w = nextW;
+    }
+    if (dir.includes("n")) {
+      const nextH = Math.max(220, h - dy);
+      y = Math.max(0, y + h - nextH);
+      h = nextH;
+    }
+    win.rect = clampWindowRect({ x, y, w, h }, win.id, box);
+    applyWindowRect(win);
+  };
+  const end = () => {
+    win.el.classList.remove("resizing");
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+    saveWindowLayouts();
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+}
+
+function toggleWindowMaximize(win) {
+  const box = windowCanvasBox();
+  if (win.maximized) {
+    win.maximized = false;
+    win.rect = { ...win.restoreRect };
+  } else {
+    win.maximized = true;
+    win.restoreRect = { ...win.rect };
+    win.rect = { x: 8, y: 8, w: box.width - 16, h: box.height - 16 };
+  }
+  applyWindowRect(win);
+  saveWindowLayouts();
+}
+
+function hideWindow(id) {
+  const win = windowRecords.get(id);
+  if (!win) return;
+  win.hidden = true;
+  win.el.classList.add("window-hidden");
+  saveWindowLayouts();
+  renderWindowMenu();
+  if (id === "run") toast("运行窗口已关闭；可从顶栏「窗口」重新打开。");
+}
+
+function showWindow(id) {
+  const win = windowRecords.get(id);
+  if (!win) return;
+  win.hidden = false;
+  win.el.classList.remove("window-hidden");
+  frontWindow(win);
+  saveWindowLayouts();
+  renderWindowMenu();
+}
+
+function toggleWindow(id) {
+  const win = windowRecords.get(id);
+  if (!win) return;
+  if (win.hidden) showWindow(id);
+  else hideWindow(id);
+}
+
+function resetWindowLayout() {
+  try { localStorage.removeItem(WINDOW_LAYOUT_KEY); } catch { /* optional */ }
+  const box = windowCanvasBox();
+  for (const [id, win] of windowRecords) {
+    win.hidden = false;
+    win.maximized = false;
+    win.minimized = false;
+    win.el.classList.remove("window-hidden", "float-minimized");
+    if (win.minimizeButton) {
+      win.minimizeButton.textContent = "−";
+      win.minimizeButton.title = "最小化";
+    }
+    win.rect = defaultWindowRect(id, box);
+    applyWindowRect(win);
+  }
+  saveWindowLayouts();
+  renderWindowMenu();
+  toast("窗口布局已重置");
+}
+
+function renderWindowMenu() {
+  if (!els.windowMenuItems) return;
+  els.windowMenuItems.replaceChildren();
+  for (const [id, win] of windowRecords) {
+    const button = el("button", "window-menu-item", `${win.hidden ? "显示" : "隐藏"}${win.title}`);
+    button.type = "button";
+    button.setAttribute("role", "menuitem");
+    button.addEventListener("click", () => {
+      toggleWindow(id);
+      closeWindowMenu();
+    });
+    els.windowMenuItems.append(button);
+  }
+  const messageButton = el("button", "window-menu-item", `${els.messageCenter?.classList.contains("hidden") ? "显示" : "隐藏"}消息中心`);
+  messageButton.type = "button";
+  messageButton.setAttribute("role", "menuitem");
+  messageButton.addEventListener("click", () => {
+    toggleMessageCenter();
+    closeWindowMenu();
+  });
+  els.windowMenuItems.append(messageButton);
+  if (els.windowDockToggle) {
+    els.windowDockToggle.textContent = windowMode === "floating" ? "切换为固定布局" : "切换为浮动布局";
+  }
+}
+
+function closeWindowMenu() {
+  els.windowMenu?.classList.add("hidden");
+  els.windowMenuBtn?.setAttribute("aria-expanded", "false");
+}
+
+function openWindowMenu() {
+  renderWindowMenu();
+  els.windowMenu?.classList.remove("hidden");
+  els.windowMenuBtn?.setAttribute("aria-expanded", "true");
+}
+
+function toggleWindowMenu() {
+  if (els.windowMenu?.classList.contains("hidden")) openWindowMenu();
+  else closeWindowMenu();
+}
+
+function setWindowMode(mode, { persist = true } = {}) {
+  windowMode = mode === "docked" ? "docked" : "floating";
+  if (persist) {
+    try { localStorage.setItem(WINDOW_MODE_KEY, windowMode); } catch { /* optional */ }
+  }
+  if (windowMode === "floating") {
+    document.body.classList.add("window-mode");
+    initializeFloatingWindows();
+  } else {
+    document.body.classList.remove("window-mode");
+  }
+  renderWindowMenu();
+}
+
+function initializeFloatingWindows() {
+  if (!els.sidebar || !els.detail || !els.layout) return;
+  const box = windowCanvasBox();
+  installWindow("queue", els.sidebar, "队列", defaultWindowRect("queue", box));
+  installWindow("run", els.detail, "运行", defaultWindowRect("run", box));
+  // New windows appear above the two base windows.
+  for (const win of windowRecords.values()) {
+    if (win.hidden) win.el.classList.add("window-hidden");
+  }
+  renderWindowMenu();
+}
+
+function initFloatingWorkspace() {
+  try { windowMode = localStorage.getItem(WINDOW_MODE_KEY) === "docked" ? "docked" : "floating"; } catch { windowMode = "floating"; }
+  if (window.matchMedia("(min-width: 981px)").matches && windowMode === "floating") {
+    document.body.classList.add("window-mode");
+    requestAnimationFrame(() => initializeFloatingWindows());
+  }
+  els.windowMenuBtn?.addEventListener("click", toggleWindowMenu);
+  els.windowReset?.addEventListener("click", () => {
+    resetWindowLayout();
+    closeWindowMenu();
+  });
+  els.windowDockToggle?.addEventListener("click", () => {
+    setWindowMode(windowMode === "floating" ? "docked" : "floating");
+    closeWindowMenu();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (els.windowMenu?.classList.contains("hidden")) return;
+    if (els.windowMenu.contains(event.target) || els.windowMenuBtn?.contains(event.target)) return;
+    closeWindowMenu();
+  });
+  window.addEventListener("resize", () => {
+    if (windowMode !== "floating") return;
+    if (!window.matchMedia("(min-width: 981px)").matches) {
+      document.body.classList.remove("window-mode");
+      return;
+    }
+    document.body.classList.add("window-mode");
+    if (!windowRecords.size) initializeFloatingWindows();
+    const box = windowCanvasBox();
+    for (const win of windowRecords.values()) {
+      win.rect = clampWindowRect(win.rect, win.id, box);
+      applyWindowRect(win);
+    }
+  });
 }
 
 /* ------------------------------ API ------------------------------ */
@@ -2134,6 +2504,7 @@ function buildDetail(ticket) {
   applySavedSplits(workspace, panes);
   wrap.append(head, meta, purposeHint, sessionBar, workspace, composer, toolDrawer);
   els.detail.append(wrap);
+  restoreWindowChrome("run");
 
   const current = { id: ticket.id, els: {} };
   current.inspectorTab = loadInspectorTab();
@@ -4884,6 +5255,7 @@ function init() {
   installAudioUnlock();
   state.shortcuts = loadShortcuts();
   updateShortcutLabels();
+  initFloatingWorkspace();
   state.queueFilter = workspacePrefs.queueFilter;
   for (const chip of els.queueFilters.querySelectorAll(".chip")) {
     chip.classList.toggle("active", chip.dataset.filter === state.queueFilter);

@@ -3986,3 +3986,306 @@ body[data-density="compact"] .composer-main > textarea {
   font-family: var(--mono);
   font-size: 8px;
 }
+
+/* ==========================================================================
+   Floating workspace windows
+   ========================================================================== */
+
+body.window-mode .layout {
+  position: relative;
+  display: block;
+  min-height: 0;
+  overflow: hidden;
+  background-color: #080c11;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+body.window-mode .layout > .sidebar,
+body.window-mode .layout > .detail {
+  position: absolute;
+  z-index: 20;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 11px;
+  background: rgba(13, 19, 26, 0.97);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.48);
+  overflow: hidden;
+}
+
+body.window-mode .sidebar {
+  height: auto;
+  padding-top: 35px;
+  border-right: 1px solid var(--line-strong);
+}
+
+body.window-mode .detail {
+  height: auto;
+  padding-top: 47px;
+}
+
+body.window-mode .detail > .detail-wrap {
+  height: 100%;
+}
+
+body.window-mode .float-titlebar {
+  display: flex;
+}
+
+body.window-mode .sidebar > .float-titlebar,
+body.window-mode .detail > .float-titlebar {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 5;
+}
+
+.float-titlebar {
+  display: none;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 8px 0 11px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(20, 28, 37, 0.96);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.5px;
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+}
+
+.float-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.float-window-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.float-window-action {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.float-window-action:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.float-window-action:last-child:hover {
+  background: rgba(209, 141, 141, 0.16);
+  color: var(--red);
+}
+
+.float-window.dragging,
+.float-window.resizing {
+  user-select: none;
+  transition: none;
+}
+
+.float-window.float-minimized {
+  height: 32px !important;
+}
+
+.float-window.float-minimized > *:not(.float-titlebar) {
+  display: none !important;
+}
+
+.float-window.window-hidden {
+  display: none !important;
+}
+
+.window-resize {
+  position: absolute;
+  z-index: 6;
+  touch-action: none;
+}
+
+.window-resize-n,
+.window-resize-s {
+  left: 8px;
+  right: 8px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.window-resize-n { top: -3px; }
+.window-resize-s { bottom: -3px; }
+
+.window-resize-e,
+.window-resize-w {
+  top: 8px;
+  bottom: 8px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.window-resize-e { right: -3px; }
+.window-resize-w { left: -3px; }
+
+.window-resize-ne,
+.window-resize-nw,
+.window-resize-se,
+.window-resize-sw {
+  width: 12px;
+  height: 12px;
+}
+
+.window-resize-ne { top: -4px; right: -4px; cursor: nesw-resize; }
+.window-resize-nw { top: -4px; left: -4px; cursor: nwse-resize; }
+.window-resize-se { bottom: -4px; right: -4px; cursor: nwse-resize; }
+.window-resize-sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
+
+/* The window menu is the only persistent layout chrome. */
+.window-menu {
+  position: fixed;
+  top: 48px;
+  right: 220px;
+  z-index: 100;
+  width: 190px;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: #111820;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+}
+
+.window-menu-section {
+  padding: 6px 7px 4px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+}
+
+.window-menu-item {
+  display: block;
+  width: 100%;
+  height: 28px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.window-menu-item:hover {
+  background: rgba(138, 164, 248, 0.1);
+  color: var(--text);
+}
+
+.window-menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--line);
+}
+
+@media (max-width: 980px) {
+  body.window-mode .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    background: var(--bg);
+  }
+
+  body.window-mode .layout > .sidebar,
+  body.window-mode .layout > .detail {
+    position: static;
+    width: auto;
+    height: auto;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    padding-top: 0;
+  }
+
+  .float-titlebar,
+  .window-resize {
+    display: none !important;
+  }
+}
+
+/* Docked mode must not inherit inline geometry from a floating layout. */
+body:not(.window-mode) .layout > .sidebar,
+body:not(.window-mode) .layout > .detail {
+  position: static !important;
+  width: auto !important;
+  height: 100% !important;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.window-resize {
+  display: none;
+}
+
+body.window-mode .window-resize {
+  display: block;
+}
+
+@media (max-width: 980px) {
+  .window-resize {
+    display: none !important;
+  }
+}
+
+/* Keep resize targets inside the clipped window box. */
+.window-resize-n,
+.window-resize-s {
+  left: 10px;
+  right: 10px;
+  height: 8px;
+}
+
+.window-resize-n { top: 0; }
+.window-resize-s { bottom: 0; }
+.window-resize-e,
+.window-resize-w {
+  top: 10px;
+  bottom: 10px;
+  width: 8px;
+}
+.window-resize-e { right: 0; }
+.window-resize-w { left: 0; }
+.window-resize-ne,
+.window-resize-nw,
+.window-resize-se,
+.window-resize-sw {
+  width: 14px;
+  height: 14px;
+}
+.window-resize-ne { top: 0; right: 0; }
+.window-resize-nw { top: 0; left: 0; }
+.window-resize-se { right: 0; bottom: 0; }
+.window-resize-sw { left: 0; bottom: 0; }
+
+@media (max-width: 980px) {
+  #windowMenuBtn,
+  #windowMenu {
+    display: none !important;
+  }
+}

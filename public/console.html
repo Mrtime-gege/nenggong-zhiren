@@ -22,6 +22,7 @@
       <nav id="topnav" class="topnav" aria-label="主导航"></nav>
       <div class="conn">
         <span id="userLabel" class="user-label">正在加载…</span>
+        <button id="windowMenuBtn" class="btn ghost" type="button" aria-haspopup="menu" aria-expanded="false">窗口</button>
         <button id="messageCenterBtn" class="btn ghost message-center-btn" type="button" aria-haspopup="dialog" aria-controls="messageCenter">
           消息 <span id="messageUnread" class="message-unread hidden">0</span>
         </button>
@@ -30,6 +31,14 @@
         <span id="status" class="conn-status">连接中…</span>
       </div>
     </header>
+
+    <div id="windowMenu" class="window-menu hidden" role="menu" aria-label="窗口">
+      <div class="window-menu-section">显示窗口</div>
+      <div id="windowMenuItems"></div>
+      <div class="window-menu-sep"></div>
+      <button id="windowReset" class="window-menu-item" type="button" role="menuitem">重置窗口布局</button>
+      <button id="windowDockToggle" class="window-menu-item" type="button" role="menuitem">切换为固定布局</button>
+    </div>
 
     <div class="mobile-view-tabs" id="mobileViewTabs" role="tablist" aria-label="移动端视图">
       <button class="mobile-view-tab active" type="button" data-mobile-view="queue" role="tab" aria-selected="true">队列 <span id="mobileQueueCount"></span></button>
