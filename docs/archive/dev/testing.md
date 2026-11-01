@@ -49,7 +49,7 @@ pass 62
 fail 0
 ```
 
-失败时先看 `docs/test-output.txt` 和终端中的失败用例名称。不要带着失败继续打包。
+失败时先看 `docs/archive/test-output.txt` 和终端中的失败用例名称。不要带着失败继续打包。
 
 ## 手工页面检查
 

@@ -111,7 +111,7 @@ ETag 304：通过
 
 完整报告：[local-full-test-2026-11-01.md](local-full-test-2026-11-01.md)
 
-详细历史：[../CHANGELOG.md](../CHANGELOG.md)
+详细历史：[../CHANGELOG.md](../../CHANGELOG.md)
 
 ## 升级注意
 

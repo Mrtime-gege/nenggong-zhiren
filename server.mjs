@@ -48,7 +48,7 @@ import {
 import { validateJsonSchema, formatSchemaErrors } from "./src/schema.mjs";
 
 const PUBLIC_DIR = path.join(ROOT, "public");
-const VERSION = "0.6.0";
+const VERSION = "0.6.1";
 const PUBLIC_CONFIG = (() => {
   try {
     return loadConfig();

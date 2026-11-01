@@ -1,6 +1,8 @@
 # 发布前流程
 
-> 这是开发目录文档，不随公开运行包发布。版本号当前为 0.6.0 时也按本流程执行。
+> 这是开发目录文档，不随公开运行包发布。
+>
+> 当前本地迭代目标：`0.6.1`。在明确要求推送前，不执行 `git push`。
 
 ## 1. 冻结范围
 
@@ -76,9 +78,9 @@ examples/
 .git/
 test/
 docs/dev/
-docs/verification.md
-docs/security-scan.md
-docs/test-output.txt
+docs/archive/verification.md
+docs/archive/security-scan.md
+docs/archive/test-output.txt
 users.json
 api-keys.json
 state.json
