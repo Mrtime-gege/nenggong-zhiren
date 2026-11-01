@@ -2642,3 +2642,9 @@ body[data-page="workbench"] .detail-wrap > .meta .meta-item:nth-child(7),
 body[data-page="workbench"] .detail-wrap > .meta .meta-item:nth-child(8) {
   display: none;
 }
+
+/* The old pane splitter grid must not apply to the single Run canvas. */
+body[data-page="workbench"] .panes.agent-panes {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
