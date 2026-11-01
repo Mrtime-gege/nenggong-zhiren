@@ -3586,3 +3586,15 @@ body[data-density="compact"] .composer-main > textarea {
     grid-template-columns: 1fr;
   }
 }
+
+.qitem-ai {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border: 1px solid rgba(138, 164, 248, 0.34);
+  border-radius: 4px;
+  background: rgba(138, 164, 248, 0.09);
+  color: var(--accent-strong, #a8b8ff);
+  font-family: var(--mono);
+  font-size: 8.5px;
+  white-space: nowrap;
+}

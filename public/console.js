@@ -1367,6 +1367,11 @@ function queueItem(ticket, group = null) {
   model.title = ticket.model;
   top.append(model);
   top.append(badge(STATE_LABELS[ticket.state] || ticket.state, stateTone(ticket.state)));
+  if (ticket.aiPending?.status === "running") {
+    const aiChip = el("span", "qitem-ai", "AI 生成中");
+    aiChip.title = "AI 辅助正在生成；这张票据仍可认领，编辑会等生成结束后解锁";
+    top.append(aiChip);
+  }
   top.append(el("span", "qitem-mode", ticket.stream ? "SSE" : "JSON"));
   if (ticket.sessionId) {
     const count = group?.tickets?.length || 1;
@@ -3391,7 +3396,13 @@ function updateComposer(ticket, d) {
   note.classList.add("hidden");
   if (autoAiRunning) {
     note.classList.remove("hidden");
-    note.textContent = `AI 辅助正在自动生成，已用时 ${elapsedText(ticket.aiPending?.createdAt)}；完成后自动填入草稿和工具。`;
+    if (ticket.state === "queued") {
+      note.textContent = "AI 辅助正在自动生成，但不会占用票据归属，也不会阻止认领。认领后编辑仍会等生成结束，结果会自动填入。";
+    } else if (mine) {
+      note.textContent = `AI 辅助正在自动生成，已用时 ${elapsedText(ticket.aiPending?.createdAt)}；编辑暂时锁定，完成后自动填入草稿和工具。`;
+    } else {
+      note.textContent = "AI 辅助正在生成；当前由其他回复员编辑。生成结束后才能修改。";
+    }
   } else if (autoAiError) {
     note.classList.remove("hidden");
     note.textContent = ticket.aiPending?.error || "自动 AI 辅助失败，可稍后手动生成。";
@@ -3440,8 +3451,8 @@ async function doAction(name) {
   closeCommandMenu();
   const ticket = state.tickets.find((item) => item.id === state.selectedId);
   if (!ticket || state.busy) return;
-  if (ticket && isAutoAiRunning(ticket) && name !== "cancel") {
-    toast("AI 辅助正在自动生成，请稍候。");
+  if (ticket && isAutoAiRunning(ticket) && !["cancel", "claim"].includes(name)) {
+    toast("AI 辅助正在自动生成；此时不能编辑或发送，但仍可认领。");
     return;
   }
   if (name === "think" && ticket.protocol === "anthropic-messages") {
@@ -3459,6 +3470,7 @@ async function doAction(name) {
   if (name === "release" && !window.confirm("把票据放回队列？")) return;
   if (name === "refuse" && !window.confirm("以拒答结束这个请求？调用方会收到 refusal + content_filter。")) return;
 
+  const autoAiWasRunning = isAutoAiRunning(ticket);
   state.busy = true;
   setButtonsDisabled(true);
 
@@ -3496,6 +3508,9 @@ async function doAction(name) {
     if (name === "claim") {
       state.selectedId = ticket.id;
       rememberSelectedTicket(ticket.id);
+    }
+    if (name === "claim" && autoAiWasRunning) {
+      toast("已认领；AI 辅助仍在生成，编辑会在生成结束后解锁。");
     }
     await refreshOnce();
   } catch (error) {
@@ -3543,6 +3558,11 @@ function syncCommandbar() {
       ? "等待队列"
       : "连接中";
   els.cmdClaim.disabled = state.busy || !ticket || ticket.state !== "queued";
+  if (ticket?.state === "queued" && autoAiRunning) {
+    els.cmdClaim.title = "AI 辅助正在生成，但仍可认领；编辑会在生成结束后解锁";
+  } else {
+    els.cmdClaim.title = "";
+  }
   els.cmdNext.disabled = state.busy || state.tickets.length === 0;
   els.cmdTemplates.disabled = state.busy || autoAiRunning || !ticket || !detail || detail.els.draft.disabled;
   els.cmdTransfer.disabled =
