@@ -2611,3 +2611,28 @@ body[data-page="workbench"] .detail-wrap {
   border-radius: 13px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
+
+/* 0.6.1: on phones the compact metadata becomes two readable rows. */
+@media (max-width: 640px) {
+  body[data-page="workbench"] .detail-wrap > .meta {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 2px 9px;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  body[data-page="workbench"] .detail-wrap > .meta .meta-item {
+    display: flex;
+    min-width: 0;
+    gap: 3px;
+    white-space: normal;
+  }
+
+  body[data-page="workbench"] .detail-wrap > .meta .meta-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

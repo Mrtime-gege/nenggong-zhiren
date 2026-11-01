@@ -1437,9 +1437,9 @@ function buildDetail(ticket) {
   els.detail.replaceChildren();
   const wrap = el("div", "detail-wrap");
 
-  const head = el("div", "detail-head");
+  const head = el("div", "detail-head run-head");
   const titleWrap = el("div");
-  titleWrap.append(el("div", "eyebrow", "Human ticket"));
+  titleWrap.append(el("div", "eyebrow", "AGENT RUN"));
   const title = el("h2", "detail-title");
   const model = el("span", "", ticket.model);
   const id = el("span", "id", shortId(ticket.id));
@@ -1456,23 +1456,27 @@ function buildDetail(ticket) {
   const purposeHint = el("div", "purpose-hint hidden");
   const sessionBar = el("div", "session-bar hidden");
 
-  const panes = el("div", "panes");
+  const panes = el("div", "panes agent-panes");
+  const timelinePane = el("section", "pane timeline-pane");
+  const timelineHead = el("div", "pane-head timeline-head");
+  const timelineTitle = el("span", "pane-title", "RUN TIMELINE");
+  const timelineNote = el("span", "pane-note", "AGENT VIEW");
+  timelineHead.append(timelineTitle, timelineNote);
+  const timelineBody = el("div", "run-timeline");
 
-  const inputPane = el("section", "pane");
-  const inputHead = el("div", "pane-head");
-  const inputTitle = el("span", "pane-title", "对话与上下文");
-  const msgCount = el("span", "pane-note", "");
-  inputHead.append(inputTitle, msgCount);
+  const conversationSection = el("section", "run-section");
+  const conversationHead = el("div", "run-section-head");
+  const msgCount = el("span", "run-section-count", "");
+  conversationHead.append(el("span", "run-section-title", "对话与上下文"), msgCount);
   const messages = el("div", "messages");
   const tools = el("div", "tools");
   tools.style.display = "none";
-  inputPane.append(inputHead, messages, tools);
+  conversationSection.append(conversationHead, messages, tools);
 
-  const outputPane = el("section", "pane");
-  const outputHead = el("div", "pane-head");
-  const outputTitle = el("span", "pane-title", "对外流式内容");
-  const charCount = el("span", "pane-note", "");
-  outputHead.append(outputTitle, charCount);
+  const outputSection = el("section", "run-section");
+  const outputHead = el("div", "run-section-head");
+  const charCount = el("span", "run-section-count", "");
+  outputHead.append(el("span", "run-section-title", "对外输出"), charCount);
   const transcript = el("div", "transcript placeholder", "还没有发送任何内容。");
   const reasoningBox = el("details", "reasoning-box hidden");
   reasoningBox.open = true;
@@ -1482,8 +1486,13 @@ function buildDetail(ticket) {
   const reasoningText = el("pre", "reasoning-text", "");
   reasoningBox.append(reasoningSummary, reasoningText);
   const sentTools = el("div", "sent-toolcalls hidden");
+  outputSection.append(outputHead, reasoningBox, transcript, sentTools);
+
+  timelineBody.append(conversationSection, outputSection);
+  timelinePane.append(timelineHead, timelineBody);
+
   const composer = el("div", "composer");
-  const label = el("label", "composer-title", "回复草稿");
+  const label = el("label", "composer-title", "Agent 输出");
   const draft = el("textarea");
   draft.placeholder = "在这里写回复…";
   draft.spellcheck = false;
@@ -1517,15 +1526,17 @@ function buildDetail(ticket) {
   toolSend.title = "将当前工具调用作为响应发回调用方；不会在本机执行工具。";
   toolButtons.append(toolAdd, toolCancelEdit, toolTemplate, toolFormat, toolSend);
   const toolHint = el("div", "tool-hint", "工具调用只会返回给调用方，不会在本机执行。Ctrl+Enter 可添加或保存。");
+  const toolExpand = el("button", "btn ghost tool-expand", "扩大编辑器");
+  toolExpand.type = "button";
   const toolPending = el("div", "toolcall-pending");
-  toolPanel.append(toolTitle, toolSub, toolFilter, toolSelect, toolDesc, toolArgs, toolError, toolButtons, toolHint, toolPending);
+  toolPanel.append(toolTitle, toolSub, toolFilter, toolSelect, toolDesc, toolArgs, toolError, toolButtons, toolHint, toolExpand, toolPending);
 
   const note = el("div", "composer-note hidden");
 
   const inspector = el("aside", "inspector");
   const inspectorHead = el("div", "inspector-head");
-  inspectorHead.append(el("span", "", "检查器"));
-  inspectorHead.append(el("span", "inspector-hint", "备注 / 路由 / 工具"));
+  inspectorHead.append(el("span", "", "上下文"));
+  inspectorHead.append(el("span", "inspector-hint", "工具 / 路由 / 备注"));
 
   const inspectorTabs = el("div", "inspector-tabs");
   const tabButtons = {};
@@ -1549,6 +1560,17 @@ function buildDetail(ticket) {
   notesSection.append(notesPanel);
   inspectorBody.append(toolsSection, routingSection, notesSection);
   inspector.append(inspectorHead, inspectorTabs, inspectorBody);
+
+  const toolDrawer = el("div", "tool-drawer-backdrop hidden");
+  const toolDrawerCard = el("section", "tool-drawer");
+  const toolDrawerHead = el("div", "tool-drawer-head");
+  toolDrawerHead.append(el("span", "tool-drawer-title", "工具调用编辑器"));
+  const toolDrawerClose = el("button", "btn ghost", "关闭");
+  toolDrawerClose.type = "button";
+  toolDrawerHead.append(toolDrawerClose);
+  const toolDrawerBody = el("div", "tool-drawer-body");
+  toolDrawerCard.append(toolDrawerHead, toolDrawerBody);
+  toolDrawer.append(toolDrawerCard);
 
   const aiTools = el("div", "ai-tools hidden");
   const aiTrigger = el("button", "btn ghost ai-menu-trigger", "AI 生成");
@@ -1626,19 +1648,31 @@ function buildDetail(ticket) {
   aiPanel.append(aiPanelHead, aiPanelBody, aiPanelActions);
 
   const composerHead = el("div", "composer-head");
-  composerHead.append(label, draftStatus, draftCount, aiTools);
+  composerHead.append(label, draftStatus, draftCount);
   const composerMain = el("div", "composer-main");
-  composerMain.append(composerHead, aiPanel, draft, note);
+  const composerActions = el("div", "agent-composer-actions");
+  const toolsButton = el("button", "btn ghost agent-action", "工具");
+  toolsButton.type = "button";
+  toolsButton.title = "打开工具调用编辑器";
+  const contextButton = el("button", "btn ghost agent-action", "上下文");
+  contextButton.type = "button";
+  contextButton.title = "显示或隐藏右侧上下文面板";
+  const paletteButton = el("button", "btn ghost agent-action", "命令 ⌘K");
+  paletteButton.type = "button";
+  paletteButton.title = "打开命令面板";
+  toolsButton.addEventListener("click", () => openToolsWorkspace(detail));
+  contextButton.addEventListener("click", () => toggleInspector(detail));
+  paletteButton.addEventListener("click", openCommandPalette);
+  composerActions.append(aiTools, toolsButton, contextButton, paletteButton);
+  composerMain.append(composerHead, aiPanel, draft, note, composerActions);
   composer.append(composerMain);
-  outputPane.append(outputHead, reasoningBox, transcript, sentTools);
 
-  const paneSplitter = createSplitter("pane");
   const inspectorSplitter = createSplitter("inspector");
-  panes.append(inputPane, paneSplitter, outputPane);
   const workspace = el("div", "workspace");
+  panes.append(timelinePane);
   workspace.append(panes, inspectorSplitter, inspector);
   applySavedSplits(workspace, panes);
-  wrap.append(head, meta, purposeHint, sessionBar, workspace, composer);
+  wrap.append(head, meta, purposeHint, sessionBar, workspace, composer, toolDrawer);
   els.detail.append(wrap);
 
   const current = { id: ticket.id, els: {} };
@@ -1648,9 +1682,14 @@ function buildDetail(ticket) {
     model,
     id,
     badges,
+    head,
     meta,
     purposeHint,
     sessionBar,
+    timelinePane,
+    timelineBody,
+    conversationSection,
+    outputSection,
     messages,
     tools,
     msgCount,
@@ -1665,6 +1704,10 @@ function buildDetail(ticket) {
     draftCount,
     composer,
     composerMain,
+    composerActions,
+    toolsButton,
+    contextButton,
+    paletteButton,
     aiTools,
     aiButtons,
     aiPromptTrigger,
@@ -1704,6 +1747,11 @@ function buildDetail(ticket) {
     toolFormat,
     toolSend,
     toolPending,
+    toolExpand,
+    toolsSection,
+    toolDrawer,
+    toolDrawerBody,
+    toolDrawerClose,
     routingPanel,
     notesPanel,
     note,
@@ -1714,6 +1762,12 @@ function buildDetail(ticket) {
     refuse: els.cmdRefuse,
     cancel: els.cmdCancel,
   };
+
+  toolExpand.addEventListener("click", () => openToolDrawer(detail));
+  toolDrawerClose.addEventListener("click", () => closeToolDrawer(detail));
+  toolDrawer.addEventListener("click", (event) => {
+    if (event.target === toolDrawer) closeToolDrawer(detail);
+  });
 
   const restoredDraft = state.drafts.get(ticket.id) || "";
   draft.value = restoredDraft;
@@ -1760,13 +1814,7 @@ function buildDetail(ticket) {
   detail = current;
   applyInspectorState(current);
   activateInspectorTab(current, current.inspectorTab);
-  inspectorToggle.addEventListener("click", () => {
-    current.inspectorCollapsed = !current.inspectorCollapsed;
-    try {
-      localStorage.setItem(INSPECTOR_COLLAPSED_KEY, current.inspectorCollapsed ? "1" : "0");
-    } catch { /* storage is optional */ }
-    applyInspectorState(current);
-  });
+  inspectorToggle.addEventListener("click", () => toggleInspector(current));
   return current;
 }
 
@@ -1779,7 +1827,13 @@ function loadInspectorTab() {
 }
 
 function loadInspectorCollapsed() {
-  try { return localStorage.getItem(INSPECTOR_COLLAPSED_KEY) === "1"; } catch { return false; }
+  try {
+    const saved = localStorage.getItem(INSPECTOR_COLLAPSED_KEY);
+    if (saved === "1") return true;
+    if (saved === "0") return false;
+  } catch { /* storage is optional */ }
+  // The context rail becomes a drawer-like panel on narrow screens.
+  return window.matchMedia("(max-width: 1080px)").matches;
 }
 
 function applyInspectorState(d) {
@@ -1787,9 +1841,58 @@ function applyInspectorState(d) {
   d.els.workspace.classList.toggle("inspector-collapsed", Boolean(d.inspectorCollapsed));
   d.els.inspectorSplitter?.classList.toggle("hidden", Boolean(d.inspectorCollapsed));
   if (d.els.inspectorToggle) {
-    d.els.inspectorToggle.textContent = d.inspectorCollapsed ? "显示检查器" : "隐藏检查器";
+    d.els.inspectorToggle.textContent = d.inspectorCollapsed ? "显示上下文" : "隐藏上下文";
     d.els.inspectorToggle.setAttribute("aria-expanded", d.inspectorCollapsed ? "false" : "true");
   }
+}
+
+function toggleInspector(d = detail) {
+  if (!d?.els?.workspace) return;
+  d.inspectorCollapsed = !d.inspectorCollapsed;
+  try {
+    localStorage.setItem(INSPECTOR_COLLAPSED_KEY, d.inspectorCollapsed ? "1" : "0");
+  } catch { /* storage is optional */ }
+  applyInspectorState(d);
+}
+
+function openToolDrawer(d = detail) {
+  const ticket = currentTicket();
+  if (!d?.els?.toolDrawer || !ticket) return;
+  if (!isTicketEditable(ticket)) {
+    toast("认领票据后才能编辑工具调用。");
+    return;
+  }
+  if (isAutoAiRunning(ticket)) {
+    toast("AI 辅助正在自动生成，完成后可编辑工具。");
+    return;
+  }
+  d.els.toolDrawerBody.append(d.els.toolPanel);
+  d.els.toolDrawer.classList.remove("hidden");
+  d.toolDrawerOpen = true;
+  d.els.toolPanel.classList.remove("hidden");
+  requestAnimationFrame(() => d.els.toolArgs?.focus());
+}
+
+function closeToolDrawer(d = detail) {
+  if (!d?.els?.toolDrawer) return;
+  if (d.els.toolPanel.parentElement === d.els.toolDrawerBody) {
+    d.els.toolsSection.insertBefore(d.els.toolPanel, d.els.toolEmpty);
+  }
+  d.els.toolDrawer.classList.add("hidden");
+  d.toolDrawerOpen = false;
+}
+
+function openToolsWorkspace(d = detail) {
+  const ticket = currentTicket();
+  if (!d || !ticket) return;
+  if (!(ticket.tools || []).length || ticket.toolChoice === "none") {
+    toast("此请求没有可调用工具。");
+    return;
+  }
+  d.inspectorCollapsed = false;
+  applyInspectorState(d);
+  activateInspectorTab(d, "tools");
+  openToolDrawer(d);
 }
 
 function activateInspectorTab(d, tab) {
@@ -1804,6 +1907,7 @@ function activateInspectorTab(d, tab) {
   d.els.notesSection.classList.toggle("hidden", next !== "notes");
   d.els.routingSection.classList.toggle("hidden", next !== "routing");
   d.els.toolsSection.classList.toggle("hidden", next !== "tools");
+  if (next !== "tools" && d.toolDrawerOpen) closeToolDrawer(d);
   if (next === "tools") {
     const ticket = currentTicket();
     if (ticket) renderToolPanel(ticket, d);
@@ -2193,6 +2297,10 @@ async function runAiTask(task, d, instruction = "") {
     toast("先认领票据，再请求 AI 回复。");
     return;
   }
+  if (isAutoAiRunning(ticket)) {
+    toast("AI 辅助正在自动生成，请稍候。");
+    return;
+  }
   const previousDraft = d.els.draft.value;
   const previousTools = state.toolDrafts.get(ticket.id) || [];
   const run = { status: "running", task: "reply", relay: true, previousDraft, previousTools, startedAt: Date.now() };
@@ -2543,9 +2651,10 @@ function renderMessages(ticket, d) {
 
   const { conversation, context } = messageBuckets(ticket);
   const box = d.els.messages;
-  const previousTop = box.scrollTop;
-  const previousHeight = box.scrollHeight;
-  const previousClient = box.clientHeight;
+  const scrollHost = box.closest(".run-timeline") || box;
+  const previousTop = scrollHost.scrollTop;
+  const previousHeight = scrollHost.scrollHeight;
+  const previousClient = scrollHost.clientHeight;
   const sameTicket = box.dataset.ticketId === ticket.id;
   const wasNearBottom = !sameTicket || previousTop + previousClient >= previousHeight - 24;
   box.replaceChildren();
@@ -2612,12 +2721,19 @@ function renderMessages(ticket, d) {
   box.dataset.ticketId = ticket.id;
   if (wasNearBottom) {
     const scrollToBottom = () => {
-      if (box.isConnected) box.scrollTop = box.scrollHeight;
+      const host = box.closest(".run-timeline") || box;
+      if (!host.isConnected) return;
+      // Keep the latest conversation in view; do not jump to the empty
+      // outbound section below it.
+      const boxRect = box.getBoundingClientRect();
+      const hostRect = host.getBoundingClientRect();
+      const relativeTop = boxRect.top - hostRect.top + host.scrollTop;
+      host.scrollTop = Math.max(0, relativeTop + box.offsetHeight - host.clientHeight);
     };
     scrollToBottom();
     requestAnimationFrame(scrollToBottom);
   } else {
-    box.scrollTop = previousTop;
+    scrollHost.scrollTop = previousTop;
   }
 }
 
@@ -2669,7 +2785,8 @@ function renderTranscript(ticket, d) {
   if (d.transcriptSignature === signature) return;
 
   const box = d.els.transcript;
-  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 48;
+  const scrollHost = box.closest(".run-timeline") || box;
+  const nearBottom = scrollHost.scrollHeight - scrollHost.scrollTop - scrollHost.clientHeight < 48;
 
   box.classList.toggle("placeholder", !shown);
   box.textContent = shown || "还没有发送任何内容。";
@@ -2679,7 +2796,7 @@ function renderTranscript(ticket, d) {
     isActive(ticket) && ticket.state !== "finishing" && ticket.claimedBy === state.operator;
   if (editable && !ticket.refusal) box.append(el("span", "caret"));
 
-  if (nearBottom || !shown) box.scrollTop = box.scrollHeight;
+  if (shown && nearBottom) scrollHost.scrollTop = scrollHost.scrollHeight;
   d.transcriptSignature = signature;
 }
 
@@ -2714,6 +2831,7 @@ function renderToolPanel(ticket, d) {
   const autoAiRunning = isAutoAiRunning(ticket);
   const visible = isTicketEditable(ticket) && hasTools && !autoAiRunning;
   d.els.toolPanel.classList.toggle("hidden", !visible);
+  d.els.toolExpand?.classList.toggle("hidden", !visible);
   if (d.els.toolEmpty) {
     d.els.toolEmpty.classList.toggle("hidden", visible);
     if (!visible) {
@@ -3136,6 +3254,15 @@ function updateComposer(ticket, d) {
   d.els.reasoningText.textContent = reasoning;
   d.els.reasoningCount.textContent = reasoning ? `${reasoning.length} 字` : "";
   d.els.draft.disabled = !editable || autoAiRunning;
+  if (d.els.toolsButton) {
+    const hasTools = Array.isArray(ticket.tools) && ticket.tools.length > 0 && ticket.toolChoice !== "none";
+    d.els.toolsButton.disabled = !editable || autoAiRunning || !hasTools;
+    d.els.toolsButton.title = !editable
+      ? "认领票据后可编辑工具调用"
+      : autoAiRunning
+        ? "AI 辅助生成中"
+        : hasTools ? "打开工具调用编辑器" : "此请求没有可调用工具";
+  }
   note.classList.add("hidden");
   if (autoAiRunning) {
     note.classList.remove("hidden");
@@ -3188,6 +3315,10 @@ async function doAction(name) {
   closeCommandMenu();
   const ticket = state.tickets.find((item) => item.id === state.selectedId);
   if (!ticket || state.busy) return;
+  if (ticket && isAutoAiRunning(ticket) && name !== "cancel") {
+    toast("AI 辅助正在自动生成，请稍候。");
+    return;
+  }
   if (name === "think" && ticket.protocol === "anthropic-messages") {
     toast("Anthropic 路径暂不支持流式 thinking。");
     return;
@@ -3977,8 +4108,180 @@ function nextTicket() {
   render();
 }
 
+let commandPaletteState = null;
+
+function ensureCommandPalette() {
+  if (commandPaletteState?.root?.isConnected) return commandPaletteState;
+  const root = el("div", "command-palette-backdrop hidden");
+  root.setAttribute("role", "dialog");
+  root.setAttribute("aria-modal", "true");
+  root.setAttribute("aria-label", "命令面板");
+  const panel = el("section", "command-palette");
+  const top = el("div", "command-palette-top");
+  top.append(el("span", "command-palette-key", "⌘K"));
+  const input = el("input", "command-palette-input");
+  input.placeholder = "搜索票据或执行操作…";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  top.append(input);
+  const list = el("div", "command-palette-list");
+  const foot = el("div", "command-palette-foot");
+  foot.append(el("span", "", "↑↓ 选择 · Enter 执行 · Esc 关闭"));
+  panel.append(top, list, foot);
+  root.append(panel);
+  document.body.append(root);
+  commandPaletteState = { root, input, list, items: [], index: 0 };
+  root.addEventListener("click", (event) => {
+    if (event.target === root) closeCommandPalette();
+  });
+  input.addEventListener("input", () => {
+    commandPaletteState.index = 0;
+    renderCommandPalette();
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      moveCommandPalette(1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      moveCommandPalette(-1);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      executeCommandPalette();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeCommandPalette();
+    }
+  });
+  return commandPaletteState;
+}
+
+function commandPaletteActions() {
+  const ticket = currentTicket();
+  const actions = [];
+  const add = (group, label, hint, run, badgeText = "") => actions.push({ group, label, hint, run, badge: badgeText });
+  if (ticket) {
+    if (ticket.state === "queued") add("当前票据", "认领票据", "开始处理当前请求", () => doAction("claim"), "Enter");
+    if (isTicketEditable(ticket)) {
+      add("当前票据", "AI 生成", "将当前请求交给 AI 辅助", () => runAiTask("reply", detail, state.aiPrompts.get(ticket.id) || ""), "AI");
+      add("当前票据", "AI 引导", "给下一次生成附加方向提示", () => detail?.els?.aiPromptTrigger?.click());
+      add("当前票据", "工具调用", "打开宽版工具编辑器", () => openToolsWorkspace(detail), "TOOL");
+      add("当前票据", "快捷回复", "打开模板列表", openTemplateModal);
+      add("当前票据", "添加备注", "切换到备注面板", () => {
+        if (!detail) return;
+        detail.inspectorCollapsed = false;
+        applyInspectorState(detail);
+        activateInspectorTab(detail, "notes");
+      });
+      add("当前票据", "完成并发送", "发送当前草稿并结束票据", () => doAction("finish"), "⌘↵");
+      if (isActive(ticket)) add("当前票据", "转交票据", "将票据交给其他回复员", openTransfer);
+      if (state.role === "admin" && ticket.claimedBy && ticket.claimedBy !== state.operator && ticket.state === "claimed") {
+        add("当前票据", "管理员接管", "接管当前回复员的票据", takeoverTicket, "ADMIN");
+      }
+      if (isActive(ticket)) add("当前票据", "取消请求", "中止请求并通知调用方", () => doAction("cancel"));
+    }
+    add("工作台", "下一张票据", "切换到下一张票据", nextTicket);
+    add("工作台", "聚焦回复框", "把光标放到回复编辑器", focusDraft);
+    add("工作台", "显示/隐藏上下文", "切换右侧检查器", () => toggleInspector(detail));
+  }
+  const tickets = [...state.tickets]
+    .sort((a, b) => (a.state === "queued" ? 0 : isActive(a) ? 1 : 2) - (b.state === "queued" ? 0 : isActive(b) ? 1 : 2) || (a.created || a.createdAt) - (b.created || b.createdAt))
+    .slice(0, 20);
+  for (const item of tickets) {
+    add("票据", item.preview || item.id, `${item.model || ""} · ${STATE_LABELS[item.state] || item.state}`, () => {
+      state.selectedId = item.id;
+      rememberSelectedTicket(item.id);
+      if (window.innerWidth <= 780) setMobileView("detail");
+      render();
+    }, shortId(item.id));
+  }
+  return actions;
+}
+
+function renderCommandPalette() {
+  const palette = commandPaletteState;
+  if (!palette) return;
+  const query = palette.input.value.trim().toLowerCase();
+  const all = commandPaletteActions();
+  palette.items = all.filter((item) => !query || `${item.group} ${item.label} ${item.hint}`.toLowerCase().includes(query));
+  if (palette.index >= palette.items.length) palette.index = Math.max(0, palette.items.length - 1);
+  palette.list.replaceChildren();
+  if (!palette.items.length) {
+    palette.list.append(el("div", "command-palette-empty", "没有匹配的票据或操作"));
+    return;
+  }
+  let currentGroup = "";
+  for (const [index, item] of palette.items.entries()) {
+    if (item.group !== currentGroup) {
+      currentGroup = item.group;
+      palette.list.append(el("div", "command-palette-group", currentGroup));
+    }
+    const button = el("button", "command-palette-item");
+    button.type = "button";
+    button.dataset.index = String(index);
+    button.classList.toggle("active", index === palette.index);
+    const main = el("span", "command-palette-main");
+    main.append(el("span", "command-palette-label", item.label));
+    main.append(el("span", "command-palette-hint", item.hint));
+    button.append(main);
+    if (item.badge) button.append(el("kbd", "command-palette-badge", item.badge));
+    button.addEventListener("click", () => {
+      palette.index = index;
+      executeCommandPalette();
+    });
+    palette.list.append(button);
+  }
+  palette.list.querySelector(".command-palette-item.active")?.scrollIntoView({ block: "nearest" });
+}
+
+function moveCommandPalette(delta) {
+  const palette = commandPaletteState;
+  if (!palette?.items.length) return;
+  palette.index = (palette.index + delta + palette.items.length) % palette.items.length;
+  renderCommandPalette();
+}
+
+function executeCommandPalette() {
+  const palette = commandPaletteState;
+  const item = palette?.items[palette.index];
+  if (!item) return;
+  closeCommandPalette();
+  try {
+    item.run();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+function openCommandPalette() {
+  const palette = ensureCommandPalette();
+  palette.input.value = "";
+  palette.index = 0;
+  renderCommandPalette();
+  palette.root.classList.remove("hidden");
+  requestAnimationFrame(() => palette.input.focus());
+}
+
+function closeCommandPalette() {
+  if (commandPaletteState?.root) commandPaletteState.root.classList.add("hidden");
+}
+
 function handleGlobalShortcut(event) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    openCommandPalette();
+    return;
+  }
+  if (commandPaletteState?.root?.classList.contains("hidden") === false) {
+    if (event.key === "Escape") closeCommandPalette();
+    return;
+  }
   if (event.key === "Escape") {
+    if (detail?.toolDrawerOpen) {
+      closeToolDrawer(detail);
+      return;
+    }
     if (!els.shortcutModal.classList.contains("hidden")) {
       closeShortcuts();
       return;

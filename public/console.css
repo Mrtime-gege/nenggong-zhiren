@@ -2964,3 +2964,538 @@ body {
   min-height: 27px;
   font-size: 10px;
 }
+
+/* ==========================================================================
+   0.6.1 Agent-style operator surface
+   The queue is the run list; the detail is one readable run timeline.
+   ========================================================================== */
+
+.detail {
+  padding: 12px 16px;
+  background:
+    radial-gradient(1000px 300px at 25% -10%, rgba(138, 164, 248, 0.055), transparent 70%),
+    var(--bg);
+}
+
+.run-head {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: linear-gradient(180deg, rgba(20, 29, 39, 0.92), rgba(13, 20, 28, 0.82));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.run-head .eyebrow {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--accent);
+  opacity: 0.75;
+}
+
+.run-head .detail-title {
+  font-size: 18px;
+}
+
+.run-head .detail-head-actions {
+  gap: 8px;
+}
+
+.agent-panes {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.timeline-pane {
+  background: rgba(13, 20, 27, 0.78);
+}
+
+.timeline-head {
+  border-bottom-color: var(--line);
+}
+
+.timeline-head .pane-title {
+  color: var(--accent-strong);
+  letter-spacing: 1.4px;
+}
+
+.run-timeline {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+
+.run-section {
+  min-width: 0;
+  padding: 12px 14px 14px;
+}
+
+.run-section + .run-section {
+  border-top: 1px solid var(--line);
+}
+
+.run-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+  color: var(--muted);
+}
+
+.run-section-title {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+}
+
+.run-section-count {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.run-timeline .messages {
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+}
+
+.run-timeline .messages-summary {
+  padding-bottom: 10px;
+}
+
+.run-timeline .transcript {
+  min-height: 76px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(10, 15, 21, 0.5);
+}
+
+.run-timeline .sent-toolcalls {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(10, 15, 21, 0.35);
+}
+
+.run-timeline .reasoning-box {
+  margin-bottom: 10px;
+}
+
+.run-timeline .messages .context-block {
+  margin-top: 12px;
+}
+
+/* Composer toolbar: AI, tools and context are next to the thing they affect. */
+.composer {
+  border-color: var(--line-strong);
+  background:
+    linear-gradient(180deg, rgba(20, 29, 39, 0.96), rgba(13, 20, 28, 0.92));
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.12);
+}
+
+.composer-head {
+  min-height: 20px;
+}
+
+.composer-title {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+}
+
+.agent-composer-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+}
+
+.agent-composer-actions .ai-tools {
+  margin-right: 2px;
+}
+
+.agent-action {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 9px;
+  font-size: 10.5px;
+}
+
+.agent-composer-actions .command-hint {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+/* Wide tool editor instead of squeezing the editor into the context rail. */
+.tool-expand {
+  margin-top: 8px;
+  width: 100%;
+  height: 28px;
+  min-height: 28px;
+  font-size: 10.5px;
+}
+
+.tool-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(2, 5, 8, 0.7);
+  backdrop-filter: blur(3px);
+}
+
+.tool-drawer {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  max-height: min(86dvh, 760px);
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 13px;
+  background: #0f171f;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+}
+
+.tool-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.tool-drawer-title {
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+}
+
+.tool-drawer-body {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 15px;
+}
+
+.tool-drawer .toolcall-panel {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.tool-drawer .toolcall-title {
+  font-size: 15px;
+}
+
+.tool-drawer .toolcall-sub {
+  font-size: 11px;
+}
+
+.tool-drawer .tool-filter,
+.tool-drawer .tool-select {
+  height: 34px;
+  font-size: 12px;
+}
+
+.tool-drawer .tool-desc-text {
+  max-height: 150px;
+}
+
+.tool-drawer .tool-args {
+  min-height: 150px;
+  max-height: 280px;
+  font-size: 12px;
+}
+
+.tool-drawer .tool-actions {
+  position: static;
+  padding-top: 10px;
+  background: transparent;
+}
+
+.tool-drawer .tool-actions .btn {
+  height: 31px;
+  font-size: 11px;
+}
+
+.tool-drawer .tool-expand {
+  display: none;
+}
+
+.tool-drawer .toolcall-pending {
+  margin-top: 12px;
+}
+
+/* Command palette */
+.command-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  padding-top: min(16vh, 150px);
+  background: rgba(2, 5, 8, 0.62);
+  backdrop-filter: blur(2px);
+}
+
+.command-palette {
+  width: min(620px, calc(100vw - 28px));
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: #101820;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+}
+
+.command-palette-top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.command-palette-key {
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.command-palette-input {
+  width: 100%;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  outline: none;
+  font-size: 13px;
+}
+
+.command-palette-input::placeholder {
+  color: var(--muted);
+}
+
+.command-palette-list {
+  max-height: min(52vh, 440px);
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.command-palette-group {
+  padding: 8px 8px 4px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.command-palette-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 38px;
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.command-palette-item:hover,
+.command-palette-item.active {
+  border-color: rgba(138, 164, 248, 0.2);
+  background: rgba(138, 164, 248, 0.09);
+}
+
+.command-palette-main {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.command-palette-label {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-hint {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-badge {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.command-palette-empty {
+  padding: 22px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.command-palette-foot {
+  padding: 7px 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+/* Keep the context rail useful without crowding the run timeline. */
+.workspace {
+  grid-template-columns: minmax(0, 1fr) 350px;
+}
+
+.inspector {
+  background: rgba(13, 20, 27, 0.72);
+}
+
+.inspector-body {
+  padding: 11px;
+}
+
+.inspector .toolcall-panel {
+  padding: 0;
+}
+
+@media (max-width: 1080px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inspector {
+    max-height: 420px;
+  }
+
+  .agent-composer-actions {
+    gap: 5px;
+  }
+}
+
+@media (max-width: 780px) {
+  .detail {
+    padding: 9px 10px;
+  }
+
+  .run-head {
+    padding: 9px 10px;
+  }
+
+  .run-head .detail-title {
+    font-size: 16px;
+  }
+
+  .run-timeline {
+    scroll-padding-bottom: 12px;
+  }
+
+  .run-section {
+    padding: 10px 11px 12px;
+  }
+
+  .agent-composer-actions .agent-action {
+    flex: 1 1 auto;
+    padding: 0 6px;
+    font-size: 10px;
+  }
+
+  .agent-composer-actions .ai-tools {
+    flex: 0 0 auto;
+  }
+
+  .tool-drawer-backdrop {
+    padding: 8px;
+  }
+
+  .tool-drawer {
+    width: 100%;
+    max-height: calc(100dvh - 16px);
+  }
+
+  .tool-drawer-body {
+    padding: 10px;
+  }
+}
+
+/* Do not let flex shrink the run header and metadata on narrow screens. */
+.detail-wrap > .run-head,
+.detail-wrap > .meta,
+.detail-wrap > .session-bar,
+.detail-wrap > .purpose-hint {
+  flex: 0 0 auto;
+}
+
+/* The context rail is opt-in on narrow screens. */
+@media (max-width: 1080px) {
+  .workspace.inspector-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* On phones, show the compact metadata as two readable rows instead of a
+   horizontally clipped single line. */
+@media (max-width: 640px) {
+  body[data-page="workbench"] .meta {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 2px 9px;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  body[data-page="workbench"] .meta-item {
+    display: flex;
+    min-width: 0;
+    gap: 3px;
+    white-space: normal;
+  }
+
+  body[data-page="workbench"] .meta-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
