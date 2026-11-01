@@ -89,6 +89,25 @@ const els = {
   attachmentDownload: $("attachmentDownload"),
   attachmentWarning: $("attachmentWarning"),
   attachmentClose: $("attachmentClose"),
+  messageCenterBtn: $("messageCenterBtn"),
+  messageUnread: $("messageUnread"),
+  messageCenter: $("messageCenter"),
+  messageCenterCount: $("messageCenterCount"),
+  messageCenterClose: $("messageCenterClose"),
+  messageClear: $("messageClear"),
+  messageList: $("messageList"),
+  uiConfirmModal: $("uiConfirmModal"),
+  uiConfirmTitle: $("uiConfirmTitle"),
+  uiConfirmBody: $("uiConfirmBody"),
+  uiConfirmOk: $("uiConfirmOk"),
+  uiConfirmCancel: $("uiConfirmCancel"),
+  uiPromptModal: $("uiPromptModal"),
+  uiPromptTitle: $("uiPromptTitle"),
+  uiPromptBody: $("uiPromptBody"),
+  uiPromptInput: $("uiPromptInput"),
+  uiPromptError: $("uiPromptError"),
+  uiPromptOk: $("uiPromptOk"),
+  uiPromptCancel: $("uiPromptCancel"),
   workspacePrefs: $("workspacePrefs"),
   workspacePrefsModal: $("workspacePrefsModal"),
   workspacePrefsClose: $("workspacePrefsClose"),
@@ -527,12 +546,300 @@ function setStatus(tone, text) {
   else if (tone === "err" || tone === "warn") els.statusDot.classList.add("err");
 }
 
-function toast(message, duration = 2800) {
-  els.toast.textContent = message;
-  els.toast.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => els.toast.classList.remove("show"), duration);
+/* ------------------------------ message system ------------------------------ */
+
+const MESSAGE_STORAGE_KEY = "ngzr.messages.v1";
+const MAX_MESSAGES = 80;
+let messageItems = [];
+let messageUnread = 0;
+let messageSequence = 0;
+let lastMessageAt = 0;
+let lastMessageText = "";
+const toastTimers = new Set();
+
+const MESSAGE_TONE_LABELS = {
+  info: "提示",
+  success: "完成",
+  warning: "注意",
+  error: "失败",
+};
+
+function loadMessages() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(MESSAGE_STORAGE_KEY) || "[]");
+    if (!Array.isArray(raw)) return;
+    messageItems = raw
+      .filter((item) => item && typeof item.text === "string")
+      .slice(0, MAX_MESSAGES)
+      .map((item, index) => ({
+        id: item.id || `stored-${index}`,
+        text: item.text,
+        tone: ["info", "success", "warning", "error"].includes(item.tone) ? item.tone : "info",
+        title: item.title || MESSAGE_TONE_LABELS[item.tone] || "提示",
+        createdAt: Number(item.createdAt) || Date.now(),
+        read: item.read === true,
+        count: Math.max(1, Number(item.count) || 1),
+      }));
+    messageUnread = messageItems.filter((item) => !item.read).length;
+  } catch {
+    messageItems = [];
+    messageUnread = 0;
+  }
 }
+
+function persistMessages() {
+  try {
+    localStorage.setItem(MESSAGE_STORAGE_KEY, JSON.stringify(messageItems.map(({ action, ...item }) => item)));
+  } catch { /* storage is optional */ }
+}
+
+function inferMessageTone(message, tone) {
+  if (["info", "success", "warning", "error"].includes(tone)) return tone;
+  const text = String(message || "");
+  if (/失败|错误|无法|不能|无效|超时|拒绝|请先|不存在|格式无法/.test(text)) return "error";
+  if (/警告|注意|仍未|请谨慎|冲突/.test(text)) return "warning";
+  if (/已|成功|完成|恢复|保存/.test(text)) return "success";
+  return "info";
+}
+
+function messageTitleFor(tone, title) {
+  return title || MESSAGE_TONE_LABELS[tone] || "提示";
+}
+
+function renderMessageBadge() {
+  if (!els.messageUnread) return;
+  els.messageUnread.textContent = String(messageUnread);
+  els.messageUnread.classList.toggle("hidden", messageUnread <= 0);
+  els.messageCenterBtn?.classList.toggle("has-unread", messageUnread > 0);
+  if (els.messageCenterCount) {
+    els.messageCenterCount.textContent = messageItems.length ? ` ${messageItems.length} 条` : "";
+  }
+}
+
+function renderMessageList() {
+  if (!els.messageList) return;
+  els.messageList.replaceChildren();
+  if (!messageItems.length) {
+    els.messageList.append(el("div", "message-center-empty", "暂无消息"));
+    return;
+  }
+  for (const item of messageItems) {
+    const row = el("article", `message-entry ${item.tone}${item.read ? "" : " unread"}`);
+    const top = el("div", "message-entry-top");
+    top.append(el("span", "message-entry-tone", messageTitleFor(item.tone, item.title)));
+    const meta = el("span", "message-entry-meta");
+    if (item.count > 1) meta.append(el("span", "message-entry-count", `×${item.count}`));
+    meta.append(el("time", "message-entry-time", fmtTime(item.createdAt)));
+    top.append(meta);
+    const body = el("div", "message-entry-body", item.text);
+    row.append(top, body);
+    if (typeof item.action?.run === "function") {
+      const action = el("button", "btn ghost message-entry-action", item.action.label || "执行");
+      action.type = "button";
+      action.addEventListener("click", () => {
+        closeMessageCenter();
+        item.action.run();
+      });
+      row.append(action);
+    }
+    els.messageList.append(row);
+  }
+}
+
+function showToast(item, duration = 3200) {
+  if (!els.toast) return;
+  const card = el("div", `toast-card ${item.tone}`);
+  const dot = el("span", "toast-dot");
+  const copy = el("div", "toast-copy");
+  copy.append(el("strong", "toast-title", messageTitleFor(item.tone, item.title)));
+  copy.append(el("span", "toast-text", item.text));
+  const close = el("button", "toast-close", "×");
+  close.type = "button";
+  close.setAttribute("aria-label", "关闭消息");
+  card.append(dot, copy, close);
+  const remove = () => {
+    card.classList.add("leaving");
+    setTimeout(() => card.remove(), 180);
+  };
+  close.addEventListener("click", (event) => {
+    event.stopPropagation();
+    remove();
+  });
+  card.addEventListener("click", () => {
+    openMessageCenter();
+    remove();
+  });
+  els.toast.append(card);
+  while (els.toast.children.length > 4) els.toast.firstElementChild?.remove();
+  requestAnimationFrame(() => card.classList.add("show"));
+  if (duration > 0) {
+    const timer = setTimeout(remove, duration);
+    toastTimers.add(timer);
+    card.addEventListener("remove", () => clearTimeout(timer));
+  }
+}
+
+function notify(message, options = {}) {
+  const text = String(message ?? "").trim();
+  if (!text) return;
+  const now = Date.now();
+  const duplicate = messageItems.find((entry) => entry.text === text && now - entry.createdAt < 30_000);
+  if (duplicate) {
+    duplicate.createdAt = now;
+    duplicate.count = (duplicate.count || 1) + 1;
+    duplicate.read = !els.messageCenter || !els.messageCenter.classList.contains("hidden");
+    persistMessages();
+    renderMessageBadge();
+    renderMessageList();
+    return;
+  }
+  if (text === lastMessageText && now - lastMessageAt < 1500) return;
+  lastMessageText = text;
+  lastMessageAt = now;
+  const tone = inferMessageTone(text, options.tone);
+  const item = {
+    id: `msg-${now}-${++messageSequence}`,
+    text,
+    tone,
+    title: messageTitleFor(tone, options.title),
+    createdAt: now,
+    read: !els.messageCenter || !els.messageCenter.classList.contains("hidden"),
+    count: 1,
+    action: options.action || null,
+  };
+  messageItems.unshift(item);
+  messageItems = messageItems.slice(0, MAX_MESSAGES);
+  if (!item.read) messageUnread += 1;
+  persistMessages();
+  renderMessageBadge();
+  renderMessageList();
+  showToast(item, options.duration ?? 3200);
+}
+
+function toast(message, duration = 2800) {
+  notify(message, { duration });
+}
+
+function openMessageCenter() {
+  if (!els.messageCenter) return;
+  els.messageCenter.classList.remove("hidden");
+  for (const item of messageItems) item.read = true;
+  messageUnread = 0;
+  persistMessages();
+  renderMessageBadge();
+  renderMessageList();
+}
+
+function closeMessageCenter() {
+  els.messageCenter?.classList.add("hidden");
+}
+
+function toggleMessageCenter() {
+  if (els.messageCenter?.classList.contains("hidden")) openMessageCenter();
+  else closeMessageCenter();
+}
+
+function clearMessages() {
+  messageItems = [];
+  messageUnread = 0;
+  persistMessages();
+  renderMessageBadge();
+  renderMessageList();
+}
+
+/* ------------------------------ dialogs ------------------------------ */
+
+let uiConfirmResolve = null;
+let uiPromptResolve = null;
+let uiPromptAllowEmpty = false;
+
+function closeUiConfirm(result = false) {
+  if (!uiConfirmResolve) return;
+  const resolve = uiConfirmResolve;
+  uiConfirmResolve = null;
+  els.uiConfirmModal?.classList.add("hidden");
+  resolve(result);
+}
+
+function uiConfirm({
+  title = "请确认",
+  body = "",
+  confirmText = "确认",
+  cancelText = "取消",
+  tone = "warning",
+} = {}) {
+  if (uiConfirmResolve) closeUiConfirm(false);
+  els.uiConfirmTitle.textContent = title;
+  els.uiConfirmBody.textContent = body;
+  els.uiConfirmOk.textContent = confirmText;
+  els.uiConfirmCancel.textContent = cancelText;
+  els.uiConfirmModal.dataset.tone = tone;
+  els.uiConfirmModal.classList.remove("hidden");
+  setTimeout(() => els.uiConfirmOk.focus(), 20);
+  return new Promise((resolve) => { uiConfirmResolve = resolve; });
+}
+
+function closeUiPrompt(result = null) {
+  if (!uiPromptResolve) return;
+  const resolve = uiPromptResolve;
+  uiPromptResolve = null;
+  els.uiPromptModal?.classList.add("hidden");
+  resolve(result);
+}
+
+function uiPrompt({
+  title = "输入",
+  body = "",
+  value = "",
+  placeholder = "",
+  type = "text",
+  confirmText = "确认",
+  allowEmpty = false,
+} = {}) {
+  if (uiPromptResolve) closeUiPrompt(null);
+  els.uiPromptTitle.textContent = title;
+  els.uiPromptBody.textContent = body;
+  els.uiPromptInput.type = type;
+  els.uiPromptInput.value = value;
+  els.uiPromptInput.placeholder = placeholder;
+  uiPromptAllowEmpty = allowEmpty;
+  els.uiPromptError.textContent = "";
+  els.uiPromptOk.textContent = confirmText;
+  els.uiPromptModal.classList.remove("hidden");
+  setTimeout(() => {
+    els.uiPromptInput.focus();
+    els.uiPromptInput.select();
+  }, 20);
+  return new Promise((resolve) => { uiPromptResolve = resolve; });
+}
+
+function submitUiPrompt() {
+  const value = els.uiPromptInput.value;
+  if (!uiPromptAllowEmpty && !value.trim()) {
+    els.uiPromptError.textContent = "不能为空。";
+    els.uiPromptInput.focus();
+    return;
+  }
+  closeUiPrompt(value);
+}
+
+function setComposerNotice(element, { tone = "info", text = "", action = null } = {}) {
+  if (!element) return;
+  element.className = `composer-note inline-notice ${tone}`;
+  element.replaceChildren();
+  const icon = el("span", "inline-notice-icon", tone === "error" ? "!" : tone === "warning" ? "!" : tone === "success" ? "✓" : "i");
+  const copy = el("span", "inline-notice-text", text);
+  element.append(icon, copy);
+  if (action && typeof action.run === "function") {
+    const button = el("button", "inline-notice-action", action.label || "处理");
+    button.type = "button";
+    button.addEventListener("click", action.run);
+    element.append(button);
+  }
+  element.classList.remove("hidden");
+}
+
+loadMessages();
 
 
 let audioUnlockInstalled = false;
@@ -852,7 +1159,12 @@ async function createUser(event) {
 }
 
 async function resetUserPassword(username) {
-  const password = window.prompt(`为 ${username} 设置新密码（至少 8 位）：`);
+  const password = await uiPrompt({
+    title: "重置密码",
+    body: `为 ${username} 设置新密码（至少 8 位）。`,
+    type: "password",
+    confirmText: "重置密码",
+  });
   if (!password) return;
   setUsersError("");
   try {
@@ -873,7 +1185,12 @@ async function resetUserPassword(username) {
 }
 
 async function deleteUser(username) {
-  if (!window.confirm(`删除用户 ${username}？该用户现有会话会立即失效。`)) return;
+  if (!(await uiConfirm({
+    title: "删除用户",
+    body: `删除用户 ${username}？该用户现有会话会立即失效。`,
+    confirmText: "删除",
+    tone: "error",
+  }))) return;
   setUsersError("");
   try {
     await api(`/op/api/users/${encodeURIComponent(username)}`, { method: "DELETE" });
@@ -1004,7 +1321,12 @@ async function toggleKey(key) {
 }
 
 async function renameKey(key) {
-  const name = window.prompt("给这个调用密钥起个名字：", key.name);
+  const name = await uiPrompt({
+    title: "重命名密钥",
+    body: "给这个调用密钥起个名字。",
+    value: key.name,
+    confirmText: "保存",
+  });
   if (!name || !name.trim()) return;
   setKeysError("");
   try {
@@ -1021,20 +1343,23 @@ async function renameKey(key) {
 
 async function editKeyQuota(key) {
   const current = key.limits || {};
-  const rpm = window.prompt("每分钟请求上限（0 = 不限）：", String(current.requestsPerMinute || 0));
+  const rpm = await uiPrompt({ title: "配额 · 每分钟", body: "每分钟请求上限（0 = 不限）：", value: String(current.requestsPerMinute || 0), confirmText: "下一步" });
   if (rpm === null) return;
-  const perDay = window.prompt("每日请求上限（0 = 不限）：", String(current.requestsPerDay || 0));
+  const perDay = await uiPrompt({ title: "配额 · 每日", body: "每日请求上限（0 = 不限）：", value: String(current.requestsPerDay || 0), confirmText: "下一步" });
   if (perDay === null) return;
-  const perMonth = window.prompt("每月请求上限（0 = 不限）：", String(current.requestsPerMonth || 0));
+  const perMonth = await uiPrompt({ title: "配额 · 每月", body: "每月请求上限（0 = 不限）：", value: String(current.requestsPerMonth || 0), confirmText: "下一步" });
   if (perMonth === null) return;
-  const concurrent = window.prompt("并发上限（0 = 使用全局默认）：", String(current.maxConcurrent || 0));
+  const concurrent = await uiPrompt({ title: "配额 · 并发", body: "并发上限（0 = 使用全局默认）：", value: String(current.maxConcurrent || 0), confirmText: "下一步" });
   if (concurrent === null) return;
-  const models = window.prompt("允许的模型（逗号分隔，留空 = 全部）：", (key.allowedModels || []).join(","));
+  const models = await uiPrompt({ title: "允许模型", body: "逗号分隔；留空表示全部。", value: (key.allowedModels || []).join(","), confirmText: "下一步", allowEmpty: true });
   if (models === null) return;
-  const expires = window.prompt(
-    "过期时间（ISO 时间或留空 = 不过期）：",
-    key.expiresAt ? new Date(key.expiresAt).toISOString() : "",
-  );
+  const expires = await uiPrompt({
+    title: "过期时间",
+    body: "ISO 时间或留空表示不过期。",
+    value: key.expiresAt ? new Date(key.expiresAt).toISOString() : "",
+    confirmText: "保存配额",
+    allowEmpty: true,
+  });
   if (expires === null) return;
   const expiresAt = expires.trim() ? Date.parse(expires) : null;
   if (expires.trim() && !Number.isFinite(expiresAt)) {
@@ -1064,7 +1389,12 @@ async function editKeyQuota(key) {
 }
 
 async function deleteKey(key) {
-  if (!window.confirm(`删除调用密钥「${key.name}」？删除后使用它的调用方会立即失败。`)) return;
+  if (!(await uiConfirm({
+    title: "删除调用密钥",
+    body: `删除调用密钥「${key.name}」？删除后使用它的调用方会立即失败。`,
+    confirmText: "删除",
+    tone: "error",
+  }))) return;
   setKeysError("");
   try {
     await api(`/op/api/keys/${encodeURIComponent(key.id)}`, { method: "DELETE" });
@@ -1573,13 +1903,16 @@ function buildDetail(ticket) {
   title.append(model, id);
   titleWrap.append(title);
   const badges = el("div", "badges");
-  const inspectorToggle = el("button", "btn ghost inspector-toggle", "隐藏检查器");
+  const inspectorToggle = el("button", "btn ghost inspector-toggle", "显示上下文");
   inspectorToggle.type = "button";
+  const detailsToggle = el("button", "btn ghost details-toggle", "详情");
+  detailsToggle.type = "button";
+  detailsToggle.setAttribute("aria-expanded", "false");
   const headActions = el("div", "detail-head-actions");
-  headActions.append(inspectorToggle, badges);
+  headActions.append(inspectorToggle, detailsToggle, badges);
   head.append(titleWrap, headActions);
 
-  const meta = el("div", "meta");
+  const meta = el("div", "meta hidden");
   const purposeHint = el("div", "purpose-hint hidden");
   const sessionBar = el("div", "session-bar hidden");
 
@@ -1852,6 +2185,7 @@ function buildDetail(ticket) {
     aiCopy,
     aiClose,
     inspectorToggle,
+    detailsToggle,
     workspace,
     inspectorSplitter,
     inspectorTabs,
@@ -1890,6 +2224,7 @@ function buildDetail(ticket) {
     cancel: els.cmdCancel,
   };
 
+  detailsToggle.addEventListener("click", () => toggleDetails(current));
   toolExpand.addEventListener("click", () => openToolDrawer(detail));
   toolDrawerClose.addEventListener("click", () => closeToolDrawer(detail));
   toolDrawer.addEventListener("click", (event) => {
@@ -1973,6 +2308,14 @@ function applyInspectorState(d) {
     d.els.inspectorToggle.textContent = d.inspectorCollapsed ? "显示上下文" : "隐藏上下文";
     d.els.inspectorToggle.setAttribute("aria-expanded", d.inspectorCollapsed ? "false" : "true");
   }
+}
+
+function toggleDetails(d = detail) {
+  if (!d?.els?.meta) return;
+  d.detailsOpen = !d.detailsOpen;
+  d.els.meta.classList.toggle("hidden", !d.detailsOpen);
+  d.els.detailsToggle.textContent = d.detailsOpen ? "收起" : "详情";
+  d.els.detailsToggle.setAttribute("aria-expanded", d.detailsOpen ? "true" : "false");
 }
 
 function toggleInspector(d = detail) {
@@ -3394,48 +3737,71 @@ function updateComposer(ticket, d) {
         : hasTools ? "打开工具调用编辑器" : "此请求没有可调用工具";
   }
   note.classList.add("hidden");
+  let notice = null;
   if (autoAiRunning) {
-    note.classList.remove("hidden");
     if (ticket.state === "queued") {
-      note.textContent = "AI 辅助正在自动生成，但不会占用票据归属，也不会阻止认领。认领后编辑仍会等生成结束，结果会自动填入。";
+      notice = {
+        tone: "info",
+        text: "AI 辅助正在自动生成，但不会占用票据归属，也不会阻止认领。认领后编辑仍会等生成结束，结果会自动填入。",
+        action: { label: "认领", run: () => doAction("claim") },
+      };
     } else if (mine) {
-      note.textContent = `AI 辅助正在自动生成，已用时 ${elapsedText(ticket.aiPending?.createdAt)}；编辑暂时锁定，完成后自动填入草稿和工具。`;
+      notice = {
+        tone: "info",
+        text: `AI 辅助正在自动生成，已用时 ${elapsedText(ticket.aiPending?.createdAt)}；编辑暂时锁定，完成后自动填入草稿和工具。`,
+      };
     } else {
-      note.textContent = "AI 辅助正在生成；当前由其他回复员编辑。生成结束后才能修改。";
+      notice = {
+        tone: "warning",
+        text: "AI 辅助正在生成；当前由其他回复员编辑。生成结束后才能修改。",
+      };
     }
   } else if (autoAiError) {
-    note.classList.remove("hidden");
-    note.textContent = ticket.aiPending?.error || "自动 AI 辅助失败，可稍后手动生成。";
+    notice = { tone: "error", text: ticket.aiPending?.error || "自动 AI 辅助失败，可稍后手动生成。" };
   } else if (!isActive(ticket)) {
-    note.classList.remove("hidden");
-    note.textContent =
-      ticket.state === "cancelled"
-        ? "调用方已断开，票据关闭。"
-        : ticket.state === "failed"
-          ? "请求以错误结束，调用方已收到错误响应。"
-          : `请求已结束${ticket.finishReason ? `（finish_reason: ${ticket.finishReason}）` : ""}。`;
+    notice = {
+      tone: ticket.state === "cancelled" || ticket.state === "failed" ? "warning" : "success",
+      text:
+        ticket.state === "cancelled"
+          ? "调用方已断开，票据关闭。"
+          : ticket.state === "failed"
+            ? "请求以错误结束，调用方已收到错误响应。"
+            : `请求已结束${ticket.finishReason ? `（finish_reason: ${ticket.finishReason}）` : ""}。`,
+    };
   } else if (!editable) {
-    note.classList.remove("hidden");
-    note.textContent =
-      ticket.state === "queued"
-        ? "这张票还没有被认领。点击「认领票据」后就可以回复。"
-        : ticket.state === "finishing"
-          ? "正在把剩余内容按节奏推送给调用方…"
-          : state.role === "admin"
-            ? `由 ${ticket.claimedBy || "其他回复员"} 接待中。可点击下方「接管」继续处理。`
-            : `由 ${ticket.claimedBy || "其他回复员"} 接待中。`;
+    if (ticket.state === "queued") {
+      notice = {
+        tone: "info",
+        text: "这张票还没有被认领。认领后可编辑回复。",
+        action: { label: "认领", run: () => doAction("claim") },
+      };
+    } else if (ticket.state === "finishing") {
+      notice = { tone: "info", text: "正在把剩余内容按节奏推送给调用方…" };
+    } else if (state.role === "admin") {
+      notice = {
+        tone: "warning",
+        text: `当前编辑者：${ticket.claimedBy || "其他回复员"}。`,
+        action: { label: "接管", run: takeoverTicket },
+      };
+    } else {
+      notice = { tone: "info", text: `当前编辑者：${ticket.claimedBy || "其他回复员"}。` };
+    }
   } else if (toolRequired && pending.length === 0) {
-    note.classList.remove("hidden");
-    note.textContent = "此请求要求返回工具调用：先在下方选择工具并添加，再完成。";
+    notice = {
+      tone: "warning",
+      text: "此请求要求返回工具调用，请先添加工具，再完成。",
+      action: { label: "打开工具", run: () => openToolsWorkspace(detail) },
+    };
   } else if (jsonMode) {
-    note.classList.remove("hidden");
-    note.textContent =
-      ticket.responseFormat.type === "json_schema"
-        ? `response_format=json_schema（${ticket.responseFormat.json_schema?.name || "response"}）：完成时会校验 JSON，不通过会留在当前票让你修改。`
-        : "response_format=json_object：完成时会校验 JSON 对象，不通过会留在当前票让你修改。";
-  } else {
-    note.classList.add("hidden");
+    notice = {
+      tone: "info",
+      text:
+        ticket.responseFormat.type === "json_schema"
+          ? `response_format=json_schema（${ticket.responseFormat.json_schema?.name || "response"}）：完成时会校验 JSON，不通过会留在当前票让你修改。`
+          : "response_format=json_object：完成时会校验 JSON 对象，不通过会留在当前票让你修改。",
+    };
   }
+  if (notice) setComposerNotice(note, notice);
 
   if (autoAiRunning) d.els.draft.placeholder = "AI 辅助生成中，完成后自动填入…";
   else if (d.els.draft.disabled) d.els.draft.placeholder = "认领票据后即可输入回复";
@@ -3466,9 +3832,24 @@ async function doAction(name) {
     detail?.els.draft.focus();
     return;
   }
-  if (name === "cancel" && !window.confirm("取消这个请求？调用方会收到错误响应。")) return;
-  if (name === "release" && !window.confirm("把票据放回队列？")) return;
-  if (name === "refuse" && !window.confirm("以拒答结束这个请求？调用方会收到 refusal + content_filter。")) return;
+  if (name === "cancel" && !(await uiConfirm({
+    title: "取消请求",
+    body: "取消这个请求？调用方会收到错误响应。",
+    confirmText: "取消请求",
+    tone: "error",
+  }))) return;
+  if (name === "release" && !(await uiConfirm({
+    title: "放回队列",
+    body: "把票据放回队列？其他回复员可以重新认领。",
+    confirmText: "放回队列",
+    tone: "warning",
+  }))) return;
+  if (name === "refuse" && !(await uiConfirm({
+    title: "拒答请求",
+    body: "以拒答结束这个请求？调用方会收到 refusal + content_filter。",
+    confirmText: "确认拒答",
+    tone: "error",
+  }))) return;
 
   const autoAiWasRunning = isAutoAiRunning(ticket);
   state.busy = true;
@@ -3732,7 +4113,12 @@ function renderTemplateList() {
       const remove = el("button", "btn danger", "删除");
       remove.type = "button";
       remove.addEventListener("click", async () => {
-        if (!window.confirm(`删除模板「${template.name}」？`)) return;
+        if (!(await uiConfirm({
+          title: "删除模板",
+          body: `删除模板「${template.name}」？`,
+          confirmText: "删除",
+          tone: "error",
+        }))) return;
         try {
           await api(`/op/api/templates/${encodeURIComponent(template.id)}`, { method: "DELETE", body: {} });
           templates = templates.filter((item) => item.id !== template.id);
@@ -3914,7 +4300,12 @@ async function sendToolCalls() {
 async function takeoverTicket() {
   const ticket = currentTicket();
   if (!ticket || state.role !== "admin") return;
-  if (!window.confirm(`接管这张票据？\n\n当前接待人 @${ticket.claimedBy || "-"} 将失去发送权限，你可以继续编辑并回复。`)) return;
+  if (!(await uiConfirm({
+    title: "接管票据",
+    body: `当前编辑者 @${ticket.claimedBy || "-"} 将失去发送权限，你可以继续编辑并回复。`,
+    confirmText: "接管",
+    tone: "warning",
+  }))) return;
   state.busy = true;
   setButtonsDisabled(true);
   try {
@@ -4423,6 +4814,18 @@ function handleGlobalShortcut(event) {
     return;
   }
   if (event.key === "Escape") {
+    if (uiConfirmResolve) {
+      closeUiConfirm(false);
+      return;
+    }
+    if (uiPromptResolve) {
+      closeUiPrompt(null);
+      return;
+    }
+    if (!els.messageCenter?.classList.contains("hidden")) {
+      closeMessageCenter();
+      return;
+    }
     if (!els.workspacePrefsModal?.classList.contains("hidden")) {
       closeWorkspacePrefs();
       return;
@@ -4512,6 +4915,38 @@ function init() {
     renderQueue();
   });
   els.logout.addEventListener("click", logout);
+  renderMessageBadge();
+  renderMessageList();
+  els.messageCenterBtn?.addEventListener("click", toggleMessageCenter);
+  els.messageCenterClose?.addEventListener("click", closeMessageCenter);
+  els.messageCenter?.addEventListener("click", (event) => {
+    if (event.target === els.messageCenter) closeMessageCenter();
+  });
+  els.messageClear?.addEventListener("click", async () => {
+    if (!messageItems.length) return;
+    if (await uiConfirm({
+      title: "清空消息",
+      body: "清空后消息中心的历史提示会被移除。",
+      confirmText: "清空",
+      tone: "warning",
+    })) clearMessages();
+  });
+  els.uiConfirmOk?.addEventListener("click", () => closeUiConfirm(true));
+  els.uiConfirmCancel?.addEventListener("click", () => closeUiConfirm(false));
+  els.uiConfirmModal?.addEventListener("click", (event) => {
+    if (event.target === els.uiConfirmModal) closeUiConfirm(false);
+  });
+  els.uiPromptOk?.addEventListener("click", submitUiPrompt);
+  els.uiPromptCancel?.addEventListener("click", () => closeUiPrompt(null));
+  els.uiPromptModal?.addEventListener("click", (event) => {
+    if (event.target === els.uiPromptModal) closeUiPrompt(null);
+  });
+  els.uiPromptInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submitUiPrompt();
+    }
+  });
   els.workspacePrefs?.addEventListener("click", openWorkspacePrefs);
   els.workspacePrefsClose?.addEventListener("click", closeWorkspacePrefs);
   els.workspacePrefsModal?.addEventListener("click", (event) => {

@@ -3598,3 +3598,391 @@ body[data-density="compact"] .composer-main > textarea {
   font-size: 8.5px;
   white-space: nowrap;
 }
+
+/* ==========================================================================
+   Unified message system: one voice for toasts, history, inline notices and
+   confirmations. The page keeps only actionable, current-run messaging.
+   ========================================================================== */
+
+.message-center-btn {
+  position: relative;
+  gap: 5px;
+}
+
+.message-unread {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #0b1118;
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1;
+}
+
+.message-unread.hidden {
+  display: none;
+}
+
+.message-center {
+  position: fixed;
+  top: 56px;
+  right: 14px;
+  z-index: 95;
+  display: flex;
+  flex-direction: column;
+  width: min(380px, calc(100vw - 24px));
+  max-height: min(70dvh, 620px);
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: #10171f;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+}
+
+.message-center-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.message-center-head strong {
+  font-size: 12px;
+}
+
+.message-center-count {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.message-center-head-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.message-center-head-actions .btn {
+  height: 24px;
+  min-height: 24px;
+  padding: 0 7px;
+  font-size: 9.5px;
+}
+
+.message-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.message-center-empty {
+  padding: 30px 12px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.message-entry {
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.message-entry + .message-entry {
+  border-top-color: var(--line);
+  border-radius: 0;
+}
+
+.message-entry.unread {
+  background: rgba(138, 164, 248, 0.055);
+}
+
+.message-entry-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.message-entry-tone {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.5px;
+}
+
+.message-entry.success .message-entry-tone { color: var(--green); }
+.message-entry.warning .message-entry-tone { color: var(--amber); }
+.message-entry.error .message-entry-tone { color: var(--red); }
+
+.message-entry-time {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8.5px;
+}
+
+.message-entry-body {
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.message-entry-action {
+  height: 23px;
+  min-height: 23px;
+  margin-top: 5px;
+  padding: 0 7px;
+  font-size: 9.5px;
+}
+
+/* Toasts are a short-lived view of the same message history. */
+.toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 58px;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+  width: min(350px, calc(100vw - 24px));
+  pointer-events: none;
+}
+
+.toast-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--line-strong);
+  border-left: 2px solid var(--accent);
+  border-radius: 9px;
+  background: rgba(15, 23, 31, 0.98);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.42);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.toast-card.show { opacity: 1; transform: translateY(0); }
+.toast-card.leaving { opacity: 0; transform: translateY(5px); }
+.toast-card.success { border-left-color: var(--green); }
+.toast-card.warning { border-left-color: var(--amber); }
+.toast-card.error { border-left-color: var(--red); }
+
+.toast-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.toast-card.success .toast-dot { background: var(--green); }
+.toast-card.warning .toast-dot { background: var(--amber); }
+.toast-card.error .toast-dot { background: var(--red); }
+
+.toast-copy {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 1px;
+  min-width: 0;
+}
+
+.toast-title {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.toast-text {
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.toast-close {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.toast-close:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+}
+
+/* Inline notices: current-run state only, no separate prose blocks. */
+.composer .composer-note.inline-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 7px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.018);
+  color: var(--text-dim);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.inline-notice-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+.inline-notice-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.inline-notice-action {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 10px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.inline-notice.warning { border-color: rgba(216, 178, 106, 0.25); }
+.inline-notice.warning .inline-notice-icon { color: var(--amber); border-color: rgba(216, 178, 106, 0.4); }
+.inline-notice.error { border-color: rgba(209, 141, 141, 0.25); }
+.inline-notice.error .inline-notice-icon { color: var(--red); border-color: rgba(209, 141, 141, 0.4); }
+.inline-notice.success { border-color: rgba(131, 199, 164, 0.22); }
+.inline-notice.success .inline-notice-icon { color: var(--green); border-color: rgba(131, 199, 164, 0.4); }
+
+.ui-dialog {
+  width: min(460px, calc(100vw - 24px));
+}
+
+.ui-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.ui-dialog .modal-head {
+  margin-bottom: 10px;
+}
+
+.ui-dialog .hint {
+  margin: 5px 0 0;
+}
+
+@media (max-width: 780px) {
+  .message-center {
+    top: auto;
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    width: auto;
+    max-height: 64dvh;
+  }
+
+  .toast-stack {
+    right: 8px;
+    bottom: 52px;
+    left: 8px;
+    width: auto;
+  }
+
+  .toast-card {
+    padding: 8px 9px;
+  }
+
+  .message-center-btn .message-unread {
+    position: absolute;
+    top: 0;
+    right: 0;
+    transform: translate(30%, -30%);
+  }
+}
+
+/* Details are opt-in; the run header stays one line. */
+.details-toggle {
+  height: 24px;
+  min-height: 24px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+
+/* Compact queue counters. */
+.stats {
+  display: flex;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.stat {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
+}
+
+.stat:last-child { border-right: 0; }
+
+.stat-value {
+  font-size: 14px;
+}
+
+.stat-label {
+  font-size: 8.5px;
+}
+
+.message-entry-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.message-entry-count {
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8px;
+}
