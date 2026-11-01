@@ -3499,3 +3499,90 @@ body {
     white-space: nowrap;
   }
 }
+
+/* 0.6.1 workspace customization */
+body[data-page="workbench"] .layout {
+  grid-template-columns: var(--queue-width, 300px) minmax(0, 1fr);
+}
+
+.prefs-modal {
+  width: min(620px, calc(100vw - 24px));
+}
+
+.prefs-form {
+  display: grid;
+  gap: 13px;
+}
+
+.prefs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.prefs-grid .field {
+  margin: 0;
+}
+
+.prefs-grid output {
+  float: right;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.prefs-actions {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.prefs-actions legend {
+  padding: 0 4px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.prefs-actions label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 13px 7px 0;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+body[data-density="compact"] .detail {
+  padding: 8px 10px;
+}
+
+body[data-density="compact"] .run-head {
+  padding: 7px 9px;
+}
+
+body[data-density="compact"] .run-section {
+  padding: 8px 10px 9px;
+}
+
+body[data-density="compact"] .qitem {
+  padding: 8px 9px;
+  margin-bottom: 5px;
+}
+
+body[data-density="compact"] .messages .message {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+body[data-density="compact"] .composer-main > textarea {
+  min-height: 48px;
+  max-height: 72px;
+}
+
+@media (max-width: 640px) {
+  .prefs-grid {
+    grid-template-columns: 1fr;
+  }
+}

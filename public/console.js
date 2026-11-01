@@ -89,7 +89,55 @@ const els = {
   attachmentDownload: $("attachmentDownload"),
   attachmentWarning: $("attachmentWarning"),
   attachmentClose: $("attachmentClose"),
+  workspacePrefs: $("workspacePrefs"),
+  workspacePrefsModal: $("workspacePrefsModal"),
+  workspacePrefsClose: $("workspacePrefsClose"),
+  workspacePrefsForm: $("workspacePrefsForm"),
+  workspacePrefsReset: $("workspacePrefsReset"),
+  prefDensity: $("prefDensity"),
+  prefContext: $("prefContext"),
+  prefQueueFilter: $("prefQueueFilter"),
+  prefQueueWidth: $("prefQueueWidth"),
+  prefQueueWidthValue: $("prefQueueWidthValue"),
+  prefShowAi: $("prefShowAi"),
+  prefShowTools: $("prefShowTools"),
+  prefShowContext: $("prefShowContext"),
+  prefShowPalette: $("prefShowPalette"),
+  prefShowTemplates: $("prefShowTemplates"),
+  prefShowTransfer: $("prefShowTransfer"),
 };
+
+const WORKSPACE_PREFS_KEY = "ngzr.workspacePrefs.v1";
+const DEFAULT_WORKSPACE_PREFS = Object.freeze({
+  density: "comfortable",
+  context: "remember",
+  queueFilter: "all",
+  queueWidth: 300,
+  showAi: true,
+  showTools: true,
+  showContext: true,
+  showPalette: true,
+  showTemplates: true,
+  showTransfer: true,
+});
+
+function loadWorkspacePrefs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(WORKSPACE_PREFS_KEY) || "{}");
+    return {
+      ...DEFAULT_WORKSPACE_PREFS,
+      ...raw,
+      density: raw.density === "compact" ? "compact" : "comfortable",
+      context: ["remember", "closed", "open"].includes(raw.context) ? raw.context : "remember",
+      queueFilter: ["all", "queued", "active", "recent", "mine"].includes(raw.queueFilter) ? raw.queueFilter : "all",
+      queueWidth: Math.min(400, Math.max(240, Number(raw.queueWidth) || 300)),
+    };
+  } catch {
+    return { ...DEFAULT_WORKSPACE_PREFS };
+  }
+}
+
+const workspacePrefs = loadWorkspacePrefs();
 
 const state = {
   user: null,
@@ -555,6 +603,80 @@ function maybeBeep() {
   if (!queued) state.alertedTickets.clear();
   document.title = queued > 0 ? `(${queued}) 新请求 · 能工智人` : "能工智人 · 网页工作台";
   state.lastQueued = queued;
+}
+
+function saveWorkspacePrefs(next) {
+  Object.assign(workspacePrefs, next);
+  try { localStorage.setItem(WORKSPACE_PREFS_KEY, JSON.stringify(workspacePrefs)); } catch { /* optional */ }
+  applyWorkspacePrefs();
+}
+
+function applyWorkspacePrefs() {
+  document.body.dataset.density = workspacePrefs.density;
+  document.documentElement.style.setProperty("--queue-width", `${workspacePrefs.queueWidth}px`);
+  if (els.prefQueueWidthValue) els.prefQueueWidthValue.textContent = `${workspacePrefs.queueWidth}px`;
+  els.cmdTemplates?.classList.toggle("hidden", !workspacePrefs.showTemplates);
+  els.cmdTransfer?.classList.toggle("hidden", !workspacePrefs.showTransfer);
+  if (detail?.els) {
+    detail.els.toolsButton?.classList.toggle("hidden", !workspacePrefs.showTools);
+    detail.els.contextButton?.classList.toggle("hidden", !workspacePrefs.showContext);
+    detail.els.paletteButton?.classList.toggle("hidden", !workspacePrefs.showPalette);
+    if (workspacePrefs.context === "closed" || workspacePrefs.context === "open") {
+      detail.inspectorCollapsed = workspacePrefs.context === "closed";
+      applyInspectorState(detail);
+    }
+    syncAiTools(currentTicket(), detail);
+    updateComposer(currentTicket(), detail);
+  }
+}
+
+function syncWorkspacePrefsForm() {
+  if (!els.prefDensity) return;
+  els.prefDensity.value = workspacePrefs.density;
+  els.prefContext.value = workspacePrefs.context;
+  els.prefQueueFilter.value = workspacePrefs.queueFilter;
+  els.prefQueueWidth.value = String(workspacePrefs.queueWidth);
+  els.prefQueueWidthValue.textContent = `${workspacePrefs.queueWidth}px`;
+  els.prefShowAi.checked = workspacePrefs.showAi;
+  els.prefShowTools.checked = workspacePrefs.showTools;
+  els.prefShowContext.checked = workspacePrefs.showContext;
+  els.prefShowPalette.checked = workspacePrefs.showPalette;
+  els.prefShowTemplates.checked = workspacePrefs.showTemplates;
+  els.prefShowTransfer.checked = workspacePrefs.showTransfer;
+}
+
+function openWorkspacePrefs() {
+  syncWorkspacePrefsForm();
+  els.workspacePrefsModal.classList.remove("hidden");
+}
+
+function closeWorkspacePrefs() {
+  els.workspacePrefsModal.classList.add("hidden");
+}
+
+function submitWorkspacePrefs(event) {
+  event.preventDefault();
+  saveWorkspacePrefs({
+    density: els.prefDensity.value,
+    context: els.prefContext.value,
+    queueFilter: els.prefQueueFilter.value,
+    queueWidth: Number(els.prefQueueWidth.value) || 300,
+    showAi: els.prefShowAi.checked,
+    showTools: els.prefShowTools.checked,
+    showContext: els.prefShowContext.checked,
+    showPalette: els.prefShowPalette.checked,
+    showTemplates: els.prefShowTemplates.checked,
+    showTransfer: els.prefShowTransfer.checked,
+  });
+  if (state.queueFilter !== workspacePrefs.queueFilter) {
+    state.queueFilter = workspacePrefs.queueFilter;
+    for (const chip of els.queueFilters.querySelectorAll(".chip")) {
+      chip.classList.toggle("active", chip.dataset.filter === state.queueFilter);
+    }
+    renderQueue();
+  }
+  closeWorkspacePrefs();
+  toast("工作台偏好已保存");
 }
 
 /* ------------------------------ API ------------------------------ */
@@ -1827,6 +1949,8 @@ function loadInspectorTab() {
 }
 
 function loadInspectorCollapsed() {
+  if (workspacePrefs.context === "closed") return true;
+  if (workspacePrefs.context === "open") return false;
   try {
     const saved = localStorage.getItem(INSPECTOR_COLLAPSED_KEY);
     if (saved === "1") return true;
@@ -2065,7 +2189,7 @@ function collapseAiPreview(d = detail) {
 }
 
 function syncAiTools(ticket, d) {
-  const available = Boolean(state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
+  const available = Boolean(workspacePrefs.showAi && state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
   d.els.aiTools.classList.toggle("hidden", !available);
   if (!available) return;
   const editable = isTicketEditable(ticket) && !d.els.draft.disabled;
@@ -3255,6 +3379,7 @@ function updateComposer(ticket, d) {
   d.els.reasoningCount.textContent = reasoning ? `${reasoning.length} 字` : "";
   d.els.draft.disabled = !editable || autoAiRunning;
   if (d.els.toolsButton) {
+    d.els.toolsButton.classList.toggle("hidden", !workspacePrefs.showTools);
     const hasTools = Array.isArray(ticket.tools) && ticket.tools.length > 0 && ticket.toolChoice !== "none";
     d.els.toolsButton.disabled = !editable || autoAiRunning || !hasTools;
     d.els.toolsButton.title = !editable
@@ -4278,6 +4403,10 @@ function handleGlobalShortcut(event) {
     return;
   }
   if (event.key === "Escape") {
+    if (!els.workspacePrefsModal?.classList.contains("hidden")) {
+      closeWorkspacePrefs();
+      return;
+    }
     if (detail?.toolDrawerOpen) {
       closeToolDrawer(detail);
       return;
@@ -4332,6 +4461,11 @@ function init() {
   installAudioUnlock();
   state.shortcuts = loadShortcuts();
   updateShortcutLabels();
+  state.queueFilter = workspacePrefs.queueFilter;
+  for (const chip of els.queueFilters.querySelectorAll(".chip")) {
+    chip.classList.toggle("active", chip.dataset.filter === state.queueFilter);
+  }
+  applyWorkspacePrefs();
   els.autoclaim.checked = localStorage.getItem("ngzr.autoclaim") === "1";
 
   els.autoclaim.addEventListener("change", () => {
@@ -4358,6 +4492,25 @@ function init() {
     renderQueue();
   });
   els.logout.addEventListener("click", logout);
+  els.workspacePrefs?.addEventListener("click", openWorkspacePrefs);
+  els.workspacePrefsClose?.addEventListener("click", closeWorkspacePrefs);
+  els.workspacePrefsModal?.addEventListener("click", (event) => {
+    if (event.target === els.workspacePrefsModal) closeWorkspacePrefs();
+  });
+  els.workspacePrefsForm?.addEventListener("submit", submitWorkspacePrefs);
+  els.workspacePrefsReset?.addEventListener("click", () => {
+    saveWorkspacePrefs({ ...DEFAULT_WORKSPACE_PREFS });
+    state.queueFilter = workspacePrefs.queueFilter;
+    for (const chip of els.queueFilters.querySelectorAll(".chip")) {
+      chip.classList.toggle("active", chip.dataset.filter === state.queueFilter);
+    }
+    renderQueue();
+    syncWorkspacePrefsForm();
+    toast("已恢复默认偏好");
+  });
+  els.prefQueueWidth?.addEventListener("input", () => {
+    els.prefQueueWidthValue.textContent = `${els.prefQueueWidth.value}px`;
+  });
   els.usersClose.addEventListener("click", closeUsers);
   els.keysClose.addEventListener("click", closeKeys);
   els.keyCreateForm.addEventListener("submit", createKey);
