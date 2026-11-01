@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/icon-readme.png" width="112" height="112" alt="能工智人图标" />
+  <img src="public/icon-192.png" width="112" height="112" alt="能工智人图标" />
 </p>
 
 # 能工智人 · nenggong-zhiren

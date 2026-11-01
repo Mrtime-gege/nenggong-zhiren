@@ -1,0 +1,94 @@
+# 能工智人发布白名单（0.6.1）
+#
+# 规则：
+# 1. 只有本文件列出的文件可以进入发布包。
+# 2. 新增任何发布文件前，必须先询问项目维护者并得到明确同意。
+# 3. 可选发布内容一律不进入发布包：examples/、integrations/、test/、
+#    scripts/normalize-image.py、scripts/render-pdf-page.py。
+# 4. 本文件、scripts/build-release.mjs、.gitignore、docs/archive/ 不属于发布内容。
+#
+# 运行：node scripts/build-release.mjs --out /tmp/nenggong-zhiren-0.6.1.tar.gz
+
+server.mjs
+package.json
+config.example.jsonc
+README.md
+LICENSE
+SECURITY.md
+CHANGELOG.md
+
+src/ai/assist.mjs
+src/ai/native.mjs
+src/ai/relay.mjs
+src/auth.mjs
+src/config.mjs
+src/data/ai-usage.mjs
+src/data/api-keys.mjs
+src/data/attachments.mjs
+src/data/audit.mjs
+src/data/history-index.mjs
+src/data/index.mjs
+src/data/models.mjs
+src/data/secrets.mjs
+src/data/settings.mjs
+src/data/state.mjs
+src/data/templates.mjs
+src/data/usage.mjs
+src/features.mjs
+src/media/image-worker.mjs
+src/media/pdf-worker.mjs
+src/net.mjs
+src/protocol/anthropic.mjs
+src/protocol/common.mjs
+src/protocol/index.mjs
+src/protocol/openai.mjs
+src/protocol/stream.mjs
+src/schema.mjs
+src/totp.mjs
+
+public/login.html
+public/login.css
+public/login.js
+public/password-strength.js
+public/console.html
+public/console.css
+public/console.js
+public/navigation.js
+public/theme.css
+public/admin.css
+public/admin-audit.js
+public/admin-history.js
+public/admin-keys.js
+public/admin-models.js
+public/admin-settings.js
+public/admin-status.js
+public/admin-usage.js
+public/admin-users.js
+public/audit.html
+public/guide.css
+public/guide.html
+public/history.html
+public/keys.html
+public/models.html
+public/settings.html
+public/settings-operator.html
+public/status.html
+public/usage.html
+public/users.html
+public/icon.svg
+public/icon-16.png
+public/icon-32.png
+public/icon-192.png
+public/icon-512.png
+public/apple-touch-icon.png
+public/favicon.ico
+public/manifest.webmanifest
+
+scripts/user.mjs
+
+docs/quickstart.md
+docs/protocol.md
+docs/deployment.md
+docs/security.md
+docs/architecture.md
+docs/openapi.json
