@@ -22,23 +22,10 @@
       <nav id="topnav" class="topnav" aria-label="主导航"></nav>
       <div class="conn">
         <span id="userLabel" class="user-label">正在加载…</span>
-        <button id="windowMenuBtn" class="btn ghost" type="button" aria-haspopup="menu" aria-expanded="false">窗口</button>
-        <button id="messageCenterBtn" class="btn ghost message-center-btn" type="button" aria-haspopup="dialog" aria-controls="messageCenter">
-          消息 <span id="messageUnread" class="message-unread hidden">0</span>
-        </button>
-        <button id="workspacePrefs" class="btn ghost" type="button">偏好</button>
         <button id="logout" class="btn ghost" type="button">退出</button>
         <span id="status" class="conn-status">连接中…</span>
       </div>
     </header>
-
-    <div id="windowMenu" class="window-menu hidden" role="menu" aria-label="窗口">
-      <div class="window-menu-section">显示窗口</div>
-      <div id="windowMenuItems"></div>
-      <div class="window-menu-sep"></div>
-      <button id="windowReset" class="window-menu-item" type="button" role="menuitem">重置窗口布局</button>
-      <button id="windowDockToggle" class="window-menu-item" type="button" role="menuitem">切换为固定布局</button>
-    </div>
 
     <div class="mobile-view-tabs" id="mobileViewTabs" role="tablist" aria-label="移动端视图">
       <button class="mobile-view-tab active" type="button" data-mobile-view="queue" role="tab" aria-selected="true">队列 <span id="mobileQueueCount"></span></button>
@@ -274,114 +261,7 @@
       </section>
     </div>
 
-
-    <div id="workspacePrefsModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="workspacePrefsTitle">
-      <section class="modal prefs-modal">
-        <div class="modal-head">
-          <div>
-            <h2 id="workspacePrefsTitle">工作台偏好</h2>
-            <p class="hint">只影响当前浏览器账号，不改变服务端配置。</p>
-          </div>
-          <button id="workspacePrefsClose" class="btn ghost" type="button">关闭</button>
-        </div>
-        <form id="workspacePrefsForm" class="prefs-form">
-          <div class="prefs-grid">
-            <label class="field">
-              <span>布局密度</span>
-              <select id="prefDensity">
-                <option value="comfortable">舒适</option>
-                <option value="compact">紧凑</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>默认上下文</span>
-              <select id="prefContext">
-                <option value="remember">记住上次状态</option>
-                <option value="closed">默认收起</option>
-                <option value="open">默认展开</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>默认队列筛选</span>
-              <select id="prefQueueFilter">
-                <option value="all">全部</option>
-                <option value="queued">待认领</option>
-                <option value="active">进行中</option>
-                <option value="recent">最近</option>
-                <option value="mine">我的</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>队列宽度 <output id="prefQueueWidthValue">300px</output></span>
-              <input id="prefQueueWidth" type="range" min="240" max="400" step="10" value="300" />
-            </label>
-          </div>
-          <fieldset class="prefs-actions">
-            <legend>常用动作</legend>
-            <label><input id="prefShowAi" type="checkbox" /> AI 辅助</label>
-            <label><input id="prefShowTools" type="checkbox" /> 工具</label>
-            <label><input id="prefShowContext" type="checkbox" /> 上下文</label>
-            <label><input id="prefShowPalette" type="checkbox" /> 命令面板</label>
-            <label><input id="prefShowTemplates" type="checkbox" /> 快捷回复</label>
-            <label><input id="prefShowTransfer" type="checkbox" /> 转交</label>
-          </fieldset>
-          <div class="form-actions">
-            <button class="btn primary" type="submit">保存偏好</button>
-            <button id="workspacePrefsReset" class="btn ghost" type="button">恢复默认</button>
-            <span class="admin-hint">偏好保存在当前浏览器。</span>
-          </div>
-        </form>
-      </section>
-    </div>
-
-
-    <aside id="messageCenter" class="message-center hidden" role="dialog" aria-modal="false" aria-labelledby="messageCenterTitle">
-      <div class="message-center-head">
-        <div><strong id="messageCenterTitle">消息中心</strong><span id="messageCenterCount" class="message-center-count"></span></div>
-        <div class="message-center-head-actions">
-          <button id="messageClear" class="btn ghost" type="button">清空</button>
-          <button id="messageCenterClose" class="btn ghost" type="button">关闭</button>
-        </div>
-      </div>
-      <div id="messageList" class="message-list"></div>
-    </aside>
-
-    <div id="uiConfirmModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="uiConfirmTitle">
-      <section class="modal ui-dialog">
-        <div class="modal-head">
-          <div>
-            <h2 id="uiConfirmTitle">请确认</h2>
-            <p id="uiConfirmBody" class="hint"></p>
-          </div>
-        </div>
-        <div class="ui-dialog-actions">
-          <button id="uiConfirmCancel" class="btn ghost" type="button">取消</button>
-          <button id="uiConfirmOk" class="btn primary" type="button">确认</button>
-        </div>
-      </section>
-    </div>
-
-    <div id="uiPromptModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="uiPromptTitle">
-      <section class="modal ui-dialog">
-        <div class="modal-head">
-          <div>
-            <h2 id="uiPromptTitle">输入</h2>
-            <p id="uiPromptBody" class="hint"></p>
-          </div>
-        </div>
-        <label class="field">
-          <span>内容</span>
-          <input id="uiPromptInput" type="text" autocomplete="off" />
-        </label>
-        <div id="uiPromptError" class="form-error" role="alert"></div>
-        <div class="ui-dialog-actions">
-          <button id="uiPromptCancel" class="btn ghost" type="button">取消</button>
-          <button id="uiPromptOk" class="btn primary" type="button">确认</button>
-        </div>
-      </section>
-    </div>
-
-    <div id="toast" class="toast-stack" aria-live="polite" aria-atomic="false"></div>
+    <div id="toast" class="toast"></div>
     <script src="/navigation.js"></script>
     <script src="/password-strength.js"></script>
     <script src="/console.js"></script>

@@ -89,81 +89,7 @@ const els = {
   attachmentDownload: $("attachmentDownload"),
   attachmentWarning: $("attachmentWarning"),
   attachmentClose: $("attachmentClose"),
-  windowMenuBtn: $("windowMenuBtn"),
-  windowMenu: $("windowMenu"),
-  windowMenuItems: $("windowMenuItems"),
-  windowReset: $("windowReset"),
-  windowDockToggle: $("windowDockToggle"),
-  sidebar: document.querySelector(".sidebar"),
-  layout: document.querySelector(".layout"),
-  messageCenterBtn: $("messageCenterBtn"),
-  messageUnread: $("messageUnread"),
-  messageCenter: $("messageCenter"),
-  messageCenterCount: $("messageCenterCount"),
-  messageCenterClose: $("messageCenterClose"),
-  messageClear: $("messageClear"),
-  messageList: $("messageList"),
-  uiConfirmModal: $("uiConfirmModal"),
-  uiConfirmTitle: $("uiConfirmTitle"),
-  uiConfirmBody: $("uiConfirmBody"),
-  uiConfirmOk: $("uiConfirmOk"),
-  uiConfirmCancel: $("uiConfirmCancel"),
-  uiPromptModal: $("uiPromptModal"),
-  uiPromptTitle: $("uiPromptTitle"),
-  uiPromptBody: $("uiPromptBody"),
-  uiPromptInput: $("uiPromptInput"),
-  uiPromptError: $("uiPromptError"),
-  uiPromptOk: $("uiPromptOk"),
-  uiPromptCancel: $("uiPromptCancel"),
-  workspacePrefs: $("workspacePrefs"),
-  workspacePrefsModal: $("workspacePrefsModal"),
-  workspacePrefsClose: $("workspacePrefsClose"),
-  workspacePrefsForm: $("workspacePrefsForm"),
-  workspacePrefsReset: $("workspacePrefsReset"),
-  prefDensity: $("prefDensity"),
-  prefContext: $("prefContext"),
-  prefQueueFilter: $("prefQueueFilter"),
-  prefQueueWidth: $("prefQueueWidth"),
-  prefQueueWidthValue: $("prefQueueWidthValue"),
-  prefShowAi: $("prefShowAi"),
-  prefShowTools: $("prefShowTools"),
-  prefShowContext: $("prefShowContext"),
-  prefShowPalette: $("prefShowPalette"),
-  prefShowTemplates: $("prefShowTemplates"),
-  prefShowTransfer: $("prefShowTransfer"),
 };
-
-const WORKSPACE_PREFS_KEY = "ngzr.workspacePrefs.v1";
-const DEFAULT_WORKSPACE_PREFS = Object.freeze({
-  density: "comfortable",
-  context: "remember",
-  queueFilter: "all",
-  queueWidth: 300,
-  showAi: true,
-  showTools: true,
-  showContext: true,
-  showPalette: true,
-  showTemplates: true,
-  showTransfer: true,
-});
-
-function loadWorkspacePrefs() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(WORKSPACE_PREFS_KEY) || "{}");
-    return {
-      ...DEFAULT_WORKSPACE_PREFS,
-      ...raw,
-      density: raw.density === "compact" ? "compact" : "comfortable",
-      context: ["remember", "closed", "open"].includes(raw.context) ? raw.context : "remember",
-      queueFilter: ["all", "queued", "active", "recent", "mine"].includes(raw.queueFilter) ? raw.queueFilter : "all",
-      queueWidth: Math.min(400, Math.max(240, Number(raw.queueWidth) || 300)),
-    };
-  } catch {
-    return { ...DEFAULT_WORKSPACE_PREFS };
-  }
-}
-
-const workspacePrefs = loadWorkspacePrefs();
 
 const state = {
   user: null,
@@ -553,300 +479,12 @@ function setStatus(tone, text) {
   else if (tone === "err" || tone === "warn") els.statusDot.classList.add("err");
 }
 
-/* ------------------------------ message system ------------------------------ */
-
-const MESSAGE_STORAGE_KEY = "ngzr.messages.v1";
-const MAX_MESSAGES = 80;
-let messageItems = [];
-let messageUnread = 0;
-let messageSequence = 0;
-let lastMessageAt = 0;
-let lastMessageText = "";
-const toastTimers = new Set();
-
-const MESSAGE_TONE_LABELS = {
-  info: "提示",
-  success: "完成",
-  warning: "注意",
-  error: "失败",
-};
-
-function loadMessages() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(MESSAGE_STORAGE_KEY) || "[]");
-    if (!Array.isArray(raw)) return;
-    messageItems = raw
-      .filter((item) => item && typeof item.text === "string")
-      .slice(0, MAX_MESSAGES)
-      .map((item, index) => ({
-        id: item.id || `stored-${index}`,
-        text: item.text,
-        tone: ["info", "success", "warning", "error"].includes(item.tone) ? item.tone : "info",
-        title: item.title || MESSAGE_TONE_LABELS[item.tone] || "提示",
-        createdAt: Number(item.createdAt) || Date.now(),
-        read: item.read === true,
-        count: Math.max(1, Number(item.count) || 1),
-      }));
-    messageUnread = messageItems.filter((item) => !item.read).length;
-  } catch {
-    messageItems = [];
-    messageUnread = 0;
-  }
-}
-
-function persistMessages() {
-  try {
-    localStorage.setItem(MESSAGE_STORAGE_KEY, JSON.stringify(messageItems.map(({ action, ...item }) => item)));
-  } catch { /* storage is optional */ }
-}
-
-function inferMessageTone(message, tone) {
-  if (["info", "success", "warning", "error"].includes(tone)) return tone;
-  const text = String(message || "");
-  if (/失败|错误|无法|不能|无效|超时|拒绝|请先|不存在|格式无法/.test(text)) return "error";
-  if (/警告|注意|仍未|请谨慎|冲突/.test(text)) return "warning";
-  if (/已|成功|完成|恢复|保存/.test(text)) return "success";
-  return "info";
-}
-
-function messageTitleFor(tone, title) {
-  return title || MESSAGE_TONE_LABELS[tone] || "提示";
-}
-
-function renderMessageBadge() {
-  if (!els.messageUnread) return;
-  els.messageUnread.textContent = String(messageUnread);
-  els.messageUnread.classList.toggle("hidden", messageUnread <= 0);
-  els.messageCenterBtn?.classList.toggle("has-unread", messageUnread > 0);
-  if (els.messageCenterCount) {
-    els.messageCenterCount.textContent = messageItems.length ? ` ${messageItems.length} 条` : "";
-  }
-}
-
-function renderMessageList() {
-  if (!els.messageList) return;
-  els.messageList.replaceChildren();
-  if (!messageItems.length) {
-    els.messageList.append(el("div", "message-center-empty", "暂无消息"));
-    return;
-  }
-  for (const item of messageItems) {
-    const row = el("article", `message-entry ${item.tone}${item.read ? "" : " unread"}`);
-    const top = el("div", "message-entry-top");
-    top.append(el("span", "message-entry-tone", messageTitleFor(item.tone, item.title)));
-    const meta = el("span", "message-entry-meta");
-    if (item.count > 1) meta.append(el("span", "message-entry-count", `×${item.count}`));
-    meta.append(el("time", "message-entry-time", fmtTime(item.createdAt)));
-    top.append(meta);
-    const body = el("div", "message-entry-body", item.text);
-    row.append(top, body);
-    if (typeof item.action?.run === "function") {
-      const action = el("button", "btn ghost message-entry-action", item.action.label || "执行");
-      action.type = "button";
-      action.addEventListener("click", () => {
-        closeMessageCenter();
-        item.action.run();
-      });
-      row.append(action);
-    }
-    els.messageList.append(row);
-  }
-}
-
-function showToast(item, duration = 3200) {
-  if (!els.toast) return;
-  const card = el("div", `toast-card ${item.tone}`);
-  const dot = el("span", "toast-dot");
-  const copy = el("div", "toast-copy");
-  copy.append(el("strong", "toast-title", messageTitleFor(item.tone, item.title)));
-  copy.append(el("span", "toast-text", item.text));
-  const close = el("button", "toast-close", "×");
-  close.type = "button";
-  close.setAttribute("aria-label", "关闭消息");
-  card.append(dot, copy, close);
-  const remove = () => {
-    card.classList.add("leaving");
-    setTimeout(() => card.remove(), 180);
-  };
-  close.addEventListener("click", (event) => {
-    event.stopPropagation();
-    remove();
-  });
-  card.addEventListener("click", () => {
-    openMessageCenter();
-    remove();
-  });
-  els.toast.append(card);
-  while (els.toast.children.length > 4) els.toast.firstElementChild?.remove();
-  requestAnimationFrame(() => card.classList.add("show"));
-  if (duration > 0) {
-    const timer = setTimeout(remove, duration);
-    toastTimers.add(timer);
-    card.addEventListener("remove", () => clearTimeout(timer));
-  }
-}
-
-function notify(message, options = {}) {
-  const text = String(message ?? "").trim();
-  if (!text) return;
-  const now = Date.now();
-  const duplicate = messageItems.find((entry) => entry.text === text && now - entry.createdAt < 30_000);
-  if (duplicate) {
-    duplicate.createdAt = now;
-    duplicate.count = (duplicate.count || 1) + 1;
-    duplicate.read = !els.messageCenter || !els.messageCenter.classList.contains("hidden");
-    persistMessages();
-    renderMessageBadge();
-    renderMessageList();
-    return;
-  }
-  if (text === lastMessageText && now - lastMessageAt < 1500) return;
-  lastMessageText = text;
-  lastMessageAt = now;
-  const tone = inferMessageTone(text, options.tone);
-  const item = {
-    id: `msg-${now}-${++messageSequence}`,
-    text,
-    tone,
-    title: messageTitleFor(tone, options.title),
-    createdAt: now,
-    read: !els.messageCenter || !els.messageCenter.classList.contains("hidden"),
-    count: 1,
-    action: options.action || null,
-  };
-  messageItems.unshift(item);
-  messageItems = messageItems.slice(0, MAX_MESSAGES);
-  if (!item.read) messageUnread += 1;
-  persistMessages();
-  renderMessageBadge();
-  renderMessageList();
-  showToast(item, options.duration ?? 3200);
-}
-
 function toast(message, duration = 2800) {
-  notify(message, { duration });
+  els.toast.textContent = message;
+  els.toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => els.toast.classList.remove("show"), duration);
 }
-
-function openMessageCenter() {
-  if (!els.messageCenter) return;
-  els.messageCenter.classList.remove("hidden");
-  for (const item of messageItems) item.read = true;
-  messageUnread = 0;
-  persistMessages();
-  renderMessageBadge();
-  renderMessageList();
-}
-
-function closeMessageCenter() {
-  els.messageCenter?.classList.add("hidden");
-}
-
-function toggleMessageCenter() {
-  if (els.messageCenter?.classList.contains("hidden")) openMessageCenter();
-  else closeMessageCenter();
-}
-
-function clearMessages() {
-  messageItems = [];
-  messageUnread = 0;
-  persistMessages();
-  renderMessageBadge();
-  renderMessageList();
-}
-
-/* ------------------------------ dialogs ------------------------------ */
-
-let uiConfirmResolve = null;
-let uiPromptResolve = null;
-let uiPromptAllowEmpty = false;
-
-function closeUiConfirm(result = false) {
-  if (!uiConfirmResolve) return;
-  const resolve = uiConfirmResolve;
-  uiConfirmResolve = null;
-  els.uiConfirmModal?.classList.add("hidden");
-  resolve(result);
-}
-
-function uiConfirm({
-  title = "请确认",
-  body = "",
-  confirmText = "确认",
-  cancelText = "取消",
-  tone = "warning",
-} = {}) {
-  if (uiConfirmResolve) closeUiConfirm(false);
-  els.uiConfirmTitle.textContent = title;
-  els.uiConfirmBody.textContent = body;
-  els.uiConfirmOk.textContent = confirmText;
-  els.uiConfirmCancel.textContent = cancelText;
-  els.uiConfirmModal.dataset.tone = tone;
-  els.uiConfirmModal.classList.remove("hidden");
-  setTimeout(() => els.uiConfirmOk.focus(), 20);
-  return new Promise((resolve) => { uiConfirmResolve = resolve; });
-}
-
-function closeUiPrompt(result = null) {
-  if (!uiPromptResolve) return;
-  const resolve = uiPromptResolve;
-  uiPromptResolve = null;
-  els.uiPromptModal?.classList.add("hidden");
-  resolve(result);
-}
-
-function uiPrompt({
-  title = "输入",
-  body = "",
-  value = "",
-  placeholder = "",
-  type = "text",
-  confirmText = "确认",
-  allowEmpty = false,
-} = {}) {
-  if (uiPromptResolve) closeUiPrompt(null);
-  els.uiPromptTitle.textContent = title;
-  els.uiPromptBody.textContent = body;
-  els.uiPromptInput.type = type;
-  els.uiPromptInput.value = value;
-  els.uiPromptInput.placeholder = placeholder;
-  uiPromptAllowEmpty = allowEmpty;
-  els.uiPromptError.textContent = "";
-  els.uiPromptOk.textContent = confirmText;
-  els.uiPromptModal.classList.remove("hidden");
-  setTimeout(() => {
-    els.uiPromptInput.focus();
-    els.uiPromptInput.select();
-  }, 20);
-  return new Promise((resolve) => { uiPromptResolve = resolve; });
-}
-
-function submitUiPrompt() {
-  const value = els.uiPromptInput.value;
-  if (!uiPromptAllowEmpty && !value.trim()) {
-    els.uiPromptError.textContent = "不能为空。";
-    els.uiPromptInput.focus();
-    return;
-  }
-  closeUiPrompt(value);
-}
-
-function setComposerNotice(element, { tone = "info", text = "", action = null } = {}) {
-  if (!element) return;
-  element.className = `composer-note inline-notice ${tone}`;
-  element.replaceChildren();
-  const icon = el("span", "inline-notice-icon", tone === "error" ? "!" : tone === "warning" ? "!" : tone === "success" ? "✓" : "i");
-  const copy = el("span", "inline-notice-text", text);
-  element.append(icon, copy);
-  if (action && typeof action.run === "function") {
-    const button = el("button", "inline-notice-action", action.label || "处理");
-    button.type = "button";
-    button.addEventListener("click", action.run);
-    element.append(button);
-  }
-  element.classList.remove("hidden");
-}
-
-loadMessages();
 
 
 let audioUnlockInstalled = false;
@@ -917,443 +555,6 @@ function maybeBeep() {
   if (!queued) state.alertedTickets.clear();
   document.title = queued > 0 ? `(${queued}) 新请求 · 能工智人` : "能工智人 · 网页工作台";
   state.lastQueued = queued;
-}
-
-function saveWorkspacePrefs(next) {
-  Object.assign(workspacePrefs, next);
-  try { localStorage.setItem(WORKSPACE_PREFS_KEY, JSON.stringify(workspacePrefs)); } catch { /* optional */ }
-  applyWorkspacePrefs();
-}
-
-function applyWorkspacePrefs() {
-  document.body.dataset.density = workspacePrefs.density;
-  document.documentElement.style.setProperty("--queue-width", `${workspacePrefs.queueWidth}px`);
-  if (els.prefQueueWidthValue) els.prefQueueWidthValue.textContent = `${workspacePrefs.queueWidth}px`;
-  els.cmdTemplates?.classList.toggle("hidden", !workspacePrefs.showTemplates);
-  els.cmdTransfer?.classList.toggle("hidden", !workspacePrefs.showTransfer);
-  if (detail?.els) {
-    detail.els.toolsButton?.classList.toggle("hidden", !workspacePrefs.showTools);
-    detail.els.contextButton?.classList.toggle("hidden", !workspacePrefs.showContext);
-    detail.els.paletteButton?.classList.toggle("hidden", !workspacePrefs.showPalette);
-    if (workspacePrefs.context === "closed" || workspacePrefs.context === "open") {
-      detail.inspectorCollapsed = workspacePrefs.context === "closed";
-      applyInspectorState(detail);
-    }
-    syncAiTools(currentTicket(), detail);
-    updateComposer(currentTicket(), detail);
-  }
-}
-
-function syncWorkspacePrefsForm() {
-  if (!els.prefDensity) return;
-  els.prefDensity.value = workspacePrefs.density;
-  els.prefContext.value = workspacePrefs.context;
-  els.prefQueueFilter.value = workspacePrefs.queueFilter;
-  els.prefQueueWidth.value = String(workspacePrefs.queueWidth);
-  els.prefQueueWidthValue.textContent = `${workspacePrefs.queueWidth}px`;
-  els.prefShowAi.checked = workspacePrefs.showAi;
-  els.prefShowTools.checked = workspacePrefs.showTools;
-  els.prefShowContext.checked = workspacePrefs.showContext;
-  els.prefShowPalette.checked = workspacePrefs.showPalette;
-  els.prefShowTemplates.checked = workspacePrefs.showTemplates;
-  els.prefShowTransfer.checked = workspacePrefs.showTransfer;
-}
-
-function openWorkspacePrefs() {
-  syncWorkspacePrefsForm();
-  els.workspacePrefsModal.classList.remove("hidden");
-}
-
-function closeWorkspacePrefs() {
-  els.workspacePrefsModal.classList.add("hidden");
-}
-
-function submitWorkspacePrefs(event) {
-  event.preventDefault();
-  saveWorkspacePrefs({
-    density: els.prefDensity.value,
-    context: els.prefContext.value,
-    queueFilter: els.prefQueueFilter.value,
-    queueWidth: Number(els.prefQueueWidth.value) || 300,
-    showAi: els.prefShowAi.checked,
-    showTools: els.prefShowTools.checked,
-    showContext: els.prefShowContext.checked,
-    showPalette: els.prefShowPalette.checked,
-    showTemplates: els.prefShowTemplates.checked,
-    showTransfer: els.prefShowTransfer.checked,
-  });
-  if (state.queueFilter !== workspacePrefs.queueFilter) {
-    state.queueFilter = workspacePrefs.queueFilter;
-    for (const chip of els.queueFilters.querySelectorAll(".chip")) {
-      chip.classList.toggle("active", chip.dataset.filter === state.queueFilter);
-    }
-    renderQueue();
-  }
-  closeWorkspacePrefs();
-  toast("工作台偏好已保存");
-}
-
-/* ------------------------------ floating windows ------------------------------ */
-
-const WINDOW_LAYOUT_KEY = "ngzr.windowLayout.v1";
-const WINDOW_MODE_KEY = "ngzr.windowMode";
-let windowMode = "floating";
-let windowZ = 20;
-const windowRecords = new Map();
-
-function loadWindowLayouts() {
-  try {
-    return JSON.parse(localStorage.getItem(WINDOW_LAYOUT_KEY) || "{}") || {};
-  } catch {
-    return {};
-  }
-}
-
-function saveWindowLayouts() {
-  const data = {};
-  for (const [id, win] of windowRecords) {
-    if (win?.el) data[id] = { ...win.rect, hidden: win.hidden === true };
-  }
-  try { localStorage.setItem(WINDOW_LAYOUT_KEY, JSON.stringify(data)); } catch { /* optional */ }
-}
-
-function windowCanvasBox() {
-  return els.layout?.getBoundingClientRect() || { width: 1200, height: 700 };
-}
-
-function defaultWindowRect(id, box = windowCanvasBox()) {
-  const gap = 12;
-  const width = Math.max(260, Math.min(320, Math.round(box.width * 0.235)));
-  const height = Math.max(320, Math.round(box.height - gap * 2));
-  if (id === "queue") return { x: gap, y: gap, w: width, h: height };
-  return { x: gap + width + gap, y: gap, w: Math.max(420, Math.round(box.width - width - gap * 3)), h: height };
-}
-
-function clampWindowRect(rect, id, box = windowCanvasBox()) {
-  const minW = id === "queue" ? 250 : 460;
-  const minH = id === "queue" ? 280 : 340;
-  const width = Math.min(box.width - 8, Math.max(minW, Number(rect.w) || minW));
-  const height = Math.min(box.height - 8, Math.max(minH, Number(rect.h) || minH));
-  return {
-    x: Math.max(0, Math.min(box.width - width, Number(rect.x) || 0)),
-    y: Math.max(0, Math.min(box.height - height, Number(rect.y) || 0)),
-    w: width,
-    h: height,
-  };
-}
-
-function applyWindowRect(win) {
-  const { el, rect } = win;
-  el.style.left = `${Math.round(rect.x)}px`;
-  el.style.top = `${Math.round(rect.y)}px`;
-  el.style.width = `${Math.round(rect.w)}px`;
-  el.style.height = `${Math.round(rect.h)}px`;
-}
-
-function restoreWindowChrome(id) {
-  const win = windowRecords.get(id);
-  if (!win?.el) return;
-  if (!win.titlebar?.isConnected) win.el.append(win.titlebar);
-  for (const handle of win.handles || []) {
-    if (!handle.isConnected) win.el.append(handle);
-  }
-  applyWindowRect(win);
-  if (win.hidden) win.el.classList.add("window-hidden");
-}
-
-function frontWindow(win) {
-  windowZ = windowZ >= 40 ? 21 : windowZ + 1;
-  win.el.style.zIndex = String(windowZ);
-}
-
-function installWindow(id, element, title, defaultRect) {
-  if (!element) return null;
-  if (windowRecords.has(id)) return windowRecords.get(id);
-  const stored = loadWindowLayouts()[id];
-  const win = {
-    id,
-    el: element,
-    title,
-    rect: clampWindowRect(stored || defaultRect, id),
-    hidden: Boolean(stored?.hidden),
-  };
-  windowRecords.set(id, win);
-  element.classList.add("float-window");
-  element.dataset.windowId = id;
-
-  const bar = el("div", "float-titlebar");
-  const titleEl = el("span", "float-title", title);
-  const actions = el("div", "float-window-actions");
-  const minimize = el("button", "float-window-action", "−");
-  minimize.type = "button";
-  minimize.title = "最小化";
-  minimize.addEventListener("click", (event) => {
-    event.stopPropagation();
-    win.minimized = !win.minimized;
-    win.el.classList.toggle("float-minimized", win.minimized);
-    minimize.textContent = win.minimized ? "▢" : "−";
-    minimize.title = win.minimized ? "还原" : "最小化";
-  });
-  const close = el("button", "float-window-action", "×");
-  close.type = "button";
-  close.title = "关闭窗口";
-  close.addEventListener("click", (event) => {
-    event.stopPropagation();
-    hideWindow(id);
-  });
-  actions.append(minimize, close);
-  bar.append(titleEl, actions);
-  element.append(bar);
-  win.titlebar = bar;
-  win.titleEl = titleEl;
-  win.minimizeButton = minimize;
-
-  bar.addEventListener("pointerdown", (event) => beginWindowDrag(event, win));
-  bar.addEventListener("dblclick", () => toggleWindowMaximize(win));
-  element.addEventListener("pointerdown", () => frontWindow(win));
-
-  const directions = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
-  win.handles = [];
-  for (const dir of directions) {
-    const handle = el("div", `window-resize window-resize-${dir}`);
-    handle.dataset.dir = dir;
-    handle.addEventListener("pointerdown", (event) => beginWindowResize(event, win, dir));
-    element.append(handle);
-    win.handles.push(handle);
-  }
-
-  if (win.hidden) element.classList.add("window-hidden");
-  applyWindowRect(win);
-  frontWindow(win);
-  return win;
-}
-
-function beginWindowDrag(event, win) {
-  if (event.button !== 0 || event.target.closest("button")) return;
-  event.preventDefault();
-  const start = { x: event.clientX, y: event.clientY, left: win.rect.x, top: win.rect.y };
-  const box = windowCanvasBox();
-  win.el.classList.add("dragging");
-  frontWindow(win);
-  const move = (moveEvent) => {
-    win.rect.x = Math.max(0, Math.min(box.width - win.rect.w, start.left + moveEvent.clientX - start.x));
-    win.rect.y = Math.max(0, Math.min(box.height - win.rect.h, start.top + moveEvent.clientY - start.y));
-    applyWindowRect(win);
-  };
-  const end = () => {
-    win.el.classList.remove("dragging");
-    window.removeEventListener("pointermove", move);
-    window.removeEventListener("pointerup", end);
-    window.removeEventListener("pointercancel", end);
-    saveWindowLayouts();
-  };
-  window.addEventListener("pointermove", move);
-  window.addEventListener("pointerup", end);
-  window.addEventListener("pointercancel", end);
-}
-
-function beginWindowResize(event, win, dir) {
-  if (event.button !== 0) return;
-  event.preventDefault();
-  event.stopPropagation();
-  frontWindow(win);
-  const start = { x: event.clientX, y: event.clientY, rect: { ...win.rect } };
-  const box = windowCanvasBox();
-  win.el.classList.add("resizing");
-  const move = (moveEvent) => {
-    const dx = moveEvent.clientX - start.x;
-    const dy = moveEvent.clientY - start.y;
-    let { x, y, w, h } = start.rect;
-    if (dir.includes("e")) w = Math.min(box.width - x, Math.max(240, w + dx));
-    if (dir.includes("s")) h = Math.min(box.height - y, Math.max(220, h + dy));
-    if (dir.includes("w")) {
-      const nextW = Math.max(240, w - dx);
-      x = Math.max(0, x + w - nextW);
-      w = nextW;
-    }
-    if (dir.includes("n")) {
-      const nextH = Math.max(220, h - dy);
-      y = Math.max(0, y + h - nextH);
-      h = nextH;
-    }
-    win.rect = clampWindowRect({ x, y, w, h }, win.id, box);
-    applyWindowRect(win);
-  };
-  const end = () => {
-    win.el.classList.remove("resizing");
-    window.removeEventListener("pointermove", move);
-    window.removeEventListener("pointerup", end);
-    window.removeEventListener("pointercancel", end);
-    saveWindowLayouts();
-  };
-  window.addEventListener("pointermove", move);
-  window.addEventListener("pointerup", end);
-  window.addEventListener("pointercancel", end);
-}
-
-function toggleWindowMaximize(win) {
-  const box = windowCanvasBox();
-  if (win.maximized) {
-    win.maximized = false;
-    win.rect = { ...win.restoreRect };
-  } else {
-    win.maximized = true;
-    win.restoreRect = { ...win.rect };
-    win.rect = { x: 8, y: 8, w: box.width - 16, h: box.height - 16 };
-  }
-  applyWindowRect(win);
-  saveWindowLayouts();
-}
-
-function hideWindow(id) {
-  const win = windowRecords.get(id);
-  if (!win) return;
-  win.hidden = true;
-  win.el.classList.add("window-hidden");
-  saveWindowLayouts();
-  renderWindowMenu();
-  if (id === "run") toast("运行窗口已关闭；可从顶栏「窗口」重新打开。");
-}
-
-function showWindow(id) {
-  const win = windowRecords.get(id);
-  if (!win) return;
-  win.hidden = false;
-  win.el.classList.remove("window-hidden");
-  frontWindow(win);
-  saveWindowLayouts();
-  renderWindowMenu();
-}
-
-function toggleWindow(id) {
-  const win = windowRecords.get(id);
-  if (!win) return;
-  if (win.hidden) showWindow(id);
-  else hideWindow(id);
-}
-
-function resetWindowLayout() {
-  try { localStorage.removeItem(WINDOW_LAYOUT_KEY); } catch { /* optional */ }
-  const box = windowCanvasBox();
-  for (const [id, win] of windowRecords) {
-    win.hidden = false;
-    win.maximized = false;
-    win.minimized = false;
-    win.el.classList.remove("window-hidden", "float-minimized");
-    if (win.minimizeButton) {
-      win.minimizeButton.textContent = "−";
-      win.minimizeButton.title = "最小化";
-    }
-    win.rect = defaultWindowRect(id, box);
-    applyWindowRect(win);
-  }
-  saveWindowLayouts();
-  renderWindowMenu();
-  toast("窗口布局已重置");
-}
-
-function renderWindowMenu() {
-  if (!els.windowMenuItems) return;
-  els.windowMenuItems.replaceChildren();
-  for (const [id, win] of windowRecords) {
-    const button = el("button", "window-menu-item", `${win.hidden ? "显示" : "隐藏"}${win.title}`);
-    button.type = "button";
-    button.setAttribute("role", "menuitem");
-    button.addEventListener("click", () => {
-      toggleWindow(id);
-      closeWindowMenu();
-    });
-    els.windowMenuItems.append(button);
-  }
-  const messageButton = el("button", "window-menu-item", `${els.messageCenter?.classList.contains("hidden") ? "显示" : "隐藏"}消息中心`);
-  messageButton.type = "button";
-  messageButton.setAttribute("role", "menuitem");
-  messageButton.addEventListener("click", () => {
-    toggleMessageCenter();
-    closeWindowMenu();
-  });
-  els.windowMenuItems.append(messageButton);
-  if (els.windowDockToggle) {
-    els.windowDockToggle.textContent = windowMode === "floating" ? "切换为固定布局" : "切换为浮动布局";
-  }
-}
-
-function closeWindowMenu() {
-  els.windowMenu?.classList.add("hidden");
-  els.windowMenuBtn?.setAttribute("aria-expanded", "false");
-}
-
-function openWindowMenu() {
-  renderWindowMenu();
-  els.windowMenu?.classList.remove("hidden");
-  els.windowMenuBtn?.setAttribute("aria-expanded", "true");
-}
-
-function toggleWindowMenu() {
-  if (els.windowMenu?.classList.contains("hidden")) openWindowMenu();
-  else closeWindowMenu();
-}
-
-function setWindowMode(mode, { persist = true } = {}) {
-  windowMode = mode === "docked" ? "docked" : "floating";
-  if (persist) {
-    try { localStorage.setItem(WINDOW_MODE_KEY, windowMode); } catch { /* optional */ }
-  }
-  if (windowMode === "floating") {
-    document.body.classList.add("window-mode");
-    initializeFloatingWindows();
-  } else {
-    document.body.classList.remove("window-mode");
-  }
-  renderWindowMenu();
-}
-
-function initializeFloatingWindows() {
-  if (!els.sidebar || !els.detail || !els.layout) return;
-  const box = windowCanvasBox();
-  installWindow("queue", els.sidebar, "队列", defaultWindowRect("queue", box));
-  installWindow("run", els.detail, "运行", defaultWindowRect("run", box));
-  // New windows appear above the two base windows.
-  for (const win of windowRecords.values()) {
-    if (win.hidden) win.el.classList.add("window-hidden");
-  }
-  renderWindowMenu();
-}
-
-function initFloatingWorkspace() {
-  try { windowMode = localStorage.getItem(WINDOW_MODE_KEY) === "docked" ? "docked" : "floating"; } catch { windowMode = "floating"; }
-  if (window.matchMedia("(min-width: 981px)").matches && windowMode === "floating") {
-    document.body.classList.add("window-mode");
-    requestAnimationFrame(() => initializeFloatingWindows());
-  }
-  els.windowMenuBtn?.addEventListener("click", toggleWindowMenu);
-  els.windowReset?.addEventListener("click", () => {
-    resetWindowLayout();
-    closeWindowMenu();
-  });
-  els.windowDockToggle?.addEventListener("click", () => {
-    setWindowMode(windowMode === "floating" ? "docked" : "floating");
-    closeWindowMenu();
-  });
-  document.addEventListener("pointerdown", (event) => {
-    if (els.windowMenu?.classList.contains("hidden")) return;
-    if (els.windowMenu.contains(event.target) || els.windowMenuBtn?.contains(event.target)) return;
-    closeWindowMenu();
-  });
-  window.addEventListener("resize", () => {
-    if (windowMode !== "floating") return;
-    if (!window.matchMedia("(min-width: 981px)").matches) {
-      document.body.classList.remove("window-mode");
-      return;
-    }
-    document.body.classList.add("window-mode");
-    if (!windowRecords.size) initializeFloatingWindows();
-    const box = windowCanvasBox();
-    for (const win of windowRecords.values()) {
-      win.rect = clampWindowRect(win.rect, win.id, box);
-      applyWindowRect(win);
-    }
-  });
 }
 
 /* ------------------------------ API ------------------------------ */
@@ -1529,12 +730,7 @@ async function createUser(event) {
 }
 
 async function resetUserPassword(username) {
-  const password = await uiPrompt({
-    title: "重置密码",
-    body: `为 ${username} 设置新密码（至少 8 位）。`,
-    type: "password",
-    confirmText: "重置密码",
-  });
+  const password = window.prompt(`为 ${username} 设置新密码（至少 8 位）：`);
   if (!password) return;
   setUsersError("");
   try {
@@ -1555,12 +751,7 @@ async function resetUserPassword(username) {
 }
 
 async function deleteUser(username) {
-  if (!(await uiConfirm({
-    title: "删除用户",
-    body: `删除用户 ${username}？该用户现有会话会立即失效。`,
-    confirmText: "删除",
-    tone: "error",
-  }))) return;
+  if (!window.confirm(`删除用户 ${username}？该用户现有会话会立即失效。`)) return;
   setUsersError("");
   try {
     await api(`/op/api/users/${encodeURIComponent(username)}`, { method: "DELETE" });
@@ -1691,12 +882,7 @@ async function toggleKey(key) {
 }
 
 async function renameKey(key) {
-  const name = await uiPrompt({
-    title: "重命名密钥",
-    body: "给这个调用密钥起个名字。",
-    value: key.name,
-    confirmText: "保存",
-  });
+  const name = window.prompt("给这个调用密钥起个名字：", key.name);
   if (!name || !name.trim()) return;
   setKeysError("");
   try {
@@ -1713,23 +899,20 @@ async function renameKey(key) {
 
 async function editKeyQuota(key) {
   const current = key.limits || {};
-  const rpm = await uiPrompt({ title: "配额 · 每分钟", body: "每分钟请求上限（0 = 不限）：", value: String(current.requestsPerMinute || 0), confirmText: "下一步" });
+  const rpm = window.prompt("每分钟请求上限（0 = 不限）：", String(current.requestsPerMinute || 0));
   if (rpm === null) return;
-  const perDay = await uiPrompt({ title: "配额 · 每日", body: "每日请求上限（0 = 不限）：", value: String(current.requestsPerDay || 0), confirmText: "下一步" });
+  const perDay = window.prompt("每日请求上限（0 = 不限）：", String(current.requestsPerDay || 0));
   if (perDay === null) return;
-  const perMonth = await uiPrompt({ title: "配额 · 每月", body: "每月请求上限（0 = 不限）：", value: String(current.requestsPerMonth || 0), confirmText: "下一步" });
+  const perMonth = window.prompt("每月请求上限（0 = 不限）：", String(current.requestsPerMonth || 0));
   if (perMonth === null) return;
-  const concurrent = await uiPrompt({ title: "配额 · 并发", body: "并发上限（0 = 使用全局默认）：", value: String(current.maxConcurrent || 0), confirmText: "下一步" });
+  const concurrent = window.prompt("并发上限（0 = 使用全局默认）：", String(current.maxConcurrent || 0));
   if (concurrent === null) return;
-  const models = await uiPrompt({ title: "允许模型", body: "逗号分隔；留空表示全部。", value: (key.allowedModels || []).join(","), confirmText: "下一步", allowEmpty: true });
+  const models = window.prompt("允许的模型（逗号分隔，留空 = 全部）：", (key.allowedModels || []).join(","));
   if (models === null) return;
-  const expires = await uiPrompt({
-    title: "过期时间",
-    body: "ISO 时间或留空表示不过期。",
-    value: key.expiresAt ? new Date(key.expiresAt).toISOString() : "",
-    confirmText: "保存配额",
-    allowEmpty: true,
-  });
+  const expires = window.prompt(
+    "过期时间（ISO 时间或留空 = 不过期）：",
+    key.expiresAt ? new Date(key.expiresAt).toISOString() : "",
+  );
   if (expires === null) return;
   const expiresAt = expires.trim() ? Date.parse(expires) : null;
   if (expires.trim() && !Number.isFinite(expiresAt)) {
@@ -1759,12 +942,7 @@ async function editKeyQuota(key) {
 }
 
 async function deleteKey(key) {
-  if (!(await uiConfirm({
-    title: "删除调用密钥",
-    body: `删除调用密钥「${key.name}」？删除后使用它的调用方会立即失败。`,
-    confirmText: "删除",
-    tone: "error",
-  }))) return;
+  if (!window.confirm(`删除调用密钥「${key.name}」？删除后使用它的调用方会立即失败。`)) return;
   setKeysError("");
   try {
     await api(`/op/api/keys/${encodeURIComponent(key.id)}`, { method: "DELETE" });
@@ -2067,11 +1245,6 @@ function queueItem(ticket, group = null) {
   model.title = ticket.model;
   top.append(model);
   top.append(badge(STATE_LABELS[ticket.state] || ticket.state, stateTone(ticket.state)));
-  if (ticket.aiPending?.status === "running") {
-    const aiChip = el("span", "qitem-ai", "AI 生成中");
-    aiChip.title = "AI 辅助正在生成；这张票据仍可认领，编辑会等生成结束后解锁";
-    top.append(aiChip);
-  }
   top.append(el("span", "qitem-mode", ticket.stream ? "SSE" : "JSON"));
   if (ticket.sessionId) {
     const count = group?.tickets?.length || 1;
@@ -2264,49 +1437,42 @@ function buildDetail(ticket) {
   els.detail.replaceChildren();
   const wrap = el("div", "detail-wrap");
 
-  const head = el("div", "detail-head run-head");
+  const head = el("div", "detail-head");
   const titleWrap = el("div");
-  titleWrap.append(el("div", "eyebrow", "AGENT RUN"));
+  titleWrap.append(el("div", "eyebrow", "Human ticket"));
   const title = el("h2", "detail-title");
   const model = el("span", "", ticket.model);
   const id = el("span", "id", shortId(ticket.id));
   title.append(model, id);
   titleWrap.append(title);
   const badges = el("div", "badges");
-  const inspectorToggle = el("button", "btn ghost inspector-toggle", "显示上下文");
+  const inspectorToggle = el("button", "btn ghost inspector-toggle", "隐藏检查器");
   inspectorToggle.type = "button";
-  const detailsToggle = el("button", "btn ghost details-toggle", "详情");
-  detailsToggle.type = "button";
-  detailsToggle.setAttribute("aria-expanded", "false");
   const headActions = el("div", "detail-head-actions");
-  headActions.append(inspectorToggle, detailsToggle, badges);
+  headActions.append(inspectorToggle, badges);
   head.append(titleWrap, headActions);
 
-  const meta = el("div", "meta hidden");
+  const meta = el("div", "meta");
   const purposeHint = el("div", "purpose-hint hidden");
   const sessionBar = el("div", "session-bar hidden");
 
-  const panes = el("div", "panes agent-panes");
-  const timelinePane = el("section", "pane timeline-pane");
-  const timelineHead = el("div", "pane-head timeline-head");
-  const timelineTitle = el("span", "pane-title", "RUN TIMELINE");
-  const timelineNote = el("span", "pane-note", "AGENT VIEW");
-  timelineHead.append(timelineTitle, timelineNote);
-  const timelineBody = el("div", "run-timeline");
+  const panes = el("div", "panes");
 
-  const conversationSection = el("section", "run-section");
-  const conversationHead = el("div", "run-section-head");
-  const msgCount = el("span", "run-section-count", "");
-  conversationHead.append(el("span", "run-section-title", "对话与上下文"), msgCount);
+  const inputPane = el("section", "pane");
+  const inputHead = el("div", "pane-head");
+  const inputTitle = el("span", "pane-title", "对话与上下文");
+  const msgCount = el("span", "pane-note", "");
+  inputHead.append(inputTitle, msgCount);
   const messages = el("div", "messages");
   const tools = el("div", "tools");
   tools.style.display = "none";
-  conversationSection.append(conversationHead, messages, tools);
+  inputPane.append(inputHead, messages, tools);
 
-  const outputSection = el("section", "run-section");
-  const outputHead = el("div", "run-section-head");
-  const charCount = el("span", "run-section-count", "");
-  outputHead.append(el("span", "run-section-title", "对外输出"), charCount);
+  const outputPane = el("section", "pane");
+  const outputHead = el("div", "pane-head");
+  const outputTitle = el("span", "pane-title", "对外流式内容");
+  const charCount = el("span", "pane-note", "");
+  outputHead.append(outputTitle, charCount);
   const transcript = el("div", "transcript placeholder", "还没有发送任何内容。");
   const reasoningBox = el("details", "reasoning-box hidden");
   reasoningBox.open = true;
@@ -2316,13 +1482,8 @@ function buildDetail(ticket) {
   const reasoningText = el("pre", "reasoning-text", "");
   reasoningBox.append(reasoningSummary, reasoningText);
   const sentTools = el("div", "sent-toolcalls hidden");
-  outputSection.append(outputHead, reasoningBox, transcript, sentTools);
-
-  timelineBody.append(conversationSection, outputSection);
-  timelinePane.append(timelineHead, timelineBody);
-
   const composer = el("div", "composer");
-  const label = el("label", "composer-title", "Agent 输出");
+  const label = el("label", "composer-title", "回复草稿");
   const draft = el("textarea");
   draft.placeholder = "在这里写回复…";
   draft.spellcheck = false;
@@ -2356,17 +1517,15 @@ function buildDetail(ticket) {
   toolSend.title = "将当前工具调用作为响应发回调用方；不会在本机执行工具。";
   toolButtons.append(toolAdd, toolCancelEdit, toolTemplate, toolFormat, toolSend);
   const toolHint = el("div", "tool-hint", "工具调用只会返回给调用方，不会在本机执行。Ctrl+Enter 可添加或保存。");
-  const toolExpand = el("button", "btn ghost tool-expand", "扩大编辑器");
-  toolExpand.type = "button";
   const toolPending = el("div", "toolcall-pending");
-  toolPanel.append(toolTitle, toolSub, toolFilter, toolSelect, toolDesc, toolArgs, toolError, toolButtons, toolHint, toolExpand, toolPending);
+  toolPanel.append(toolTitle, toolSub, toolFilter, toolSelect, toolDesc, toolArgs, toolError, toolButtons, toolHint, toolPending);
 
   const note = el("div", "composer-note hidden");
 
   const inspector = el("aside", "inspector");
   const inspectorHead = el("div", "inspector-head");
-  inspectorHead.append(el("span", "", "上下文"));
-  inspectorHead.append(el("span", "inspector-hint", "工具 / 路由 / 备注"));
+  inspectorHead.append(el("span", "", "检查器"));
+  inspectorHead.append(el("span", "inspector-hint", "备注 / 路由 / 工具"));
 
   const inspectorTabs = el("div", "inspector-tabs");
   const tabButtons = {};
@@ -2390,17 +1549,6 @@ function buildDetail(ticket) {
   notesSection.append(notesPanel);
   inspectorBody.append(toolsSection, routingSection, notesSection);
   inspector.append(inspectorHead, inspectorTabs, inspectorBody);
-
-  const toolDrawer = el("div", "tool-drawer-backdrop hidden");
-  const toolDrawerCard = el("section", "tool-drawer");
-  const toolDrawerHead = el("div", "tool-drawer-head");
-  toolDrawerHead.append(el("span", "tool-drawer-title", "工具调用编辑器"));
-  const toolDrawerClose = el("button", "btn ghost", "关闭");
-  toolDrawerClose.type = "button";
-  toolDrawerHead.append(toolDrawerClose);
-  const toolDrawerBody = el("div", "tool-drawer-body");
-  toolDrawerCard.append(toolDrawerHead, toolDrawerBody);
-  toolDrawer.append(toolDrawerCard);
 
   const aiTools = el("div", "ai-tools hidden");
   const aiTrigger = el("button", "btn ghost ai-menu-trigger", "AI 生成");
@@ -2478,33 +1626,20 @@ function buildDetail(ticket) {
   aiPanel.append(aiPanelHead, aiPanelBody, aiPanelActions);
 
   const composerHead = el("div", "composer-head");
-  composerHead.append(label, draftStatus, draftCount);
+  composerHead.append(label, draftStatus, draftCount, aiTools);
   const composerMain = el("div", "composer-main");
-  const composerActions = el("div", "agent-composer-actions");
-  const toolsButton = el("button", "btn ghost agent-action", "工具");
-  toolsButton.type = "button";
-  toolsButton.title = "打开工具调用编辑器";
-  const contextButton = el("button", "btn ghost agent-action", "上下文");
-  contextButton.type = "button";
-  contextButton.title = "显示或隐藏右侧上下文面板";
-  const paletteButton = el("button", "btn ghost agent-action", "命令 ⌘K");
-  paletteButton.type = "button";
-  paletteButton.title = "打开命令面板";
-  toolsButton.addEventListener("click", () => openToolsWorkspace(detail));
-  contextButton.addEventListener("click", () => toggleInspector(detail));
-  paletteButton.addEventListener("click", openCommandPalette);
-  composerActions.append(aiTools, toolsButton, contextButton, paletteButton);
-  composerMain.append(composerHead, aiPanel, draft, note, composerActions);
+  composerMain.append(composerHead, aiPanel, draft, note);
   composer.append(composerMain);
+  outputPane.append(outputHead, reasoningBox, transcript, sentTools);
 
+  const paneSplitter = createSplitter("pane");
   const inspectorSplitter = createSplitter("inspector");
+  panes.append(inputPane, paneSplitter, outputPane);
   const workspace = el("div", "workspace");
-  panes.append(timelinePane);
   workspace.append(panes, inspectorSplitter, inspector);
   applySavedSplits(workspace, panes);
-  wrap.append(head, meta, purposeHint, sessionBar, workspace, composer, toolDrawer);
+  wrap.append(head, meta, purposeHint, sessionBar, workspace, composer);
   els.detail.append(wrap);
-  restoreWindowChrome("run");
 
   const current = { id: ticket.id, els: {} };
   current.inspectorTab = loadInspectorTab();
@@ -2513,14 +1648,9 @@ function buildDetail(ticket) {
     model,
     id,
     badges,
-    head,
     meta,
     purposeHint,
     sessionBar,
-    timelinePane,
-    timelineBody,
-    conversationSection,
-    outputSection,
     messages,
     tools,
     msgCount,
@@ -2535,10 +1665,6 @@ function buildDetail(ticket) {
     draftCount,
     composer,
     composerMain,
-    composerActions,
-    toolsButton,
-    contextButton,
-    paletteButton,
     aiTools,
     aiButtons,
     aiPromptTrigger,
@@ -2556,7 +1682,6 @@ function buildDetail(ticket) {
     aiCopy,
     aiClose,
     inspectorToggle,
-    detailsToggle,
     workspace,
     inspectorSplitter,
     inspectorTabs,
@@ -2579,11 +1704,6 @@ function buildDetail(ticket) {
     toolFormat,
     toolSend,
     toolPending,
-    toolExpand,
-    toolsSection,
-    toolDrawer,
-    toolDrawerBody,
-    toolDrawerClose,
     routingPanel,
     notesPanel,
     note,
@@ -2594,13 +1714,6 @@ function buildDetail(ticket) {
     refuse: els.cmdRefuse,
     cancel: els.cmdCancel,
   };
-
-  detailsToggle.addEventListener("click", () => toggleDetails(current));
-  toolExpand.addEventListener("click", () => openToolDrawer(detail));
-  toolDrawerClose.addEventListener("click", () => closeToolDrawer(detail));
-  toolDrawer.addEventListener("click", (event) => {
-    if (event.target === toolDrawer) closeToolDrawer(detail);
-  });
 
   const restoredDraft = state.drafts.get(ticket.id) || "";
   draft.value = restoredDraft;
@@ -2647,7 +1760,13 @@ function buildDetail(ticket) {
   detail = current;
   applyInspectorState(current);
   activateInspectorTab(current, current.inspectorTab);
-  inspectorToggle.addEventListener("click", () => toggleInspector(current));
+  inspectorToggle.addEventListener("click", () => {
+    current.inspectorCollapsed = !current.inspectorCollapsed;
+    try {
+      localStorage.setItem(INSPECTOR_COLLAPSED_KEY, current.inspectorCollapsed ? "1" : "0");
+    } catch { /* storage is optional */ }
+    applyInspectorState(current);
+  });
   return current;
 }
 
@@ -2660,15 +1779,7 @@ function loadInspectorTab() {
 }
 
 function loadInspectorCollapsed() {
-  if (workspacePrefs.context === "closed") return true;
-  if (workspacePrefs.context === "open") return false;
-  try {
-    const saved = localStorage.getItem(INSPECTOR_COLLAPSED_KEY);
-    if (saved === "1") return true;
-    if (saved === "0") return false;
-  } catch { /* storage is optional */ }
-  // The new default is a calm run canvas; the context rail is opt-in.
-  return true;
+  try { return localStorage.getItem(INSPECTOR_COLLAPSED_KEY) === "1"; } catch { return false; }
 }
 
 function applyInspectorState(d) {
@@ -2676,66 +1787,9 @@ function applyInspectorState(d) {
   d.els.workspace.classList.toggle("inspector-collapsed", Boolean(d.inspectorCollapsed));
   d.els.inspectorSplitter?.classList.toggle("hidden", Boolean(d.inspectorCollapsed));
   if (d.els.inspectorToggle) {
-    d.els.inspectorToggle.textContent = d.inspectorCollapsed ? "显示上下文" : "隐藏上下文";
+    d.els.inspectorToggle.textContent = d.inspectorCollapsed ? "显示检查器" : "隐藏检查器";
     d.els.inspectorToggle.setAttribute("aria-expanded", d.inspectorCollapsed ? "false" : "true");
   }
-}
-
-function toggleDetails(d = detail) {
-  if (!d?.els?.meta) return;
-  d.detailsOpen = !d.detailsOpen;
-  d.els.meta.classList.toggle("hidden", !d.detailsOpen);
-  d.els.detailsToggle.textContent = d.detailsOpen ? "收起" : "详情";
-  d.els.detailsToggle.setAttribute("aria-expanded", d.detailsOpen ? "true" : "false");
-}
-
-function toggleInspector(d = detail) {
-  if (!d?.els?.workspace) return;
-  d.inspectorCollapsed = !d.inspectorCollapsed;
-  try {
-    localStorage.setItem(INSPECTOR_COLLAPSED_KEY, d.inspectorCollapsed ? "1" : "0");
-  } catch { /* storage is optional */ }
-  applyInspectorState(d);
-}
-
-function openToolDrawer(d = detail) {
-  const ticket = currentTicket();
-  if (!d?.els?.toolDrawer || !ticket) return;
-  if (!isTicketEditable(ticket)) {
-    toast("认领票据后才能编辑工具调用。");
-    return;
-  }
-  if (isAutoAiRunning(ticket)) {
-    toast("AI 辅助正在自动生成，完成后可编辑工具。");
-    return;
-  }
-  d.els.toolDrawerBody.append(d.els.toolPanel);
-  d.els.toolDrawer.classList.remove("hidden");
-  d.toolDrawerOpen = true;
-  d.els.toolPanel.classList.remove("hidden");
-  requestAnimationFrame(() => d.els.toolArgs?.focus());
-}
-
-function closeToolDrawer(d = detail) {
-  if (!d?.els?.toolDrawer) return;
-  if (d.els.toolPanel.parentElement === d.els.toolDrawerBody) {
-    d.els.toolsSection.insertBefore(d.els.toolPanel, d.els.toolEmpty);
-  }
-  d.els.toolDrawer.classList.add("hidden");
-  d.toolDrawerOpen = false;
-}
-
-function openToolsWorkspace(d = detail) {
-  const ticket = currentTicket();
-  if (!d || !ticket) return;
-  if (!(ticket.tools || []).length || ticket.toolChoice === "none") {
-    toast("此请求没有可调用工具。");
-    return;
-  }
-  d.inspectorCollapsed = false;
-  applyInspectorState(d);
-  activateInspectorTab(d, "tools");
-  openToolDrawer(d);
 }
 
 function activateInspectorTab(d, tab) {
@@ -2750,7 +1804,6 @@ function activateInspectorTab(d, tab) {
   d.els.notesSection.classList.toggle("hidden", next !== "notes");
   d.els.routingSection.classList.toggle("hidden", next !== "routing");
   d.els.toolsSection.classList.toggle("hidden", next !== "tools");
-  if (next !== "tools" && d.toolDrawerOpen) closeToolDrawer(d);
   if (next === "tools") {
     const ticket = currentTicket();
     if (ticket) renderToolPanel(ticket, d);
@@ -2908,7 +1961,7 @@ function collapseAiPreview(d = detail) {
 }
 
 function syncAiTools(ticket, d) {
-  const available = Boolean(workspacePrefs.showAi && state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
+  const available = Boolean(state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
   d.els.aiTools.classList.toggle("hidden", !available);
   if (!available) return;
   const editable = isTicketEditable(ticket) && !d.els.draft.disabled;
@@ -3138,10 +2191,6 @@ async function runAiTask(task, d, instruction = "") {
   if (state.aiRuns.get(ticket.id)?.status === "running") return;
   if (!isTicketEditable(ticket)) {
     toast("先认领票据，再请求 AI 回复。");
-    return;
-  }
-  if (isAutoAiRunning(ticket)) {
-    toast("AI 辅助正在自动生成，请稍候。");
     return;
   }
   const previousDraft = d.els.draft.value;
@@ -3494,10 +2543,9 @@ function renderMessages(ticket, d) {
 
   const { conversation, context } = messageBuckets(ticket);
   const box = d.els.messages;
-  const scrollHost = box.closest(".run-timeline") || box;
-  const previousTop = scrollHost.scrollTop;
-  const previousHeight = scrollHost.scrollHeight;
-  const previousClient = scrollHost.clientHeight;
+  const previousTop = box.scrollTop;
+  const previousHeight = box.scrollHeight;
+  const previousClient = box.clientHeight;
   const sameTicket = box.dataset.ticketId === ticket.id;
   const wasNearBottom = !sameTicket || previousTop + previousClient >= previousHeight - 24;
   box.replaceChildren();
@@ -3564,19 +2612,12 @@ function renderMessages(ticket, d) {
   box.dataset.ticketId = ticket.id;
   if (wasNearBottom) {
     const scrollToBottom = () => {
-      const host = box.closest(".run-timeline") || box;
-      if (!host.isConnected) return;
-      // Keep the latest conversation in view; do not jump to the empty
-      // outbound section below it.
-      const boxRect = box.getBoundingClientRect();
-      const hostRect = host.getBoundingClientRect();
-      const relativeTop = boxRect.top - hostRect.top + host.scrollTop;
-      host.scrollTop = Math.max(0, relativeTop + box.offsetHeight - host.clientHeight);
+      if (box.isConnected) box.scrollTop = box.scrollHeight;
     };
     scrollToBottom();
     requestAnimationFrame(scrollToBottom);
   } else {
-    scrollHost.scrollTop = previousTop;
+    box.scrollTop = previousTop;
   }
 }
 
@@ -3628,8 +2669,7 @@ function renderTranscript(ticket, d) {
   if (d.transcriptSignature === signature) return;
 
   const box = d.els.transcript;
-  const scrollHost = box.closest(".run-timeline") || box;
-  const nearBottom = scrollHost.scrollHeight - scrollHost.scrollTop - scrollHost.clientHeight < 48;
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 48;
 
   box.classList.toggle("placeholder", !shown);
   box.textContent = shown || "还没有发送任何内容。";
@@ -3639,7 +2679,7 @@ function renderTranscript(ticket, d) {
     isActive(ticket) && ticket.state !== "finishing" && ticket.claimedBy === state.operator;
   if (editable && !ticket.refusal) box.append(el("span", "caret"));
 
-  if (shown && nearBottom) scrollHost.scrollTop = scrollHost.scrollHeight;
+  if (nearBottom || !shown) box.scrollTop = box.scrollHeight;
   d.transcriptSignature = signature;
 }
 
@@ -3674,7 +2714,6 @@ function renderToolPanel(ticket, d) {
   const autoAiRunning = isAutoAiRunning(ticket);
   const visible = isTicketEditable(ticket) && hasTools && !autoAiRunning;
   d.els.toolPanel.classList.toggle("hidden", !visible);
-  d.els.toolExpand?.classList.toggle("hidden", !visible);
   if (d.els.toolEmpty) {
     d.els.toolEmpty.classList.toggle("hidden", visible);
     if (!visible) {
@@ -4097,82 +3136,43 @@ function updateComposer(ticket, d) {
   d.els.reasoningText.textContent = reasoning;
   d.els.reasoningCount.textContent = reasoning ? `${reasoning.length} 字` : "";
   d.els.draft.disabled = !editable || autoAiRunning;
-  if (d.els.toolsButton) {
-    d.els.toolsButton.classList.toggle("hidden", !workspacePrefs.showTools);
-    const hasTools = Array.isArray(ticket.tools) && ticket.tools.length > 0 && ticket.toolChoice !== "none";
-    d.els.toolsButton.disabled = !editable || autoAiRunning || !hasTools;
-    d.els.toolsButton.title = !editable
-      ? "认领票据后可编辑工具调用"
-      : autoAiRunning
-        ? "AI 辅助生成中"
-        : hasTools ? "打开工具调用编辑器" : "此请求没有可调用工具";
-  }
   note.classList.add("hidden");
-  let notice = null;
   if (autoAiRunning) {
-    if (ticket.state === "queued") {
-      notice = {
-        tone: "info",
-        text: "AI 辅助正在自动生成，但不会占用票据归属，也不会阻止认领。认领后编辑仍会等生成结束，结果会自动填入。",
-        action: { label: "认领", run: () => doAction("claim") },
-      };
-    } else if (mine) {
-      notice = {
-        tone: "info",
-        text: `AI 辅助正在自动生成，已用时 ${elapsedText(ticket.aiPending?.createdAt)}；编辑暂时锁定，完成后自动填入草稿和工具。`,
-      };
-    } else {
-      notice = {
-        tone: "warning",
-        text: "AI 辅助正在生成；当前由其他回复员编辑。生成结束后才能修改。",
-      };
-    }
+    note.classList.remove("hidden");
+    note.textContent = `AI 辅助正在自动生成，已用时 ${elapsedText(ticket.aiPending?.createdAt)}；完成后自动填入草稿和工具。`;
   } else if (autoAiError) {
-    notice = { tone: "error", text: ticket.aiPending?.error || "自动 AI 辅助失败，可稍后手动生成。" };
+    note.classList.remove("hidden");
+    note.textContent = ticket.aiPending?.error || "自动 AI 辅助失败，可稍后手动生成。";
   } else if (!isActive(ticket)) {
-    notice = {
-      tone: ticket.state === "cancelled" || ticket.state === "failed" ? "warning" : "success",
-      text:
-        ticket.state === "cancelled"
-          ? "调用方已断开，票据关闭。"
-          : ticket.state === "failed"
-            ? "请求以错误结束，调用方已收到错误响应。"
-            : `请求已结束${ticket.finishReason ? `（finish_reason: ${ticket.finishReason}）` : ""}。`,
-    };
+    note.classList.remove("hidden");
+    note.textContent =
+      ticket.state === "cancelled"
+        ? "调用方已断开，票据关闭。"
+        : ticket.state === "failed"
+          ? "请求以错误结束，调用方已收到错误响应。"
+          : `请求已结束${ticket.finishReason ? `（finish_reason: ${ticket.finishReason}）` : ""}。`;
   } else if (!editable) {
-    if (ticket.state === "queued") {
-      notice = {
-        tone: "info",
-        text: "这张票还没有被认领。认领后可编辑回复。",
-        action: { label: "认领", run: () => doAction("claim") },
-      };
-    } else if (ticket.state === "finishing") {
-      notice = { tone: "info", text: "正在把剩余内容按节奏推送给调用方…" };
-    } else if (state.role === "admin") {
-      notice = {
-        tone: "warning",
-        text: `当前编辑者：${ticket.claimedBy || "其他回复员"}。`,
-        action: { label: "接管", run: takeoverTicket },
-      };
-    } else {
-      notice = { tone: "info", text: `当前编辑者：${ticket.claimedBy || "其他回复员"}。` };
-    }
+    note.classList.remove("hidden");
+    note.textContent =
+      ticket.state === "queued"
+        ? "这张票还没有被认领。点击「认领票据」后就可以回复。"
+        : ticket.state === "finishing"
+          ? "正在把剩余内容按节奏推送给调用方…"
+          : state.role === "admin"
+            ? `由 ${ticket.claimedBy || "其他回复员"} 接待中。可点击下方「接管」继续处理。`
+            : `由 ${ticket.claimedBy || "其他回复员"} 接待中。`;
   } else if (toolRequired && pending.length === 0) {
-    notice = {
-      tone: "warning",
-      text: "此请求要求返回工具调用，请先添加工具，再完成。",
-      action: { label: "打开工具", run: () => openToolsWorkspace(detail) },
-    };
+    note.classList.remove("hidden");
+    note.textContent = "此请求要求返回工具调用：先在下方选择工具并添加，再完成。";
   } else if (jsonMode) {
-    notice = {
-      tone: "info",
-      text:
-        ticket.responseFormat.type === "json_schema"
-          ? `response_format=json_schema（${ticket.responseFormat.json_schema?.name || "response"}）：完成时会校验 JSON，不通过会留在当前票让你修改。`
-          : "response_format=json_object：完成时会校验 JSON 对象，不通过会留在当前票让你修改。",
-    };
+    note.classList.remove("hidden");
+    note.textContent =
+      ticket.responseFormat.type === "json_schema"
+        ? `response_format=json_schema（${ticket.responseFormat.json_schema?.name || "response"}）：完成时会校验 JSON，不通过会留在当前票让你修改。`
+        : "response_format=json_object：完成时会校验 JSON 对象，不通过会留在当前票让你修改。";
+  } else {
+    note.classList.add("hidden");
   }
-  if (notice) setComposerNotice(note, notice);
 
   if (autoAiRunning) d.els.draft.placeholder = "AI 辅助生成中，完成后自动填入…";
   else if (d.els.draft.disabled) d.els.draft.placeholder = "认领票据后即可输入回复";
@@ -4188,10 +3188,6 @@ async function doAction(name) {
   closeCommandMenu();
   const ticket = state.tickets.find((item) => item.id === state.selectedId);
   if (!ticket || state.busy) return;
-  if (ticket && isAutoAiRunning(ticket) && !["cancel", "claim"].includes(name)) {
-    toast("AI 辅助正在自动生成；此时不能编辑或发送，但仍可认领。");
-    return;
-  }
   if (name === "think" && ticket.protocol === "anthropic-messages") {
     toast("Anthropic 路径暂不支持流式 thinking。");
     return;
@@ -4203,26 +3199,10 @@ async function doAction(name) {
     detail?.els.draft.focus();
     return;
   }
-  if (name === "cancel" && !(await uiConfirm({
-    title: "取消请求",
-    body: "取消这个请求？调用方会收到错误响应。",
-    confirmText: "取消请求",
-    tone: "error",
-  }))) return;
-  if (name === "release" && !(await uiConfirm({
-    title: "放回队列",
-    body: "把票据放回队列？其他回复员可以重新认领。",
-    confirmText: "放回队列",
-    tone: "warning",
-  }))) return;
-  if (name === "refuse" && !(await uiConfirm({
-    title: "拒答请求",
-    body: "以拒答结束这个请求？调用方会收到 refusal + content_filter。",
-    confirmText: "确认拒答",
-    tone: "error",
-  }))) return;
+  if (name === "cancel" && !window.confirm("取消这个请求？调用方会收到错误响应。")) return;
+  if (name === "release" && !window.confirm("把票据放回队列？")) return;
+  if (name === "refuse" && !window.confirm("以拒答结束这个请求？调用方会收到 refusal + content_filter。")) return;
 
-  const autoAiWasRunning = isAutoAiRunning(ticket);
   state.busy = true;
   setButtonsDisabled(true);
 
@@ -4260,9 +3240,6 @@ async function doAction(name) {
     if (name === "claim") {
       state.selectedId = ticket.id;
       rememberSelectedTicket(ticket.id);
-    }
-    if (name === "claim" && autoAiWasRunning) {
-      toast("已认领；AI 辅助仍在生成，编辑会在生成结束后解锁。");
     }
     await refreshOnce();
   } catch (error) {
@@ -4310,11 +3287,6 @@ function syncCommandbar() {
       ? "等待队列"
       : "连接中";
   els.cmdClaim.disabled = state.busy || !ticket || ticket.state !== "queued";
-  if (ticket?.state === "queued" && autoAiRunning) {
-    els.cmdClaim.title = "AI 辅助正在生成，但仍可认领；编辑会在生成结束后解锁";
-  } else {
-    els.cmdClaim.title = "";
-  }
   els.cmdNext.disabled = state.busy || state.tickets.length === 0;
   els.cmdTemplates.disabled = state.busy || autoAiRunning || !ticket || !detail || detail.els.draft.disabled;
   els.cmdTransfer.disabled =
@@ -4484,12 +3456,7 @@ function renderTemplateList() {
       const remove = el("button", "btn danger", "删除");
       remove.type = "button";
       remove.addEventListener("click", async () => {
-        if (!(await uiConfirm({
-          title: "删除模板",
-          body: `删除模板「${template.name}」？`,
-          confirmText: "删除",
-          tone: "error",
-        }))) return;
+        if (!window.confirm(`删除模板「${template.name}」？`)) return;
         try {
           await api(`/op/api/templates/${encodeURIComponent(template.id)}`, { method: "DELETE", body: {} });
           templates = templates.filter((item) => item.id !== template.id);
@@ -4671,12 +3638,7 @@ async function sendToolCalls() {
 async function takeoverTicket() {
   const ticket = currentTicket();
   if (!ticket || state.role !== "admin") return;
-  if (!(await uiConfirm({
-    title: "接管票据",
-    body: `当前编辑者 @${ticket.claimedBy || "-"} 将失去发送权限，你可以继续编辑并回复。`,
-    confirmText: "接管",
-    tone: "warning",
-  }))) return;
+  if (!window.confirm(`接管这张票据？\n\n当前接待人 @${ticket.claimedBy || "-"} 将失去发送权限，你可以继续编辑并回复。`)) return;
   state.busy = true;
   setButtonsDisabled(true);
   try {
@@ -5015,196 +3977,8 @@ function nextTicket() {
   render();
 }
 
-let commandPaletteState = null;
-
-function ensureCommandPalette() {
-  if (commandPaletteState?.root?.isConnected) return commandPaletteState;
-  const root = el("div", "command-palette-backdrop hidden");
-  root.setAttribute("role", "dialog");
-  root.setAttribute("aria-modal", "true");
-  root.setAttribute("aria-label", "命令面板");
-  const panel = el("section", "command-palette");
-  const top = el("div", "command-palette-top");
-  top.append(el("span", "command-palette-key", "⌘K"));
-  const input = el("input", "command-palette-input");
-  input.placeholder = "搜索票据或执行操作…";
-  input.autocomplete = "off";
-  input.spellcheck = false;
-  top.append(input);
-  const list = el("div", "command-palette-list");
-  const foot = el("div", "command-palette-foot");
-  foot.append(el("span", "", "↑↓ 选择 · Enter 执行 · Esc 关闭"));
-  panel.append(top, list, foot);
-  root.append(panel);
-  document.body.append(root);
-  commandPaletteState = { root, input, list, items: [], index: 0 };
-  root.addEventListener("click", (event) => {
-    if (event.target === root) closeCommandPalette();
-  });
-  input.addEventListener("input", () => {
-    commandPaletteState.index = 0;
-    renderCommandPalette();
-  });
-  input.addEventListener("keydown", (event) => {
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      moveCommandPalette(1);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      moveCommandPalette(-1);
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      executeCommandPalette();
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      closeCommandPalette();
-    }
-  });
-  return commandPaletteState;
-}
-
-function commandPaletteActions() {
-  const ticket = currentTicket();
-  const actions = [];
-  const add = (group, label, hint, run, badgeText = "") => actions.push({ group, label, hint, run, badge: badgeText });
-  if (ticket) {
-    if (ticket.state === "queued") add("当前票据", "认领票据", "开始处理当前请求", () => doAction("claim"), "Enter");
-    if (isTicketEditable(ticket)) {
-      add("当前票据", "AI 生成", "将当前请求交给 AI 辅助", () => runAiTask("reply", detail, state.aiPrompts.get(ticket.id) || ""), "AI");
-      add("当前票据", "AI 引导", "给下一次生成附加方向提示", () => detail?.els?.aiPromptTrigger?.click());
-      add("当前票据", "工具调用", "打开宽版工具编辑器", () => openToolsWorkspace(detail), "TOOL");
-      add("当前票据", "快捷回复", "打开模板列表", openTemplateModal);
-      add("当前票据", "添加备注", "切换到备注面板", () => {
-        if (!detail) return;
-        detail.inspectorCollapsed = false;
-        applyInspectorState(detail);
-        activateInspectorTab(detail, "notes");
-      });
-      add("当前票据", "完成并发送", "发送当前草稿并结束票据", () => doAction("finish"), "⌘↵");
-      if (isActive(ticket)) add("当前票据", "转交票据", "将票据交给其他回复员", openTransfer);
-      if (state.role === "admin" && ticket.claimedBy && ticket.claimedBy !== state.operator && ticket.state === "claimed") {
-        add("当前票据", "管理员接管", "接管当前回复员的票据", takeoverTicket, "ADMIN");
-      }
-      if (isActive(ticket)) add("当前票据", "取消请求", "中止请求并通知调用方", () => doAction("cancel"));
-    }
-    add("工作台", "下一张票据", "切换到下一张票据", nextTicket);
-    add("工作台", "聚焦回复框", "把光标放到回复编辑器", focusDraft);
-    add("工作台", "显示/隐藏上下文", "切换右侧检查器", () => toggleInspector(detail));
-  }
-  const tickets = [...state.tickets]
-    .sort((a, b) => (a.state === "queued" ? 0 : isActive(a) ? 1 : 2) - (b.state === "queued" ? 0 : isActive(b) ? 1 : 2) || (a.created || a.createdAt) - (b.created || b.createdAt))
-    .slice(0, 20);
-  for (const item of tickets) {
-    add("票据", item.preview || item.id, `${item.model || ""} · ${STATE_LABELS[item.state] || item.state}`, () => {
-      state.selectedId = item.id;
-      rememberSelectedTicket(item.id);
-      if (window.innerWidth <= 780) setMobileView("detail");
-      render();
-    }, shortId(item.id));
-  }
-  return actions;
-}
-
-function renderCommandPalette() {
-  const palette = commandPaletteState;
-  if (!palette) return;
-  const query = palette.input.value.trim().toLowerCase();
-  const all = commandPaletteActions();
-  palette.items = all.filter((item) => !query || `${item.group} ${item.label} ${item.hint}`.toLowerCase().includes(query));
-  if (palette.index >= palette.items.length) palette.index = Math.max(0, palette.items.length - 1);
-  palette.list.replaceChildren();
-  if (!palette.items.length) {
-    palette.list.append(el("div", "command-palette-empty", "没有匹配的票据或操作"));
-    return;
-  }
-  let currentGroup = "";
-  for (const [index, item] of palette.items.entries()) {
-    if (item.group !== currentGroup) {
-      currentGroup = item.group;
-      palette.list.append(el("div", "command-palette-group", currentGroup));
-    }
-    const button = el("button", "command-palette-item");
-    button.type = "button";
-    button.dataset.index = String(index);
-    button.classList.toggle("active", index === palette.index);
-    const main = el("span", "command-palette-main");
-    main.append(el("span", "command-palette-label", item.label));
-    main.append(el("span", "command-palette-hint", item.hint));
-    button.append(main);
-    if (item.badge) button.append(el("kbd", "command-palette-badge", item.badge));
-    button.addEventListener("click", () => {
-      palette.index = index;
-      executeCommandPalette();
-    });
-    palette.list.append(button);
-  }
-  palette.list.querySelector(".command-palette-item.active")?.scrollIntoView({ block: "nearest" });
-}
-
-function moveCommandPalette(delta) {
-  const palette = commandPaletteState;
-  if (!palette?.items.length) return;
-  palette.index = (palette.index + delta + palette.items.length) % palette.items.length;
-  renderCommandPalette();
-}
-
-function executeCommandPalette() {
-  const palette = commandPaletteState;
-  const item = palette?.items[palette.index];
-  if (!item) return;
-  closeCommandPalette();
-  try {
-    item.run();
-  } catch (error) {
-    toast(error.message);
-  }
-}
-
-function openCommandPalette() {
-  const palette = ensureCommandPalette();
-  palette.input.value = "";
-  palette.index = 0;
-  renderCommandPalette();
-  palette.root.classList.remove("hidden");
-  requestAnimationFrame(() => palette.input.focus());
-}
-
-function closeCommandPalette() {
-  if (commandPaletteState?.root) commandPaletteState.root.classList.add("hidden");
-}
-
 function handleGlobalShortcut(event) {
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-    event.preventDefault();
-    openCommandPalette();
-    return;
-  }
-  if (commandPaletteState?.root?.classList.contains("hidden") === false) {
-    if (event.key === "Escape") closeCommandPalette();
-    return;
-  }
   if (event.key === "Escape") {
-    if (uiConfirmResolve) {
-      closeUiConfirm(false);
-      return;
-    }
-    if (uiPromptResolve) {
-      closeUiPrompt(null);
-      return;
-    }
-    if (!els.messageCenter?.classList.contains("hidden")) {
-      closeMessageCenter();
-      return;
-    }
-    if (!els.workspacePrefsModal?.classList.contains("hidden")) {
-      closeWorkspacePrefs();
-      return;
-    }
-    if (detail?.toolDrawerOpen) {
-      closeToolDrawer(detail);
-      return;
-    }
     if (!els.shortcutModal.classList.contains("hidden")) {
       closeShortcuts();
       return;
@@ -5255,12 +4029,6 @@ function init() {
   installAudioUnlock();
   state.shortcuts = loadShortcuts();
   updateShortcutLabels();
-  initFloatingWorkspace();
-  state.queueFilter = workspacePrefs.queueFilter;
-  for (const chip of els.queueFilters.querySelectorAll(".chip")) {
-    chip.classList.toggle("active", chip.dataset.filter === state.queueFilter);
-  }
-  applyWorkspacePrefs();
   els.autoclaim.checked = localStorage.getItem("ngzr.autoclaim") === "1";
 
   els.autoclaim.addEventListener("change", () => {
@@ -5287,57 +4055,6 @@ function init() {
     renderQueue();
   });
   els.logout.addEventListener("click", logout);
-  renderMessageBadge();
-  renderMessageList();
-  els.messageCenterBtn?.addEventListener("click", toggleMessageCenter);
-  els.messageCenterClose?.addEventListener("click", closeMessageCenter);
-  els.messageCenter?.addEventListener("click", (event) => {
-    if (event.target === els.messageCenter) closeMessageCenter();
-  });
-  els.messageClear?.addEventListener("click", async () => {
-    if (!messageItems.length) return;
-    if (await uiConfirm({
-      title: "清空消息",
-      body: "清空后消息中心的历史提示会被移除。",
-      confirmText: "清空",
-      tone: "warning",
-    })) clearMessages();
-  });
-  els.uiConfirmOk?.addEventListener("click", () => closeUiConfirm(true));
-  els.uiConfirmCancel?.addEventListener("click", () => closeUiConfirm(false));
-  els.uiConfirmModal?.addEventListener("click", (event) => {
-    if (event.target === els.uiConfirmModal) closeUiConfirm(false);
-  });
-  els.uiPromptOk?.addEventListener("click", submitUiPrompt);
-  els.uiPromptCancel?.addEventListener("click", () => closeUiPrompt(null));
-  els.uiPromptModal?.addEventListener("click", (event) => {
-    if (event.target === els.uiPromptModal) closeUiPrompt(null);
-  });
-  els.uiPromptInput?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      submitUiPrompt();
-    }
-  });
-  els.workspacePrefs?.addEventListener("click", openWorkspacePrefs);
-  els.workspacePrefsClose?.addEventListener("click", closeWorkspacePrefs);
-  els.workspacePrefsModal?.addEventListener("click", (event) => {
-    if (event.target === els.workspacePrefsModal) closeWorkspacePrefs();
-  });
-  els.workspacePrefsForm?.addEventListener("submit", submitWorkspacePrefs);
-  els.workspacePrefsReset?.addEventListener("click", () => {
-    saveWorkspacePrefs({ ...DEFAULT_WORKSPACE_PREFS });
-    state.queueFilter = workspacePrefs.queueFilter;
-    for (const chip of els.queueFilters.querySelectorAll(".chip")) {
-      chip.classList.toggle("active", chip.dataset.filter === state.queueFilter);
-    }
-    renderQueue();
-    syncWorkspacePrefsForm();
-    toast("已恢复默认偏好");
-  });
-  els.prefQueueWidth?.addEventListener("input", () => {
-    els.prefQueueWidthValue.textContent = `${els.prefQueueWidth.value}px`;
-  });
   els.usersClose.addEventListener("click", closeUsers);
   els.keysClose.addEventListener("click", closeKeys);
   els.keyCreateForm.addEventListener("submit", createKey);
