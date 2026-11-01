@@ -78,7 +78,7 @@ curl http://127.0.0.1:7355/v1/chat/completions \
 | [架构](docs/architecture.md) | 请求生命周期、状态机、持久化边界 |
 | [更新记录](CHANGELOG.md) | 版本变更 |
 
-历史方案、旧测试报告和发布材料归档在 [docs/archive](docs/archive/)；不作为当前使用说明。
+历史测试、发布材料和内部开发文档不进入当前公开文档树；当前变更见 [CHANGELOG](CHANGELOG.md)。
 
 ## 开发与验证
 
