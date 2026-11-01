@@ -2964,3 +2964,308 @@ body {
   min-height: 27px;
   font-size: 10px;
 }
+
+/* ==========================================================================
+   0.6.1 three-block operator surface
+   1. Conversation history / 2. Sent information / 3. Pending editor
+   ========================================================================== */
+
+.workspace.editor-workspace {
+  display: block;
+  min-height: 0;
+  height: 100%;
+}
+
+.editor-workspace > .panes {
+  height: 100%;
+}
+
+.editor-workspace .pane-head {
+  min-height: 36px;
+}
+
+.editor-workspace .pane-title {
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0.6px;
+}
+
+.composer {
+  display: block;
+  flex: 0 0 auto;
+  min-height: 276px;
+  padding: 0;
+  border-color: var(--line-strong);
+  background: rgba(15, 22, 29, 0.94);
+}
+
+.composer-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 276px;
+}
+
+.editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.022);
+}
+
+.editor-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.editor-index {
+  display: inline-grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  color: var(--accent, #8aa4f8);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.editor-hint {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 400;
+}
+
+.editor-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 3px;
+}
+
+.editor-tab {
+  height: 25px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.editor-tab:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.editor-tab.active {
+  border-color: var(--line-strong);
+  background: rgba(138, 164, 248, 0.11);
+  color: var(--text);
+}
+
+.editor-panel {
+  min-height: 0;
+}
+
+.editor-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 9px;
+}
+
+.editor-text > .composer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.editor-text > .composer-head .ai-tools {
+  margin-left: auto;
+}
+
+.editor-text textarea {
+  width: 100%;
+  min-height: 82px;
+  max-height: 170px;
+  margin: 0;
+  resize: vertical;
+}
+
+.editor-text .composer-note {
+  margin: 0;
+}
+
+.editor-tools {
+  height: 196px;
+  padding: 8px 12px 10px;
+  overflow-y: auto;
+}
+
+.editor-tools .toolcall-panel,
+.composer .editor-tools .toolcall-panel {
+  display: block;
+  width: auto;
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.composer .editor-tools .toolcall-panel.hidden {
+  display: none;
+}
+
+.editor-tools .tool-filter {
+  max-width: 360px;
+}
+
+.editor-tools .toolcall-title {
+  font-size: 12px;
+}
+
+.editor-other {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  height: 196px;
+  padding: 8px 12px 10px;
+  overflow-y: auto;
+}
+
+.editor-other .ticket-extra {
+  min-width: 0;
+  margin: 0;
+}
+
+.composer > .composer-main > .editor-panel.hidden {
+  display: none;
+}
+
+@media (max-width: 780px) {
+  .composer {
+    min-height: 300px;
+  }
+
+  .composer-main {
+    min-height: 300px;
+  }
+
+  .editor-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .editor-tabs {
+    width: 100%;
+  }
+
+  .editor-tab {
+    flex: 1 1 0;
+  }
+
+  .editor-other {
+    grid-template-columns: minmax(0, 1fr);
+    height: 240px;
+  }
+}
+
+.editor-quick-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-bottom: 2px;
+}
+
+.editor-quick-actions .btn {
+  height: 26px;
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+
+@media (max-width: 780px) {
+  .editor-quick-actions {
+    grid-column: 1;
+  }
+}
+
+/* Tool editing needs room for arguments plus actions. */
+.composer {
+  min-height: 340px;
+}
+
+.composer-main {
+  min-height: 340px;
+}
+
+.editor-tools {
+  height: 260px;
+}
+
+.editor-tools .tool-actions {
+  position: static;
+  padding-top: 6px;
+  background: transparent;
+}
+
+.editor-tools .tool-args {
+  min-height: 82px;
+}
+
+@media (max-width: 780px) {
+  .composer,
+  .composer-main {
+    min-height: 360px;
+  }
+
+  .editor-tools {
+    height: 280px;
+  }
+}
+
+/* Keep block 3 inside the viewport; its tab content scrolls independently. */
+.composer,
+.composer-main {
+  min-height: 300px;
+  max-height: 300px;
+}
+
+.editor-tools {
+  height: 220px;
+}
+
+.editor-other {
+  height: 220px;
+}
+
+@media (max-width: 780px) {
+  .composer,
+  .composer-main {
+    min-height: 340px;
+    max-height: 340px;
+  }
+
+  .editor-tools {
+    height: 250px;
+  }
+
+  .editor-other {
+    height: 250px;
+  }
+}

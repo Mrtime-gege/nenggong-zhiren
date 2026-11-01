@@ -1446,10 +1446,8 @@ function buildDetail(ticket) {
   title.append(model, id);
   titleWrap.append(title);
   const badges = el("div", "badges");
-  const inspectorToggle = el("button", "btn ghost inspector-toggle", "隐藏检查器");
-  inspectorToggle.type = "button";
   const headActions = el("div", "detail-head-actions");
-  headActions.append(inspectorToggle, badges);
+  headActions.append(badges);
   head.append(titleWrap, headActions);
 
   const meta = el("div", "meta");
@@ -1460,7 +1458,7 @@ function buildDetail(ticket) {
 
   const inputPane = el("section", "pane");
   const inputHead = el("div", "pane-head");
-  const inputTitle = el("span", "pane-title", "对话与上下文");
+  const inputTitle = el("span", "pane-title", "1 · 对话历史");
   const msgCount = el("span", "pane-note", "");
   inputHead.append(inputTitle, msgCount);
   const messages = el("div", "messages");
@@ -1470,7 +1468,7 @@ function buildDetail(ticket) {
 
   const outputPane = el("section", "pane");
   const outputHead = el("div", "pane-head");
-  const outputTitle = el("span", "pane-title", "对外流式内容");
+  const outputTitle = el("span", "pane-title", "2 · 已发信息");
   const charCount = el("span", "pane-note", "");
   outputHead.append(outputTitle, charCount);
   const transcript = el("div", "transcript placeholder", "还没有发送任何内容。");
@@ -1522,33 +1520,39 @@ function buildDetail(ticket) {
 
   const note = el("div", "composer-note hidden");
 
-  const inspector = el("aside", "inspector");
-  const inspectorHead = el("div", "inspector-head");
-  inspectorHead.append(el("span", "", "检查器"));
-  inspectorHead.append(el("span", "inspector-hint", "备注 / 路由 / 工具"));
-
-  const inspectorTabs = el("div", "inspector-tabs");
+  const editorTabs = el("div", "editor-tabs");
   const tabButtons = {};
-  for (const [key, label] of [["tools", "工具"], ["routing", "路由"], ["notes", "备注"]]) {
-    const button = el("button", "inspector-tab", label);
+  for (const [key, tabLabel] of [["text", "文本"], ["tools", "工具"], ["other", "其他工具"]]) {
+    const button = el("button", "editor-tab", tabLabel);
     button.type = "button";
+    button.dataset.tab = key;
     button.addEventListener("click", () => activateInspectorTab(current, key));
     tabButtons[key] = button;
-    inspectorTabs.append(button);
+    editorTabs.append(button);
   }
 
-  const inspectorBody = el("div", "inspector-body");
+  const textSection = el("section", "editor-panel editor-text");
+  const toolsSection = el("section", "editor-panel editor-tools");
+  const otherSection = el("section", "editor-panel editor-other");
   const toolEmpty = el("div", "inspector-empty", "");
-  const toolsSection = el("div", "inspector-tab-panel");
-  const routingPanel = el("section", "ticket-extra routing-panel");
-  const routingSection = el("div", "inspector-tab-panel");
-  const notesPanel = el("section", "ticket-extra notes-panel");
-  const notesSection = el("div", "inspector-tab-panel");
   toolsSection.append(toolPanel, toolEmpty);
-  routingSection.append(routingPanel);
-  notesSection.append(notesPanel);
-  inspectorBody.append(toolsSection, routingSection, notesSection);
-  inspector.append(inspectorHead, inspectorTabs, inspectorBody);
+  const routingPanel = el("section", "ticket-extra routing-panel");
+  const notesPanel = el("section", "ticket-extra notes-panel");
+  const otherActions = el("div", "editor-quick-actions");
+  const quickTemplate = el("button", "btn ghost", "快捷回复");
+  quickTemplate.type = "button";
+  quickTemplate.addEventListener("click", openTemplateModal);
+  const quickTransfer = el("button", "btn ghost", "转交");
+  quickTransfer.type = "button";
+  quickTransfer.addEventListener("click", openTransfer);
+  otherActions.append(quickTemplate, quickTransfer);
+  if (state.role === "admin") {
+    const quickTakeover = el("button", "btn ghost", "管理员接管");
+    quickTakeover.type = "button";
+    quickTakeover.addEventListener("click", takeoverTicket);
+    otherActions.append(quickTakeover);
+  }
+  otherSection.append(otherActions, routingPanel, notesPanel);
 
   const aiTools = el("div", "ai-tools hidden");
   const aiTrigger = el("button", "btn ghost ai-menu-trigger", "AI 生成");
@@ -1625,25 +1629,32 @@ function buildDetail(ticket) {
   aiPanelActions.append(aiExpand, aiCopy, aiClose);
   aiPanel.append(aiPanelHead, aiPanelBody, aiPanelActions);
 
+  const editorHead = el("div", "editor-head");
+  const editorTitle = el("div", "editor-title");
+  editorTitle.append(el("span", "editor-index", "3"), el("span", "", "待发编辑区"));
+  const editorHint = el("span", "editor-hint", "文本 / 工具 / 其他");
+  editorTitle.append(editorHint);
+  editorHead.append(editorTitle, editorTabs);
+
   const composerHead = el("div", "composer-head");
   composerHead.append(label, draftStatus, draftCount, aiTools);
+  textSection.append(composerHead, aiPanel, draft, note);
   const composerMain = el("div", "composer-main");
-  composerMain.append(composerHead, aiPanel, draft, note);
+  composerMain.append(editorHead, textSection, toolsSection, otherSection);
   composer.append(composerMain);
   outputPane.append(outputHead, reasoningBox, transcript, sentTools);
 
   const paneSplitter = createSplitter("pane");
-  const inspectorSplitter = createSplitter("inspector");
   panes.append(inputPane, paneSplitter, outputPane);
-  const workspace = el("div", "workspace");
-  workspace.append(panes, inspectorSplitter, inspector);
+  const workspace = el("div", "workspace editor-workspace");
+  workspace.append(panes);
   applySavedSplits(workspace, panes);
   wrap.append(head, meta, purposeHint, sessionBar, workspace, composer);
   els.detail.append(wrap);
 
   const current = { id: ticket.id, els: {} };
   current.inspectorTab = loadInspectorTab();
-  current.inspectorCollapsed = loadInspectorCollapsed();
+  current.inspectorCollapsed = true;
   current.els = {
     model,
     id,
@@ -1681,14 +1692,13 @@ function buildDetail(ticket) {
     aiExpand,
     aiCopy,
     aiClose,
-    inspectorToggle,
     workspace,
-    inspectorSplitter,
-    inspectorTabs,
+    editorHead,
+    editorTabs,
     tabButtons,
+    textSection,
     toolsSection,
-    routingSection,
-    notesSection,
+    otherSection,
     toolPanel,
     toolEmpty,
     toolTitle,
@@ -1758,52 +1768,39 @@ function buildDetail(ticket) {
   current.messagesLimit = 30;
 
   detail = current;
-  applyInspectorState(current);
   activateInspectorTab(current, current.inspectorTab);
-  inspectorToggle.addEventListener("click", () => {
-    current.inspectorCollapsed = !current.inspectorCollapsed;
-    try {
-      localStorage.setItem(INSPECTOR_COLLAPSED_KEY, current.inspectorCollapsed ? "1" : "0");
-    } catch { /* storage is optional */ }
-    applyInspectorState(current);
-  });
   return current;
 }
 
 function loadInspectorTab() {
   try {
     const value = localStorage.getItem(INSPECTOR_TAB_KEY);
-    if (["notes", "routing", "tools"].includes(value)) return value;
+    if (value === "tools") return "tools";
+    if (["notes", "routing", "other"].includes(value)) return "other";
   } catch { /* storage is optional */ }
-  return "notes";
+  return "text";
 }
 
 function loadInspectorCollapsed() {
   try { return localStorage.getItem(INSPECTOR_COLLAPSED_KEY) === "1"; } catch { return false; }
 }
 
-function applyInspectorState(d) {
-  if (!d?.els.workspace) return;
-  d.els.workspace.classList.toggle("inspector-collapsed", Boolean(d.inspectorCollapsed));
-  d.els.inspectorSplitter?.classList.toggle("hidden", Boolean(d.inspectorCollapsed));
-  if (d.els.inspectorToggle) {
-    d.els.inspectorToggle.textContent = d.inspectorCollapsed ? "显示检查器" : "隐藏检查器";
-    d.els.inspectorToggle.setAttribute("aria-expanded", d.inspectorCollapsed ? "false" : "true");
-  }
+function applyInspectorState() {
+  // The former inspector is now the editor's tab area.
 }
 
 function activateInspectorTab(d, tab) {
-  if (!d?.els.inspectorTabs) return;
-  const next = ["notes", "routing", "tools"].includes(tab) ? tab : "notes";
+  if (!d?.els?.editorTabs) return;
+  const next = tab === "tools" ? "tools" : ["notes", "routing", "other"].includes(tab) ? "other" : "text";
   d.inspectorTab = next;
   try { localStorage.setItem(INSPECTOR_TAB_KEY, next); } catch { /* storage is optional */ }
   for (const [key, button] of Object.entries(d.els.tabButtons)) {
     button.classList.toggle("active", key === next);
     button.setAttribute("aria-selected", key === next ? "true" : "false");
   }
-  d.els.notesSection.classList.toggle("hidden", next !== "notes");
-  d.els.routingSection.classList.toggle("hidden", next !== "routing");
+  d.els.textSection.classList.toggle("hidden", next !== "text");
   d.els.toolsSection.classList.toggle("hidden", next !== "tools");
+  d.els.otherSection.classList.toggle("hidden", next !== "other");
   if (next === "tools") {
     const ticket = currentTicket();
     if (ticket) renderToolPanel(ticket, d);
