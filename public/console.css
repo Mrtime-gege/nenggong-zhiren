@@ -3398,3 +3398,241 @@ body {
     height: 9px;
   }
 }
+
+/* ==========================================================================
+   Conversation-centered operator layout
+   Queue | single thread | context/AI | composer
+   ========================================================================== */
+
+.workspace.conversation-workspace {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 10px;
+  min-height: 0;
+  height: 100%;
+}
+
+.conversation-workspace > .thread-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.thread-head .pane-title {
+  letter-spacing: 0.5px;
+}
+
+.thread-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px;
+  scroll-behavior: smooth;
+}
+
+.thread-body .messages {
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+}
+
+.thread-output-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 16px 0 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.thread-output-title {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+}
+
+.thread-body .transcript {
+  min-height: 54px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.thread-body .sent-toolcalls {
+  margin-top: 10px;
+}
+
+.context-pane {
+  display: flex;
+  flex: 0 0 360px;
+  flex-direction: column;
+  min-width: 300px;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(15, 22, 29, 0.88);
+  overflow: hidden;
+}
+
+.context-pane .inspector-head {
+  flex: 0 0 auto;
+}
+
+.context-pane .inspector-tabs {
+  flex: 0 0 auto;
+}
+
+.context-pane .context-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.context-pane .meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 0 10px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--line);
+}
+
+.context-pane .meta-item {
+  min-width: 0;
+  padding: 6px 7px;
+  background: var(--panel-2);
+}
+
+.context-pane .meta-value {
+  font-size: 10px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.context-pane .session-bar,
+.context-pane .purpose-hint {
+  margin: 0 0 10px;
+}
+
+.context-pane .ai-panel {
+  margin: 0;
+}
+
+.context-pane .toolcall-panel {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.context-pane .tool-actions {
+  position: static;
+  padding-top: 6px;
+  background: transparent;
+}
+
+.context-pane .editor-quick-actions {
+  grid-column: auto;
+  padding-bottom: 8px;
+}
+
+.workspace.conversation-workspace.inspector-collapsed {
+  display: flex;
+}
+
+.workspace.conversation-workspace.inspector-collapsed .context-pane {
+  display: none;
+}
+
+.workspace.conversation-workspace.inspector-collapsed > .thread-pane {
+  flex: 1 1 100%;
+}
+
+/* Composer is a compact reply dock, not an editor with tabs. */
+.detail-wrap > .composer {
+  flex-basis: var(--editor-height, 220px);
+  height: var(--editor-height, 220px);
+  min-height: 180px;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+}
+
+.detail-wrap > .composer > .composer-main {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  padding: 9px 12px;
+}
+
+.composer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  min-height: 24px;
+}
+
+.composer-head .ai-tools {
+  margin-left: auto;
+}
+
+.composer-head .editor-clear {
+  margin-left: 2px;
+}
+
+.detail-wrap > .composer textarea {
+  min-height: 70px;
+  max-height: 150px;
+  flex: 1 1 auto;
+  resize: vertical;
+}
+
+.detail-wrap > .composer .composer-note {
+  margin: 0;
+}
+
+.detail-wrap > .composer .composer-actions {
+  margin-top: auto;
+}
+
+@media (max-width: 1080px) {
+  .context-pane {
+    flex-basis: 320px;
+    min-width: 280px;
+  }
+}
+
+@media (max-width: 780px) {
+  .workspace.conversation-workspace {
+    flex-direction: column;
+  }
+
+  .conversation-workspace > .thread-pane {
+    min-height: 220px;
+  }
+
+  .context-pane {
+    flex: 0 0 auto;
+    width: 100%;
+    max-height: 300px;
+    min-width: 0;
+  }
+
+  .detail-wrap > .composer {
+    flex-basis: var(--editor-height, 230px);
+    height: var(--editor-height, 230px);
+  }
+}

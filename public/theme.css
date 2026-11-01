@@ -2611,3 +2611,40 @@ body[data-page="workbench"] .detail-wrap {
   border-radius: 13px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
+
+/* Context panel metadata is a readable grid, not the compact queue strip. */
+body[data-page="workbench"] .context-pane .meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 0 10px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--line);
+  min-height: 0;
+}
+
+body[data-page="workbench"] .context-pane .meta .meta-item {
+  display: block;
+  min-width: 0;
+  padding: 6px 7px;
+  white-space: normal;
+  background: var(--panel-2);
+}
+
+body[data-page="workbench"] .context-pane .meta .meta-label {
+  display: block;
+  margin: 0 0 2px;
+  font-size: 8px;
+}
+
+body[data-page="workbench"] .context-pane .meta .meta-value {
+  display: block;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
