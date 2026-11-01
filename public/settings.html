@@ -19,8 +19,32 @@
       <nav id="topnav" class="topnav" aria-label="主导航"></nav>
       <div class="conn"><span id="userLabel" class="user-label">正在加载…</span><button id="logout" class="btn ghost" type="button">退出</button><span id="status" class="conn-status">连接中…</span></div>
     </header>
-    <main class="admin-main">
-      <div class="admin-head"><div><h1>设置</h1><p>个性化设置只影响当前账号；功能设置由管理员统一管理。所有修改自动保存，数值越界会拒绝本次修改，不会自动钳制。</p></div></div>
+    <main class="settings-layout">
+      <aside class="settings-nav" aria-label="设置分类">
+        <div class="settings-nav-title">设置</div>
+        <button class="settings-nav-item active" type="button" data-settings-tab="personal">
+          <span>个性化</span><small>通知、接单与提醒</small>
+        </button>
+        <div class="settings-nav-group">管理员</div>
+        <button class="settings-nav-item" type="button" data-settings-tab="runtime">
+          <span>运行参数</span><small>队列、超时与限额</small>
+        </button>
+        <button class="settings-nav-item" type="button" data-settings-tab="features">
+          <span>功能开关</span><small>后台可见能力</small>
+        </button>
+        <button class="settings-nav-item" type="button" data-settings-tab="ai">
+          <span>AI 辅助</span><small>连接、限额与自动回复</small>
+        </button>
+        <button class="settings-nav-item" type="button" data-settings-tab="security">
+          <span>安全</span><small>管理员 MFA</small>
+        </button>
+        <button class="settings-nav-item" type="button" data-settings-tab="system">
+          <span>系统信息</span><small>只读启动配置</small>
+        </button>
+      </aside>
+      <section class="settings-content">
+        <div class="admin-head"><div><h1>设置</h1><p>按左侧分类管理。个性化设置只影响当前账号；管理员设置由管理员统一管理。</p></div></div>
+        <div id="settingsPanels" class="settings-panels"></div>
 
       <div class="admin-card personal-card">
         <div class="admin-card-title">个性化设置 <span class="admin-hint">仅当前账号</span></div>
@@ -125,6 +149,7 @@
           <div id="readonly" class="readonly-grid"></div>
         </div>
       </div>
+      </section>
     </main>
     <div id="settingsToast" class="settings-toast" role="status" aria-live="polite"></div>
     <script src="/navigation.js"></script>

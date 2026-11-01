@@ -445,7 +445,70 @@ async function logout() {
   location.replace("/login");
 }
 
+const SETTINGS_TAB_KEY = "ngzr.settingsTab";
+
+function settingsTabForCard(card) {
+  if (card.classList.contains("personal-card")) return "personal";
+  const title = card.querySelector(".admin-card-title")?.textContent.trim() || "";
+  if (title.startsWith("运行参数")) return "runtime";
+  if (title.startsWith("功能设置")) return "features";
+  if (title.startsWith("AI 辅助")) return "ai";
+  if (title.includes("MFA")) return "security";
+  if (title.startsWith("只读启动配置")) return "system";
+  return "";
+}
+
+function initSettingsNavigation() {
+  const host = $("settingsPanels");
+  if (!host || host.dataset.ready === "1") return;
+  const tabs = [...document.querySelectorAll("[data-settings-tab]")];
+  if (!tabs.length) return;
+  const allowed = new Set(tabs.map((tab) => tab.dataset.settingsTab));
+  const panels = new Map();
+  for (const key of allowed) {
+    const panel = document.createElement("section");
+    panel.className = "settings-panel hidden";
+    panel.dataset.settingsPanel = key;
+    host.append(panel);
+    panels.set(key, panel);
+  }
+  const cards = [...document.querySelectorAll(".settings-content .admin-card")];
+  for (const card of cards) {
+    const key = settingsTabForCard(card);
+    if (!panels.has(key)) continue;
+    panels.get(key).append(card);
+  }
+  document.querySelector(".settings-content > .admin-only[data-admin-only]")?.remove();
+  host.dataset.ready = "1";
+
+  const activate = (requested, persist = true) => {
+    const key = allowed.has(requested) ? requested : "personal";
+    for (const tab of tabs) {
+      const active = tab.dataset.settingsTab === key;
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-current", active ? "page" : "false");
+    }
+    for (const [panelKey, panel] of panels) {
+      panel.classList.toggle("hidden", panelKey !== key);
+    }
+    if (persist) {
+      try { localStorage.setItem(SETTINGS_TAB_KEY, key); } catch { /* optional */ }
+      try { history.replaceState(null, "", `${location.pathname}#${key}`); } catch { /* optional */ }
+    }
+  };
+
+  for (const tab of tabs) {
+    tab.addEventListener("click", () => activate(tab.dataset.settingsTab));
+  }
+  let initial = location.hash.slice(1);
+  if (!allowed.has(initial)) {
+    try { initial = localStorage.getItem(SETTINGS_TAB_KEY) || "personal"; } catch { initial = "personal"; }
+  }
+  activate(initial, false);
+}
+
 async function init() {
+  initSettingsNavigation();
   try {
     await load();
     bindAutoSave("personalForm", "personal", savePersonal);

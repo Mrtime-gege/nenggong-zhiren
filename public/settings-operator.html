@@ -19,8 +19,16 @@
       <nav id="topnav" class="topnav" aria-label="主导航"></nav>
       <div class="conn"><span id="userLabel" class="user-label">正在加载…</span><button id="logout" class="btn ghost" type="button">退出</button><span id="status" class="conn-status">连接中…</span></div>
     </header>
-    <main class="admin-main">
-      <div class="admin-head"><div><h1>设置</h1><p>个性化设置只影响当前账号。功能设置和运行参数由管理员统一管理。</p></div></div>
+    <main class="settings-layout">
+      <aside class="settings-nav" aria-label="设置分类">
+        <div class="settings-nav-title">设置</div>
+        <button class="settings-nav-item active" type="button" data-settings-tab="personal">
+          <span>个性化</span><small>通知、接单与提醒</small>
+        </button>
+      </aside>
+      <section class="settings-content">
+        <div class="admin-head"><div><h1>设置</h1><p>个性化设置只影响当前账号。运行参数和功能设置由管理员统一管理。</p></div></div>
+        <div id="settingsPanels" class="settings-panels"></div>
 
       <div class="admin-card personal-card">
         <div class="admin-card-title">个性化设置 <span class="admin-hint">仅当前账号</span></div>
@@ -35,6 +43,7 @@
         </form>
         <div id="personalError" class="form-error" role="alert"></div>
       </div>
+      </section>
     </main>
     <div id="settingsToast" class="settings-toast" role="status" aria-live="polite"></div>
     <script src="/navigation.js"></script>

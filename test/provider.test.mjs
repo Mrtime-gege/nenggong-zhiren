@@ -912,6 +912,20 @@ test("two logged-in operators claim different tickets; attribution is by usernam
   assert.equal((await pendingB).status, 200);
 });
 
+test("administrator cannot take over their own claimed ticket", async () => {
+  const text = marker("admin-self-takeover");
+  const pending = startChat({ model: "human-1", messages: [{ role: "user", content: text }] });
+  const ticket = await waitForTicket((item) => item.messages?.some((message) => message.content === text));
+  const claimed = await claim(adminSession, ticket.id);
+  assert.equal(claimed.ticket.state, "claimed");
+  const response = await op(adminSession, `/op/api/tickets/${ticket.id}/takeover`, { method: "POST", body: {} });
+  assert.equal(response.status, 409);
+  const payload = await response.json();
+  assert.equal(payload.error?.code, "already_owner");
+  await finishJson(adminSession, ticket.id, { text: "handled by owner" });
+  assert.equal((await pending).status, 200);
+});
+
 test("ticket actions are restricted to the claimant", async () => {
   const text = marker("owner-only");
   const pending = startChat({ model: "human-1", messages: [{ role: "user", content: text }] });
@@ -1270,6 +1284,8 @@ test("admin pages are separate and admin-only", async () => {
   const settingsMarkup = await fetch(`${BASE}/console/settings`, { headers: { Cookie: adminSession.cookie } }).then((r) => r.text());
   assert.match(settingsMarkup, /id="setPublicGuide"/);
   assert.match(settingsMarkup, /允许未登录访问新手教程/);
+  assert.match(settingsMarkup, /data-settings-tab="runtime"/);
+  assert.match(settingsMarkup, /id="settingsPanels"/);
   for (const [pathname, label] of [
     ["/console/settings", "设置"],
     ["/console/usage", "用量"],
@@ -2198,6 +2214,7 @@ test("onboarding guide is public and assets are served", async () => {
   const html = await page.text();
   assert.match(html, /新手教程/);
   assert.match(html, /href="\/guide.css"/);
+  assert.match(html, /https:\/\/github\.com\/Mrtime-gege\/nenggong-zhiren/);
   assert.doesNotMatch(html, /192\.168\.|zhiren-V1-flash|:7355|kfc-[A-Za-z0-9_-]+/);
   assert.doesNotMatch(html, /<script|\son[a-z]+\s*=/i);
   assert.match(page.headers.get("x-robots-tag") || "", /noindex/);

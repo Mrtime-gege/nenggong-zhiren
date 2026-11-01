@@ -171,14 +171,16 @@ export class StateStore {
     }
   }
 
-  writeSqliteTickets(changed) {
-    if (!this.db || !changed.length) return;
+  writeSqliteTickets(changed, removedIds = []) {
+    if (!this.db || (!changed.length && !removedIds.length)) return;
     const upsert = this.db.prepare(`
       INSERT INTO tickets (id, created_at, ticket_json) VALUES (?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET created_at=excluded.created_at, ticket_json=excluded.ticket_json
     `);
+    const remove = this.db.prepare("DELETE FROM tickets WHERE id = ?");
     this.db.exec("BEGIN");
     try {
+      for (const id of removedIds) remove.run(id);
       for (const ticket of changed) upsert.run(ticket.id, Number(ticket.createdAt) || 0, JSON.stringify(ticket));
       this.db.exec("COMMIT");
     } catch (error) {
@@ -313,6 +315,8 @@ export class StateStore {
       .slice(0, MAX_TICKETS)
       .map(ticketSnapshot);
     const changed = [];
+    const nextIds = new Set(nextTickets.map((ticket) => ticket.id));
+    const removedIds = [...this.snapshotCache.keys()].filter((id) => !nextIds.has(id));
     for (const ticket of nextTickets) {
       const serialized = JSON.stringify(ticket);
       if (this.snapshotCache.get(ticket.id) !== serialized) {
@@ -320,6 +324,7 @@ export class StateStore {
         changed.push(ticket);
       }
     }
+    for (const id of removedIds) this.snapshotCache.delete(id);
     this.tickets = nextTickets;
     this.idempotency = [...idempotency]
       .map((item) => (Array.isArray(item) ? { key: item[0], ...item[1] } : item))
@@ -328,7 +333,7 @@ export class StateStore {
       .slice(0, MAX_IDEMPOTENCY);
     if (this.sqlite) {
       try {
-        this.writeSqliteTickets(changed);
+        this.writeSqliteTickets(changed, removedIds);
         this.writeSqliteIdempotency();
       } catch (error) {
         this.logger.error?.(`[state] sqlite write failed: ${error.message}`);

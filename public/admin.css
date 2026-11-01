@@ -1780,3 +1780,161 @@ body[data-page="models"] .admin-form {
 body[data-page="models"] .admin-form .field {
   align-self: start;
 }
+
+/* Two-column settings: category rail on the left, one panel on the right. */
+body[data-page="settings"] .settings-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 20px;
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: 24px;
+  align-items: start;
+}
+
+.settings-nav {
+  position: sticky;
+  top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.settings-nav-title {
+  padding: 7px 9px 9px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+
+.settings-nav-group {
+  padding: 13px 9px 5px;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.settings-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-nav-item span {
+  font-size: 12px;
+}
+
+.settings-nav-item small {
+  color: var(--muted);
+  font-size: 9.5px;
+  line-height: 1.4;
+}
+
+.settings-nav-item:hover {
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+}
+
+.settings-nav-item.active {
+  border-color: var(--line-strong);
+  background: rgba(138, 164, 248, 0.1);
+  color: var(--text);
+}
+
+.settings-nav-item.active small {
+  color: var(--text-dim);
+}
+
+.settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.settings-content > .admin-head {
+  margin: 0;
+}
+
+.settings-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.settings-panel.hidden {
+  display: none;
+}
+
+/* Cards are moved into tabs by JS; hide the pre-move originals to avoid a
+   flash of every admin section on first paint. */
+body[data-page="settings"] .settings-content > .admin-card,
+body[data-page="settings"] .settings-content > .admin-only {
+  display: none;
+}
+
+.settings-panel .admin-card {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  body[data-page="settings"] .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .settings-nav {
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 2px;
+    padding: 5px;
+    border-radius: 9px;
+  }
+
+  .settings-nav-title,
+  .settings-nav-group {
+    display: none;
+  }
+
+  .settings-nav-item {
+    flex: 0 0 auto;
+    min-width: 98px;
+    padding: 6px 8px;
+  }
+
+  .settings-nav-item small {
+    display: none;
+  }
+
+  .settings-nav-item span {
+    font-size: 11px;
+  }
+}

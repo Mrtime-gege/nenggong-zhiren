@@ -1432,6 +1432,46 @@ function syncDraftMeta(d) {
   d.els.draft.style.height = `${next}px`;
 }
 
+function setupEditorSplitter(splitter, wrap, composer) {
+  let startY = 0;
+  let startHeight = 0;
+  const apply = (height, persist = false) => {
+    const max = Math.max(220, wrap.getBoundingClientRect().height - 190);
+    const next = Math.max(220, Math.min(max, Math.round(height)));
+    wrap.style.setProperty("--editor-height", `${next}px`);
+    if (persist) {
+      try { localStorage.setItem("ngzr.editorHeight", String(next)); } catch { /* optional */ }
+    }
+  };
+  splitter.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    startY = event.clientY;
+    startHeight = composer.getBoundingClientRect().height;
+    splitter.setPointerCapture?.(event.pointerId);
+    splitter.classList.add("dragging");
+    const move = (moveEvent) => apply(startHeight - (moveEvent.clientY - startY));
+    const end = () => {
+      splitter.classList.remove("dragging");
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      const current = Math.round(composer.getBoundingClientRect().height);
+      try { localStorage.setItem("ngzr.editorHeight", String(current)); } catch { /* optional */ }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  });
+  splitter.addEventListener("dblclick", () => apply(300, true));
+  splitter.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    const current = composer.getBoundingClientRect().height;
+    apply(current + (event.key === "ArrowUp" ? 24 : -24), true);
+  });
+}
+
 function buildDetail(ticket) {
   clearDetailTimers(detail);
   els.detail.replaceChildren();
@@ -1546,8 +1586,9 @@ function buildDetail(ticket) {
   quickTransfer.type = "button";
   quickTransfer.addEventListener("click", openTransfer);
   otherActions.append(quickTemplate, quickTransfer);
+  let quickTakeover = null;
   if (state.role === "admin") {
-    const quickTakeover = el("button", "btn ghost", "管理员接管");
+    quickTakeover = el("button", "btn ghost editor-takeover", "管理员接管");
     quickTakeover.type = "button";
     quickTakeover.addEventListener("click", takeoverTicket);
     otherActions.append(quickTakeover);
@@ -1634,7 +1675,13 @@ function buildDetail(ticket) {
   editorTitle.append(el("span", "editor-index", "3"), el("span", "", "待发编辑区"));
   const editorHint = el("span", "editor-hint", "文本 / 工具 / 其他");
   editorTitle.append(editorHint);
-  editorHead.append(editorTitle, editorTabs);
+  const clearButton = el("button", "btn ghost editor-clear", "清空");
+  clearButton.type = "button";
+  clearButton.title = "清空当前草稿和待发送工具调用";
+  clearButton.addEventListener("click", clearEditorContent);
+  const editorHeadActions = el("div", "editor-head-actions");
+  editorHeadActions.append(editorTabs, clearButton);
+  editorHead.append(editorTitle, editorHeadActions);
 
   const composerHead = el("div", "composer-head");
   composerHead.append(label, draftStatus, draftCount, aiTools);
@@ -1642,6 +1689,14 @@ function buildDetail(ticket) {
   const composerMain = el("div", "composer-main");
   composerMain.append(editorHead, textSection, toolsSection, otherSection);
   composer.append(composerMain);
+  const editorSplitter = el("div", "editor-height-splitter");
+  editorSplitter.tabIndex = 0;
+  editorSplitter.setAttribute("role", "separator");
+  editorSplitter.setAttribute("aria-orientation", "horizontal");
+  editorSplitter.title = "拖动调整待发编辑区高度，双击恢复默认";
+  const editorHeight = Math.max(220, Math.min(560, Number(localStorage.getItem("ngzr.editorHeight")) || 300));
+  wrap.style.setProperty("--editor-height", `${editorHeight}px`);
+  setupEditorSplitter(editorSplitter, wrap, composer);
   outputPane.append(outputHead, reasoningBox, transcript, sentTools);
 
   const paneSplitter = createSplitter("pane");
@@ -1649,7 +1704,7 @@ function buildDetail(ticket) {
   const workspace = el("div", "workspace editor-workspace");
   workspace.append(panes);
   applySavedSplits(workspace, panes);
-  wrap.append(head, meta, purposeHint, sessionBar, workspace, composer);
+  wrap.append(head, meta, purposeHint, sessionBar, workspace, editorSplitter, composer);
   els.detail.append(wrap);
 
   const current = { id: ticket.id, els: {} };
@@ -1695,6 +1750,9 @@ function buildDetail(ticket) {
     workspace,
     editorHead,
     editorTabs,
+    editorHeadActions,
+    clearButton,
+    quickTakeover,
     tabButtons,
     textSection,
     toolsSection,
@@ -1734,6 +1792,7 @@ function buildDetail(ticket) {
     setDraft(detail.id, draft.value);
     draftStatus.textContent = draft.value.trim() ? "草稿已自动保存" : "";
     syncDraftMeta(detail);
+    syncClearButton(currentTicket(), detail);
   });
   toolFilter.addEventListener("input", () => {
     const currentTicket = state.tickets.find((item) => item.id === state.selectedId);
@@ -1746,7 +1805,11 @@ function buildDetail(ticket) {
       renderToolPanel(currentTicket, detail);
     }
   });
-  toolArgs.addEventListener("input", () => setToolError(detail, ""));
+  toolArgs.addEventListener("input", () => {
+    detail.toolArgsDirty = true;
+    setToolError(detail, "");
+    syncClearButton(currentTicket(), detail);
+  });
   toolArgs.addEventListener("keydown", (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
@@ -3176,10 +3239,60 @@ function updateComposer(ticket, d) {
   else d.els.draft.placeholder = "在这里写回复…";
   syncDraftMeta(d);
   syncAutoAiTimer(ticket, d, autoAiRunning);
+  syncClearButton(ticket, d);
   syncCommandbar();
 }
 
 /* ------------------------------ actions ------------------------------ */
+
+function syncClearButton(ticket, d) {
+  if (!ticket || !d?.els?.clearButton) return;
+  const editable = isTicketEditable(ticket) && !isAutoAiRunning(ticket);
+  const hasDraft = Boolean(String(d.els.draft?.value || "").trim());
+  const hasTools = Boolean((state.toolDrafts.get(ticket.id) || []).length);
+  const hasArgs = Boolean(d.toolArgsDirty && String(d.els.toolArgs?.value || "").trim());
+  const hasAiPanel = !d.els.aiPanel?.classList.contains("hidden");
+  d.els.clearButton.disabled = !editable || !(hasDraft || hasTools || hasArgs || hasAiPanel);
+}
+
+async function clearEditorContent() {
+  const ticket = currentTicket();
+  if (!ticket || !detail || detail.id !== ticket.id) return;
+  const hasDraft = Boolean(detail.els.draft.value.trim());
+  const hasTools = Boolean((state.toolDrafts.get(ticket.id) || []).length);
+  const hasArgs = Boolean(detail.els.toolArgs.value.trim());
+  const hasAi = !detail.els.aiPanel.classList.contains("hidden");
+  if (!hasDraft && !hasTools && !hasArgs && !hasAi) {
+    toast("当前没有可清空的内容。");
+    return;
+  }
+  if (!window.confirm("清空当前草稿、AI 建议和待发送工具调用？")) return;
+
+  detail.els.draft.value = "";
+  setDraft(ticket.id, "");
+  detail.els.draft.dispatchEvent(new Event("input", { bubbles: true }));
+  detail.els.draftStatus.textContent = "";
+  syncDraftMeta(detail);
+
+  state.toolDrafts.delete(ticket.id);
+  detail.toolEditing = null;
+  setToolEditMode(detail, null);
+  detail.els.toolArgs.value = "";
+  detail.toolArgsDirty = false;
+  setToolError(detail, "");
+  renderPendingToolCalls(ticket, detail);
+  renderToolPanel(ticket, detail);
+
+  detail.els.aiPanel.classList.add("hidden");
+  detail.els.aiPanelBody.textContent = "";
+  detail.els.aiPanel.classList.remove("expanded");
+  state.aiPrompts.delete(ticket.id);
+  detail.els.aiPromptInput.value = "";
+  updateAiPromptTrigger(detail);
+
+  updateComposer(ticket, detail);
+  toast("已清空草稿、AI 建议和待发送工具。");
+}
 
 async function doAction(name) {
   closeCommandMenu();
@@ -3277,6 +3390,10 @@ function syncCommandbar() {
   if (els.cmdTakeover) {
     els.cmdTakeover.classList.toggle("hidden", !canTakeover);
     els.cmdTakeover.disabled = state.busy || !canTakeover;
+  }
+  if (detail?.els?.quickTakeover) {
+    detail.els.quickTakeover.classList.toggle("hidden", !canTakeover);
+    detail.els.quickTakeover.disabled = state.busy || !canTakeover;
   }
   els.commandState.textContent = ticket
     ? STATE_LABELS[ticket.state] || ticket.state
@@ -3635,6 +3752,14 @@ async function sendToolCalls() {
 async function takeoverTicket() {
   const ticket = currentTicket();
   if (!ticket || state.role !== "admin") return;
+  if (ticket.claimedBy === state.operator) {
+    toast("这张票据已经由你处理，无需接管。");
+    return;
+  }
+  if (ticket.state !== "claimed" || !ticket.claimedBy) {
+    toast("只有其他回复员已认领、尚未开始流式的票据可以接管。");
+    return;
+  }
   if (!window.confirm(`接管这张票据？\n\n当前接待人 @${ticket.claimedBy || "-"} 将失去发送权限，你可以继续编辑并回复。`)) return;
   state.busy = true;
   setButtonsDisabled(true);

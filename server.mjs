@@ -716,21 +716,43 @@ const RECONNECT_GRACE_MS = Math.max(
   Number(process.env.NGZR_RECONNECT_GRACE_MS) || 2 * 60_000,
 );
 const restoredTickets = stateStore.restoreTickets();
-for (const restored of restoredTickets) tickets.set(restored.id, restored);
+const restoredNow = Date.now();
+const expiredRestoredIds = [];
+for (const restored of restoredTickets) {
+  if (restored.finished) {
+    const finishedAt = Number(restored.finishedAt) || restoredNow;
+    const remaining = live.queue.retentionMs - (restoredNow - finishedAt);
+    if (remaining <= 0) {
+      expiredRestoredIds.push(restored.id);
+      continue;
+    }
+    tickets.set(restored.id, restored);
+    scheduleRetention(restored, remaining);
+    continue;
+  }
+  tickets.set(restored.id, restored);
+}
 for (const record of stateStore.idempotency) {
   if (record?.key && record?.ticketId) idempotencyRecords.set(record.key, record);
 }
 rebuildSessionRecords();
+pruneSessionRecords();
 for (const restored of restoredTickets) {
-  if (restored.finished) continue;
+  if (restored.finished || expiredRestoredIds.includes(restored.id)) continue;
   if (restored.state === "queued") armQueueTimeout(restored);
   else if (["claimed", "streaming", "finishing"].includes(restored.state)) armResponseTimeout(restored);
   armReconnectExpiry(restored);
+}
+if (expiredRestoredIds.length) {
+  persistRuntime({ flush: true });
+  log(`[state] dropped ${expiredRestoredIds.length} finished tickets outside retention`);
 }
 if (restoredTickets.length) {
   const activeRestored = restoredTickets.filter((ticket) => !ticket.finished).length;
   log(`[state] restored ${restoredTickets.length} tickets (${activeRestored} active)`);
 }
+// Do not keep the startup restore array alive for the lifetime of the process.
+restoredTickets.length = 0;
 
 function requestIdempotencyKey(req, caller) {
   const raw = String(req.headers["idempotency-key"] || "").trim();
@@ -1338,6 +1360,15 @@ function rebuildSessionRecords() {
   }
 }
 
+function pruneSessionRecords(max = 1000) {
+  if (sessionRecords.size <= max) return;
+  const keep = [...sessionRecords.values()]
+    .sort((a, b) => (Number(b.lastAt) || 0) - (Number(a.lastAt) || 0))
+    .slice(0, max);
+  sessionRecords.clear();
+  for (const record of keep) sessionRecords.set(record.id, record);
+}
+
 function rememberPreferredOperator(ticket) {
   const record = sessionRecords.get(ticket.sessionId);
   if (record && ticket.claimedBy) record.preferredOperator = ticket.claimedBy;
@@ -1539,11 +1570,13 @@ function releaseTicketSlot(ticket) {
   }
 }
 
-function scheduleRetention(ticket) {
+function scheduleRetention(ticket, delayMs = live.queue.retentionMs) {
+  clearTimeout(ticket.timers.retention);
   ticket.timers.retention = setTimeout(() => {
     tickets.delete(ticket.id);
+    pruneHistoryTextCache(ticket.id);
     persistRuntime();
-  }, live.queue.retentionMs);
+  }, Math.max(1000, Number(delayMs) || live.queue.retentionMs));
   ticket.timers.retention.unref?.();
 }
 
@@ -2289,6 +2322,7 @@ async function evaluateAlerts() {
 }
 
 setInterval(() => { evaluateAlerts().catch((error) => log(`[alert] evaluate failed: ${error.message}`)); }, 15_000).unref?.();
+setInterval(() => { pruneSessionRecords(); pruneIdempotency(); }, 60_000).unref?.();
 
 const ARCHIVE_STATES = new Set(["done", "failed", "cancelled"]);
 
@@ -2324,6 +2358,13 @@ function historySummary(ticket) {
 }
 
 const historyTextCache = new Map();
+
+function pruneHistoryTextCache(ticketId) {
+  const prefix = `${ticketId}:`;
+  for (const key of historyTextCache.keys()) {
+    if (key.startsWith(prefix)) historyTextCache.delete(key);
+  }
+}
 
 function historySearchText(ticket) {
   const key = `${ticket.id}:${ticket.finishedAt || ticket.createdAt || 0}`;

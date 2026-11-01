@@ -3269,3 +3269,132 @@ body {
     height: 250px;
   }
 }
+
+.editor-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.editor-clear {
+  height: 25px;
+  min-height: 25px;
+  padding: 0 8px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.editor-clear:not(:disabled):hover {
+  color: var(--red);
+  border-color: rgba(209, 141, 141, 0.35);
+}
+
+.editor-clear:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Resizable block 3: drag the horizontal divider to trade height with the
+   two upper blocks; double-click the divider restores the default height. */
+.detail-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  min-height: 0;
+}
+
+.detail-wrap > .detail-head,
+.detail-wrap > .meta,
+.detail-wrap > .purpose-hint,
+.detail-wrap > .session-bar {
+  flex: 0 0 auto;
+}
+
+.detail-wrap > .workspace {
+  flex: 1 1 auto;
+  min-height: 150px;
+}
+
+.editor-height-splitter {
+  flex: 0 0 7px;
+  height: 7px;
+  margin: -2px 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.editor-height-splitter::after {
+  content: "";
+  display: block;
+  width: 38px;
+  height: 3px;
+  margin: 2px auto;
+  border-radius: 999px;
+  background: var(--line-strong);
+  transition: background 0.15s ease;
+}
+
+.editor-height-splitter:hover::after,
+.editor-height-splitter.dragging::after {
+  background: var(--accent, #8aa4f8);
+}
+
+.editor-height-splitter:focus-visible {
+  outline: 1px solid var(--accent, #8aa4f8);
+  outline-offset: 1px;
+}
+
+.detail-wrap > .composer {
+  flex: 0 0 var(--editor-height, 300px);
+  height: var(--editor-height, 300px);
+  min-height: 220px;
+  max-height: none;
+  overflow: hidden;
+}
+
+.detail-wrap > .composer > .composer-main {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+}
+
+.composer-main > .editor-head {
+  flex: 0 0 auto;
+}
+
+.composer-main > .editor-panel:not(.hidden) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.editor-text {
+  overflow-y: auto;
+}
+
+.editor-tools,
+.editor-other {
+  height: auto;
+  overflow-y: auto;
+}
+
+.composer-main > .editor-text > textarea {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 780px) {
+  .detail-wrap > .composer {
+    flex-basis: var(--editor-height, 340px);
+    height: var(--editor-height, 340px);
+  }
+
+  .editor-height-splitter {
+    flex-basis: 9px;
+    height: 9px;
+  }
+}

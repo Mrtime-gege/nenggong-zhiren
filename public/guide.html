@@ -20,6 +20,7 @@
         <span class="brand-sub">新手教程</span>
       </a>
       <div class="guide-actions">
+        <a class="btn ghost" href="https://github.com/Mrtime-gege/nenggong-zhiren" target="_blank" rel="noreferrer">GitHub</a>
         <a class="btn ghost" href="/login">登录</a>
         <a class="btn primary" href="/console">进入工作台</a>
       </div>
@@ -38,6 +39,7 @@
           <a class="btn primary" href="/console">打开工作台</a>
           <a class="btn ghost" href="#caller">我是调用方</a>
           <a class="btn ghost" href="#operator">我是回复员</a>
+          <a class="btn ghost" href="https://github.com/Mrtime-gege/nenggong-zhiren" target="_blank" rel="noreferrer">GitHub 项目</a>
         </div>
       </section>
 
@@ -113,23 +115,27 @@
           <ol class="guide-steps">
             <li>
               <strong>登录工作台</strong>
-              打开 <code>/console</code>，使用管理员分配的账号登录。左侧是队列，中间是对话，右侧是检查器。
+              打开 <code>/console</code>，使用管理员分配的账号登录。左侧是队列，右侧分为三块工作区。
             </li>
             <li>
-              <strong>认领最上面的票据</strong>
-              点击票据或按「下一张」；队列会显示待认领、进行中、最近结束。认领后票据归你处理。
+              <strong>认领票据</strong>
+              点击票据或按「下一张」；队列会显示待认领、进行中、最近结束。认领只代表获得当前编辑权，可以放回队列或转交。
             </li>
             <li>
-              <strong>读上下文</strong>
-              中间「对话与上下文」会显示用户消息、工具结果和历史；右侧可查看工具调用和请求参数。
+              <strong>阅读对话历史</strong>
+              第 1 块「对话历史」显示调用方消息、上下文和工具声明；第 2 块「已发信息」显示已经推送出去的思考、正文和工具调用。
             </li>
             <li>
-              <strong>写回复并发送</strong>
-              在底部统一编辑区输入内容，选择「思考」「正文」或直接「完成」。流式请求会立即推送。
+              <strong>在待发编辑区工作</strong>
+              第 3 块「待发编辑区」包含「文本 / 工具 / 其他工具」三个标签：文本写草稿和 AI 辅助，工具编辑 JSON 参数，其他工具管理标签、优先级、备注、快捷回复和转交。
             </li>
             <li>
-              <strong>处理完就结束</strong>
-              完成后票据进入「最近结束」；需要放回队列、拒绝或取消时使用底部对应按钮。
+              <strong>调整高度并清空</strong>
+              拖动第 3 块上方的横向分隔线可以调整它和上方两块的高度；双击恢复默认。「清空」会一次性清除草稿、AI 建议和待发送工具。
+            </li>
+            <li>
+              <strong>发送并完成</strong>
+              使用「思考」「正文」或「完成」发送；流式请求会立即推送。完成后票据进入「最近结束」。
             </li>
           </ol>
         </div>
@@ -168,7 +174,7 @@
           <div class="guide-card"><h3>2. 模型</h3><p>在「模型」确认对外模型和权限；回复员只能看到被授权的模型。</p></div>
           <div class="guide-card"><h3>3. API Key</h3><p>在「API 密钥」为调用方生成 Key，设置并发和用量限制。</p></div>
         </div>
-        <p class="guide-note">运行状态、历史记录、审计和运行参数分别在顶部「状态」「历史」「审计」「设置」中查看。</p>
+        <p class="guide-note">运行状态、历史记录和审计在顶部对应页面查看；「设置」按左侧分类切换：个性化、运行参数、功能开关、AI 辅助、安全和系统信息。只有管理员能看到管理员分类。</p>
       </section>
 
       <section class="guide-section" id="faq">
@@ -186,7 +192,7 @@
 
       <footer class="guide-footer">
         <span>能工智人 · 人工回复工作台</span>
-        <span><a href="/console">进入工作台</a> · <a href="/login">登录</a></span>
+        <span><a href="/console">进入工作台</a> · <a href="/login">登录</a> · <a href="https://github.com/Mrtime-gege/nenggong-zhiren" target="_blank" rel="noreferrer">GitHub</a></span>
       </footer>
     </main>
   </body>
