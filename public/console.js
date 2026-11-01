@@ -1956,8 +1956,8 @@ function loadInspectorCollapsed() {
     if (saved === "1") return true;
     if (saved === "0") return false;
   } catch { /* storage is optional */ }
-  // The context rail becomes a drawer-like panel on narrow screens.
-  return window.matchMedia("(max-width: 1080px)").matches;
+  // The new default is a calm run canvas; the context rail is opt-in.
+  return true;
 }
 
 function applyInspectorState(d) {

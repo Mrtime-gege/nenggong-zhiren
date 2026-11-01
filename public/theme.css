@@ -2636,3 +2636,9 @@ body[data-page="workbench"] .detail-wrap {
     white-space: nowrap;
   }
 }
+
+/* Keep technical execution fields out of the primary run header. */
+body[data-page="workbench"] .detail-wrap > .meta .meta-item:nth-child(7),
+body[data-page="workbench"] .detail-wrap > .meta .meta-item:nth-child(8) {
+  display: none;
+}
