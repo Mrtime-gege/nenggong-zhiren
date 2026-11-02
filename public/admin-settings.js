@@ -6,6 +6,36 @@ let role = "";
 let latest = null;
 let preferences = null;
 let autoClaimAvailable = false;
+const QUICK_BAR_OPTIONS = [
+  ["ai", "AI 生成 / 重新生成"],
+  ["aiPrompt", "AI 引导"],
+  ["templates", "快捷回复"],
+  ["transfer", "转交"],
+];
+const DEFAULT_QUICK_BAR = ["ai", "aiPrompt"];
+
+function normalizeQuickBar(value) {
+  if (!Array.isArray(value)) return [...DEFAULT_QUICK_BAR];
+  const allowed = new Set(QUICK_BAR_OPTIONS.map(([key]) => key));
+  return [...new Set(value.filter((key) => allowed.has(key)))];
+}
+
+function renderQuickBarOptions() {
+  const host = $("quickBarOptions");
+  if (!host) return;
+  const selected = new Set(normalizeQuickBar(preferences?.quickBar));
+  host.replaceChildren();
+  for (const [key, label] of QUICK_BAR_OPTIONS) {
+    const option = document.createElement("label");
+    option.className = "quickbar-option";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = key;
+    input.checked = selected.has(key);
+    option.append(input, document.createTextNode(label));
+    host.append(option);
+  }
+}
 
 async function api(path, { method = "GET", body } = {}) {
   const headers = {};
@@ -78,6 +108,7 @@ function fillPreferences(data) {
   if ($("prefAutoAiClaim")) $("prefAutoAiClaim").checked = preferences.autoAiOnClaim === true;
   syncAutoClaimPreference();
   if ($("prefQueueAlert")) $("prefQueueAlert").value = preferences.queueAlertSeconds ?? 120;
+  renderQuickBarOptions();
   const notifyButton = $("notifyPermission");
   if (notifyButton) {
     const supported = "Notification" in window;
@@ -215,6 +246,7 @@ async function savePersonal(version) {
         autoClaimDefault: $("prefAutoClaim").checked,
         autoAiOnClaim: $("prefAutoAiClaim")?.checked === true,
         queueAlertSeconds,
+        quickBar: [...document.querySelectorAll("#quickBarOptions input:checked")].map((input) => input.value),
       },
     });
     preferences = data.preferences;

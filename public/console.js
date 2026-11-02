@@ -1213,7 +1213,7 @@ function notifyAutoAiState(ticket) {
   if (isAutoAiRunning(ticket)) {
     if (!state.autoAiNotified.has(ticket.id)) {
       state.autoAiNotified.add(ticket.id);
-      toast("AI 辅助正在自动生成，完成后会填入草稿");
+      toast("AI 辅助正在自动生成，结果会显示在 AI 子页");
     }
     return;
   }
@@ -1228,34 +1228,60 @@ function notifyAutoAiState(ticket) {
 function applyPendingAiHelp(ticket) {
   if (!state.aiAssist?.enabled || !state.aiAssist?.allowed) return;
   const pending = ticket?.aiPending;
-  if (!pending || pending.status !== "ready") return;
+  if (!pending || !isAutoAiPending(ticket)) return;
   if (ticket.claimedBy !== state.operator || !isTicketEditable(ticket)) return;
-  if (!detail || detail.id !== ticket.id || state.claimedAiApplied?.has(ticket.id)) return;
-  const draftEmpty = !String(detail.els.draft.value || "").trim();
-  const toolsEmpty = (state.toolDrafts.get(ticket.id) || []).length === 0;
-  if (!draftEmpty || !toolsEmpty) return;
-  if (!pending.content && !pending.toolCalls?.length) return;
-  if (!state.claimedAiApplied) state.claimedAiApplied = new Set();
-  state.claimedAiApplied.add(ticket.id);
-  if (pending.content || !pending.toolCalls?.length) {
-    setDraft(ticket.id, pending.content || "");
-    detail.els.draft.value = pending.content || "";
-    detail.els.draft.dispatchEvent(new Event("input", { bubbles: true }));
+  if (!detail || detail.id !== ticket.id) return;
+  if (pending.status === "running") {
+    if (detail.aiAutoLoadingAt !== pending.createdAt) {
+      detail.aiAutoLoadingAt = pending.createdAt;
+      showAiLoading(detail, pending.createdAt);
+    }
+    return;
   }
-  if (pending.toolCalls?.length) {
-    state.toolDrafts.set(ticket.id, pending.toolCalls.map((call) => ({
-      name: call.name,
-      arguments: typeof call.arguments === "string" ? call.arguments : JSON.stringify(call.arguments || {}),
-    })));
-    detail.inspectorCollapsed = false;
-    applyInspectorState(detail);
-    activateInspectorTab(detail, "tools");
-    renderToolPanel(ticket, detail);
+  if (pending.status === "error") {
+    if (detail.aiAutoErrorAt === pending.createdAt) return;
+    detail.aiAutoErrorAt = pending.createdAt;
+    detail.aiRunDismissed = false;
+    const run = {
+      status: "error",
+      task: "reply",
+      relay: true,
+      error: pending.error || "自动 AI 辅助失败。",
+      startedAt: pending.createdAt,
+    };
+    state.aiRuns.set(ticket.id, run);
+    renderAiRun(ticket, detail, run);
+    return;
   }
+  if (pending.status !== "ready") return;
+  // Compact queue records carry only aiPending.status. Do not render an empty
+  // result; wait for the full proposal that includes content/toolCalls.
+  if (!Object.hasOwn(pending, "content") && !Object.hasOwn(pending, "toolCalls")) {
+    loadTicketDetail(ticket.id);
+    return;
+  }
+  if (detail.aiAutoShownAt === pending.createdAt) return;
+  detail.aiAutoShownAt = pending.createdAt;
+  const calls = normalizeAiToolCalls(pending.toolCalls);
+  const run = {
+    status: "done",
+    task: "reply",
+    relay: true,
+    result: {
+      suggestion: {
+        text: stripAiToolAnnotations(pending.content || ""),
+        toolCalls: calls,
+        reason: "",
+      },
+    },
+    startedAt: pending.createdAt,
+    autoPendingAt: pending.createdAt,
+  };
+  state.aiRuns.set(ticket.id, run);
+  detail.aiRunDismissed = false;
+  renderAiRun(ticket, detail, run);
   updateComposer(ticket, detail);
-  toast(pending.source === "auto_receive"
-    ? "已自动填入收到票据时的 AI 帮助，可修改后发送"
-    : "已自动填入认领后的 AI 帮助，可修改后发送");
+  toast("AI 结果已显示在右侧 AI 子页，请确认后使用");
 }
 
 function showEmpty() {
@@ -1719,10 +1745,10 @@ function buildDetail(ticket) {
   const inspector = el("aside", "inspector context-pane");
   const inspectorHead = el("div", "inspector-head");
   inspectorHead.append(el("span", "", "上下文"));
-  inspectorHead.append(el("span", "inspector-hint", "资料 / 当前发送 / 工具 / AI / 备注"));
+  inspectorHead.append(el("span", "inspector-hint", "资料 / 当前发送 / 工具 / AI / 更多"));
   const inspectorTabs = el("div", "inspector-tabs");
   const tabButtons = {};
-  for (const [key, tabLabel] of [["info", "资料"], ["sent", "当前发送"], ["tools", "工具"], ["ai", "AI"], ["notes", "备注"]]) {
+  for (const [key, tabLabel] of [["info", "资料"], ["sent", "当前发送"], ["tools", "工具"], ["ai", "AI"], ["more", "更多"]]) {
     const button = el("button", "inspector-tab", tabLabel);
     button.type = "button";
     button.dataset.tab = key;
@@ -1732,7 +1758,8 @@ function buildDetail(ticket) {
   }
   const inspectorBody = el("div", "inspector-body context-body");
   const infoSection = el("div", "inspector-tab-panel context-info");
-  infoSection.append(meta, purposeHint, sessionBar);
+  const infoExtra = el("div", "info-extra");
+  infoSection.append(meta, purposeHint, sessionBar, infoExtra);
   const sentSection = el("div", "inspector-tab-panel context-sent");
   const sentHead = el("div", "sent-panel-head");
   sentHead.append(el("span", "sent-panel-title", "当前发送"));
@@ -1767,6 +1794,28 @@ function buildDetail(ticket) {
   toolsSection.append(toolPanel, toolEmpty);
   const routingPanel = el("section", "ticket-extra routing-panel");
   const notesPanel = el("section", "ticket-extra notes-panel");
+  const moreActions = el("div", "more-action-grid");
+  const moreRefresh = el("button", "btn ghost", "刷新票据");
+  moreRefresh.type = "button";
+  moreRefresh.addEventListener("click", async () => {
+    try { await loadTicketDetail(ticket.id); toast("票据已刷新"); }
+    catch (error) { toast(error.message || "刷新失败"); }
+  });
+  const moreCopyId = el("button", "btn ghost", "复制 ID");
+  moreCopyId.type = "button";
+  moreCopyId.addEventListener("click", () => copyMessageText(ticket.id));
+  const moreCopyReply = el("button", "btn ghost", "复制回复");
+  moreCopyReply.type = "button";
+  moreCopyReply.addEventListener("click", () => {
+    const current = currentTicket();
+    const value = current?.text || current?.refusal || "";
+    if (!value) { toast("当前没有已发送正文"); return; }
+    copyMessageText(value);
+  });
+  const moreHistory = el("button", "btn ghost", "查看历史");
+  moreHistory.type = "button";
+  moreHistory.addEventListener("click", () => openSubpage(`/console/history?ticket=${encodeURIComponent(ticket.id)}`, "历史"));
+  moreActions.append(moreRefresh, moreCopyId, moreCopyReply, moreHistory);
   const otherActions = el("div", "editor-quick-actions context-actions");
   const quickTemplate = el("button", "btn ghost", "快捷回复");
   quickTemplate.type = "button";
@@ -1782,14 +1831,14 @@ function buildDetail(ticket) {
     quickTakeover.addEventListener("click", takeoverTicket);
     otherActions.append(quickTakeover);
   }
-  notesSection.append(otherActions, routingPanel, notesPanel);
+  notesSection.append(moreActions, otherActions, routingPanel, notesPanel);
   inspectorBody.append(infoSection, sentSection, toolsSection, aiSection, notesSection);
   inspector.append(inspectorHead, inspectorTabs, inspectorBody);
 
   const aiTools = el("div", "ai-tools hidden");
   const aiTrigger = el("button", "btn ghost ai-menu-trigger", "AI 生成");
   aiTrigger.type = "button";
-  aiTrigger.title = "将当前请求转发给辅助模型；回复会直接写入草稿和工具栏";
+  aiTrigger.title = "生成结果会显示在 AI 子页；不会自动填入草稿或工具";
   aiTrigger.addEventListener("click", () => runAiTask("reply", detail, state.aiPrompts.get(ticket.id) || ""));
   const aiPromptTrigger = el("button", "btn ghost ai-prompt-trigger", "AI 引导");
   aiPromptTrigger.type = "button";
@@ -1840,6 +1889,14 @@ function buildDetail(ticket) {
     if (!hidden) aiPromptInput.focus();
   });
   aiTools.append(aiTrigger, aiPromptTrigger, aiPromptPopover);
+  const quickBar = el("div", "quick-bar");
+  const quickBarTemplate = el("button", "btn ghost quickbar-action", "快捷回复");
+  quickBarTemplate.type = "button";
+  quickBarTemplate.addEventListener("click", openTemplateModal);
+  const quickBarTransfer = el("button", "btn ghost quickbar-action", "转交");
+  quickBarTransfer.type = "button";
+  quickBarTransfer.addEventListener("click", openTransfer);
+  quickBar.append(aiTools, quickBarTemplate, quickBarTransfer);
   const aiButtons = { reply: aiTrigger };
   const aiPanel = el("section", "ai-panel hidden");
   const aiPanelHead = el("div", "ai-panel-head");
@@ -1860,14 +1917,15 @@ function buildDetail(ticket) {
   aiClose.type = "button";
   aiPanelActions.append(aiExpand, aiCopy, aiClose);
   aiPanel.append(aiPanelHead, aiPanelBody, aiPanelActions);
-  aiSection.append(aiPanel);
+  const aiEmpty = el("div", "ai-empty", "AI 结果会显示在这里。使用回复框上方的快捷栏生成候选回复或工具调用。");
+  aiSection.append(aiPanel, aiEmpty);
 
   const clearButton = el("button", "btn ghost editor-clear", "清空");
   clearButton.type = "button";
   clearButton.title = "清空当前草稿和待发送工具调用";
   clearButton.addEventListener("click", clearEditorContent);
   const composerHead = el("div", "composer-head");
-  composerHead.append(label, draftStatus, draftCount, aiTools, clearButton);
+  composerHead.append(label, draftStatus, draftCount, quickBar, clearButton);
   const composerMain = el("div", "composer-main");
   composerMain.append(composerHead, draft, note);
   composer.append(composerMain);
@@ -1920,6 +1978,10 @@ function buildDetail(ticket) {
     composer,
     composerMain,
     aiTools,
+    aiTrigger,
+    quickBar,
+    quickBarTemplate,
+    quickBarTransfer,
     aiButtons,
     aiPromptTrigger,
     aiPromptPopover,
@@ -1927,6 +1989,7 @@ function buildDetail(ticket) {
     aiPromptGenerate,
     aiPromptClear,
     aiPanel,
+    aiEmpty,
     aiPanelTitle,
     aiPanelHint,
     aiPanelBody,
@@ -1953,6 +2016,7 @@ function buildDetail(ticket) {
     inspectorTabs,
     inspectorBody,
     infoSection,
+    infoExtra,
     sentSection,
     sentReasoning,
     sentReasoningCount,
@@ -1965,6 +2029,9 @@ function buildDetail(ticket) {
     toolsSection,
     aiSection,
     notesSection,
+    moreActions,
+    moreRefresh,
+    moreCopyReply,
     clearButton,
     quickTakeover,
     tabButtons,
@@ -2078,7 +2145,7 @@ function loadInspectorTab() {
     if (value === "tools") return "tools";
     if (value === "ai") return "ai";
     if (value === "sent") return "sent";
-    if (["notes", "routing", "other"].includes(value)) return "notes";
+    if (value === "more" || ["notes", "routing", "other"].includes(value)) return "more";
   } catch { /* storage is optional */ }
   return "info";
 }
@@ -2098,9 +2165,9 @@ function applyInspectorState(d) {
 
 function activateInspectorTab(d, tab) {
   if (!d?.els?.inspectorTabs) return;
-  const next = ["info", "sent", "tools", "ai", "notes"].includes(tab)
+  const next = ["info", "sent", "tools", "ai", "more"].includes(tab)
     ? tab
-    : tab === "tools" ? "tools" : ["notes", "routing", "other"].includes(tab) ? "notes" : "info";
+    : tab === "tools" ? "tools" : ["more", "notes", "routing", "other"].includes(tab) ? "more" : "info";
   d.inspectorTab = next;
   try { localStorage.setItem(INSPECTOR_TAB_KEY, next); } catch { /* storage is optional */ }
   for (const [key, button] of Object.entries(d.els.tabButtons)) {
@@ -2111,11 +2178,49 @@ function activateInspectorTab(d, tab) {
   d.els.sentSection.classList.toggle("hidden", next !== "sent");
   d.els.toolsSection.classList.toggle("hidden", next !== "tools");
   d.els.aiSection.classList.toggle("hidden", next !== "ai");
-  d.els.notesSection.classList.toggle("hidden", next !== "notes");
+  d.els.notesSection.classList.toggle("hidden", next !== "more");
   if (next === "tools") {
     const ticket = currentTicket();
     if (ticket) renderToolPanel(ticket, d);
   }
+}
+
+function renderInfoExtra(ticket, d) {
+  if (!d?.els?.infoExtra) return;
+  const date = (value) => value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "—";
+  const toolChoice = typeof ticket.toolChoice === "string"
+    ? ticket.toolChoice
+    : ticket.toolChoice?.name ? `指定 ${ticket.toolChoice.name}` : "auto";
+  const rows = [
+    ["票据 ID", ticket.id],
+    ["协议", ticket.protocol === "anthropic-messages" ? "Anthropic Messages" : "OpenAI Chat"],
+    ["模型", ticket.model || "—"],
+    ["请求模式", ticket.stream ? "流式" : "非流式"],
+    ["当前状态", STATE_LABELS[ticket.state] || ticket.state],
+    ["会话", ticket.sessionId ? `${ticket.sessionId} · 第 ${ticket.sessionTurn || 1} 轮` : "独立请求"],
+    ["首选回复员", ticket.preferredOperator ? `@${ticket.preferredOperator}` : "未指定"],
+    ["创建时间", date(ticket.createdAt)],
+    ["认领时间", date(ticket.claimedAt)],
+    ["完成时间", date(ticket.finishedAt)],
+    ["排队耗时", fmtMs(ticket.queueWaitMs)],
+    ["处理耗时", fmtMs(ticket.handleMs)],
+    ["总耗时", fmtMs(ticket.elapsedMs)],
+    ["工具", `${(ticket.tools || []).length} 个 · ${toolChoice}${ticket.parallelToolCalls === false ? " · 禁止并行" : ""}`],
+    ["输出格式", ticket.responseFormat?.type || "文本"],
+    ["附件", `${(ticket.attachments || []).length} 个`],
+    ["输出上限", ticket.maxTokens ? `${ticket.maxTokens} tokens` : "模型默认"],
+    ["停止词", `${(ticket.stops || []).length} 个`],
+    ["usage", ticket.includeUsage ? "返回给调用方" : "不返回"],
+    ["客户端", ticket.clientGone ? "已断开" : "在线"],
+  ];
+  const fragment = document.createDocumentFragment();
+  for (const [label, value] of rows) {
+    const row = el("div", "info-extra-row");
+    row.append(el("span", "info-extra-label", label));
+    row.append(el("span", "info-extra-value", String(value ?? "—")));
+    fragment.append(row);
+  }
+  d.els.infoExtra.replaceChildren(fragment);
 }
 
 function renderSentPanel(ticket, d) {
@@ -2144,6 +2249,7 @@ function updateDetail(ticket) {
   renderMeta(ticket, d.els.meta);
   renderPurposeHint(ticket, d);
   renderSessionBar(ticket, d);
+  renderInfoExtra(ticket, d);
   renderSentPanel(ticket, d);
   renderMessages(ticket, d);
   renderTranscript(ticket, d);
@@ -2286,16 +2392,49 @@ function collapseAiPreview(d = detail) {
   }
 }
 
+const QUICK_BAR_ACTIONS = new Set(["ai", "aiPrompt", "templates", "transfer"]);
+const DEFAULT_QUICK_BAR = ["ai", "aiPrompt"];
+
+function quickBarActions() {
+  const raw = state.preferences?.quickBar;
+  if (!Array.isArray(raw)) return [...DEFAULT_QUICK_BAR];
+  return [...new Set(raw.filter((key) => QUICK_BAR_ACTIONS.has(key)))];
+}
+
+function syncQuickBar(ticket, d) {
+  if (!d?.els?.quickBar) return;
+  const actions = quickBarActions();
+  const aiAvailable = Boolean(state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
+  const hasAi = aiAvailable && (actions.includes("ai") || actions.includes("aiPrompt"));
+  const extras = actions.filter((key) => key === "templates" || key === "transfer");
+  d.els.quickBar.classList.toggle("hidden", !hasAi && extras.length === 0);
+  d.els.quickBarTemplate.classList.toggle("hidden", !actions.includes("templates"));
+  d.els.quickBarTransfer.classList.toggle("hidden", !actions.includes("transfer"));
+  const editable = Boolean(ticket && isTicketEditable(ticket) && !d.els.draft.disabled);
+  d.els.quickBarTemplate.disabled = state.busy || !ticket || !editable;
+  d.els.quickBarTransfer.disabled = state.busy || !ticket || ticket.state !== "claimed" ||
+    !(ticket.claimedBy === state.operator || state.role === "admin");
+}
+
 function syncAiTools(ticket, d) {
   const available = Boolean(state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
-  d.els.aiTools.classList.toggle("hidden", !available);
+  const actions = quickBarActions();
+  const hasAiQuick = actions.includes("ai") || actions.includes("aiPrompt");
+  d.els.aiTools.classList.toggle("hidden", !available || !hasAiQuick);
+  d.els.aiEmpty.classList.toggle("hidden", !available);
   if (!available) return;
+  d.els.aiTrigger.classList.toggle("hidden", !actions.includes("ai"));
+  d.els.aiPromptTrigger.classList.toggle("hidden", !actions.includes("aiPrompt"));
   const editable = isTicketEditable(ticket) && !d.els.draft.disabled;
-  const aiRunning = state.aiRuns.get(ticket.id)?.status === "running";
-  const aiDone = state.aiRuns.get(ticket.id)?.status === "done";
+  const run = state.aiRuns.get(ticket.id);
+  const pending = ticket.aiPending;
+  const auto = isAutoAiPending(ticket);
+  const aiRunning = run?.status === "running" || (auto && pending?.status === "running");
+  const aiAttempted = run?.status === "done" || run?.status === "error" ||
+    (auto && ["ready", "error"].includes(pending?.status));
   for (const button of Object.values(d.els.aiButtons)) {
     button.disabled = Boolean(aiRunning) || !editable;
-    button.textContent = aiDone ? "重新生成" : "AI 生成";
+    button.textContent = aiRunning ? "AI 生成中…" : aiAttempted ? "重新生成" : "AI 生成";
   }
   if (d.els.aiPromptTrigger) {
     d.els.aiPromptTrigger.disabled = Boolean(aiRunning) || !editable;
@@ -2504,6 +2643,24 @@ function restoreAiRun(ticket, d) {
   }
 }
 
+function normalizeAiToolCalls(calls) {
+  return (Array.isArray(calls) ? calls : [])
+    .map((call) => {
+      let args = call?.arguments ?? call?.parsedArguments ?? {};
+      if (typeof args === "string") {
+        try { args = JSON.parse(args || "{}"); } catch { args = args; }
+      }
+      const name = String(call?.name || call?.function?.name || "").trim();
+      if (!name) return null;
+      return {
+        id: String(call?.id || ""),
+        name,
+        arguments: args,
+      };
+    })
+    .filter(Boolean);
+}
+
 function stripAiToolAnnotations(value) {
   return String(value || "")
     .replace(/\[tool use:\s*[^\]]+\]/giu, "")
@@ -2522,9 +2679,10 @@ async function runAiTask(task, d, instruction = "") {
     toast("先认领票据，再请求 AI 回复。");
     return;
   }
-  const previousDraft = d.els.draft.value;
-  const previousTools = state.toolDrafts.get(ticket.id) || [];
-  const run = { status: "running", task: "reply", relay: true, previousDraft, previousTools, startedAt: Date.now() };
+  d.inspectorCollapsed = false;
+  applyInspectorState(d);
+  activateInspectorTab(d, "ai");
+  const run = { status: "running", task: "reply", relay: true, startedAt: Date.now() };
   state.aiRuns.set(ticket.id, run);
   d.aiRunDismissed = false;
   syncAiTools(ticket, d);
@@ -2535,31 +2693,18 @@ async function runAiTask(task, d, instruction = "") {
       body: instruction ? { instruction } : {},
     });
     const text = stripAiToolAnnotations(result.content || "");
-    setDraft(ticket.id, text);
-    d.els.draft.value = text;
-    d.els.draft.dispatchEvent(new Event("input", { bubbles: true }));
-    const calls = Array.isArray(result.toolCalls) ? result.toolCalls : [];
-    state.toolDrafts.set(ticket.id, calls.map((call) => ({
-      name: call.name,
-      arguments: typeof call.arguments === "string" ? call.arguments : JSON.stringify(call.arguments || {}),
-    })));
-    if (calls.length) {
-      d.inspectorCollapsed = false;
-      applyInspectorState(d);
-      activateInspectorTab(d, "tools");
-      renderToolPanel(ticket, d);
-    } else {
-      renderToolPanel(ticket, d);
-    }
-    updateComposer(ticket, d);
-    d.els.aiPanel.classList.add("hidden");
+    const calls = normalizeAiToolCalls(result.toolCalls);
     run.status = "done";
+    run.result = { suggestion: { text, toolCalls: calls, reason: "" } };
+    state.aiRuns.set(ticket.id, run);
+    d.aiRunDismissed = false;
+    d.aiRenderedRun = null;
     clearAiLoadingTimer(d);
-    d.aiRenderedRun = run;
-    d.aiRunDismissed = true;
+    renderAiRun(ticket, d, run);
+    updateComposer(ticket, d);
     toast(calls.length
-      ? `AI 已生成回复和 ${calls.length} 个工具调用，请修改后发送`
-      : "AI 已生成回复，请修改后发送");
+      ? `AI 已生成候选回复和 ${calls.length} 个工具调用，请在 AI 子页确认`
+      : "AI 已生成候选回复，请在 AI 子页确认");
   } catch (error) {
     run.status = "error";
     run.error = error.message;
@@ -3402,15 +3547,12 @@ function renderToolPanel(ticket, d) {
   if (!d?.els.toolPanel) return;
   const tools = ticket.tools || [];
   const hasTools = tools.length > 0 && ticket.toolChoice !== "none";
-  const autoAiRunning = isAutoAiRunning(ticket);
-  const visible = isTicketEditable(ticket) && hasTools && !autoAiRunning;
+  const visible = isTicketEditable(ticket) && hasTools;
   d.els.toolPanel.classList.toggle("hidden", !visible);
   if (d.els.toolEmpty) {
     d.els.toolEmpty.classList.toggle("hidden", visible);
     if (!visible) {
-      if (autoAiRunning) {
-        d.els.toolEmpty.textContent = "AI 辅助正在自动生成，完成后自动填入工具。";
-      } else if (!isActive(ticket)) {
+      if (!isActive(ticket)) {
         d.els.toolEmpty.textContent = "票据已结束，工具面板不可编辑。";
       } else if (ticket.claimedBy && ticket.claimedBy !== state.operator) {
         d.els.toolEmpty.textContent = `由 ${ticket.claimedBy} 接待中，无法编辑工具调用。`;
@@ -3802,7 +3944,7 @@ function syncAutoAiTimer(ticket, d, running) {
       }
       if (d.els?.note) {
         d.els.note.classList.remove("hidden");
-        d.els.note.textContent = `AI 辅助正在自动生成，已用时 ${elapsedText(d.autoAiStartedAt)}；完成后自动填入草稿和工具。`;
+        d.els.note.textContent = `AI 辅助正在自动生成，已用时 ${elapsedText(d.autoAiStartedAt)}；结果会显示在 AI 子页，输入框可继续编辑。`;
       }
     }, 1000);
   }
@@ -3826,11 +3968,11 @@ function updateComposer(ticket, d) {
   d.els.reasoningBox.classList.toggle("hidden", !reasoning);
   d.els.reasoningText.textContent = reasoning;
   d.els.reasoningCount.textContent = reasoning ? `${reasoning.length} 字` : "";
-  d.els.draft.disabled = !editable || autoAiRunning;
+  d.els.draft.disabled = !editable;
   note.classList.add("hidden");
   if (autoAiRunning) {
     note.classList.remove("hidden");
-    note.textContent = `AI 辅助正在自动生成，已用时 ${elapsedText(ticket.aiPending?.createdAt)}；完成后自动填入草稿和工具。`;
+    note.textContent = `AI 辅助正在自动生成，已用时 ${elapsedText(ticket.aiPending?.createdAt)}；结果会显示在 AI 子页，输入框可继续编辑。`;
   } else if (autoAiError) {
     note.classList.remove("hidden");
     note.textContent = ticket.aiPending?.error || "自动 AI 辅助失败，可稍后手动生成。";
@@ -3865,12 +4007,14 @@ function updateComposer(ticket, d) {
     note.classList.add("hidden");
   }
 
-  if (autoAiRunning) d.els.draft.placeholder = "AI 辅助生成中，完成后自动填入…";
-  else if (d.els.draft.disabled) d.els.draft.placeholder = "认领票据后即可输入回复";
+  if (d.els.draft.disabled) d.els.draft.placeholder = "认领票据后即可输入回复";
   else d.els.draft.placeholder = "在这里写回复…";
   syncDraftMeta(d);
   syncAutoAiTimer(ticket, d, autoAiRunning);
+  if (d.els.moreRefresh) d.els.moreRefresh.disabled = state.busy;
+  if (d.els.moreCopyReply) d.els.moreCopyReply.disabled = !(ticket.text || ticket.refusal);
   syncClearButton(ticket, d);
+  syncQuickBar(ticket, d);
   syncCommandbar();
 }
 
@@ -3878,7 +4022,7 @@ function updateComposer(ticket, d) {
 
 function syncClearButton(ticket, d) {
   if (!ticket || !d?.els?.clearButton) return;
-  const editable = isTicketEditable(ticket) && !isAutoAiRunning(ticket);
+  const editable = isTicketEditable(ticket);
   const hasDraft = Boolean(String(d.els.draft?.value || "").trim());
   const hasTools = Boolean((state.toolDrafts.get(ticket.id) || []).length);
   const hasArgs = Boolean(d.toolArgsDirty && String(d.els.toolArgs?.value || "").trim());
@@ -4003,8 +4147,6 @@ function syncCommandbar() {
     : false;
   const active = ticket ? isActive(ticket) : false;
   const mine = ticket ? ticket.claimedBy === state.operator : false;
-  const autoAiRunning = ticket ? isAutoAiRunning(ticket) : false;
-
   els.commandTicket.textContent = ticket
     ? `${ticket.model} · ${shortId(ticket.id)}`
     : state.connected
@@ -4033,19 +4175,19 @@ function syncCommandbar() {
       : "连接中";
   els.cmdClaim.disabled = state.busy || !ticket || ticket.state !== "queued";
   els.cmdNext.disabled = state.busy || state.tickets.length === 0;
-  els.cmdTemplates.disabled = state.busy || autoAiRunning || !ticket || !detail || detail.els.draft.disabled;
+  els.cmdTemplates.disabled = state.busy || !ticket || !detail || detail.els.draft.disabled;
   els.cmdTransfer.disabled =
-    state.busy || autoAiRunning || !ticket || ticket.state !== "claimed" || !(mine || state.role === "admin");
-  els.cmdThink.disabled = state.busy || autoAiRunning || !editable || !ticket || ticket.protocol === "anthropic-messages";
+    state.busy || !ticket || ticket.state !== "claimed" || !(mine || state.role === "admin");
+  els.cmdThink.disabled = state.busy || !editable || !ticket || ticket.protocol === "anthropic-messages";
   els.cmdThink.title =
     ticket?.protocol === "anthropic-messages" ? "Anthropic 路径暂不支持流式 thinking" : "";
-  els.cmdPush.disabled = state.busy || autoAiRunning || !editable;
-  els.cmdFinish.disabled = state.busy || autoAiRunning || !editable || (toolRequired && pending.length === 0);
+  els.cmdPush.disabled = state.busy || !editable;
+  els.cmdFinish.disabled = state.busy || !editable || (toolRequired && pending.length === 0);
   els.cmdFinish.title =
     toolRequired && pending.length === 0 ? "此请求要求先添加工具调用" : "";
   els.cmdRelease.disabled =
-    state.busy || autoAiRunning || !(editable && ticket.state === "claimed" && !ticket.stream && !ticket.text);
-  els.cmdRefuse.disabled = state.busy || autoAiRunning || !editable;
+    state.busy || !(editable && ticket.state === "claimed" && !ticket.stream && !ticket.text);
+  els.cmdRefuse.disabled = state.busy || !editable;
   els.cmdCancel.disabled =
     state.busy ||
     !active ||
@@ -4520,6 +4662,11 @@ function initSubpages() {
     if (event.origin !== location.origin) return;
     if (event.data?.type === "ngzr-preferences-changed") {
       state.preferences = event.data.preferences || state.preferences;
+      const ticket = currentTicket();
+      if (ticket && detail) {
+        syncQuickBar(ticket, detail);
+        syncAiTools(ticket, detail);
+      }
       return;
     }
     if (event.data?.type === "ngzr-ai-changed") {
@@ -4797,11 +4944,11 @@ function commandPaletteActions() {
         applyInspectorState(detail);
         activateInspectorTab(detail, "tools");
       }, "TOOL");
-      add("当前票据", "内部备注", "打开右侧备注标签", () => {
+      add("当前票据", "更多 / 内部备注", "打开右侧更多标签", () => {
         if (!detail) return;
         detail.inspectorCollapsed = false;
         applyInspectorState(detail);
-        activateInspectorTab(detail, "notes");
+        activateInspectorTab(detail, "more");
       });
       add("当前票据", "快捷回复", "插入一条已保存的模板", openTemplateModal);
       add("当前票据", "正文并完成", "发送当前草稿并结束票据", () => doAction("finish"), "⌘↵");

@@ -39,6 +39,11 @@
           <label class="switch-line field-full"><input id="prefAutoAiClaim" type="checkbox" /><span>认领票据后自动使用 AI 辅助（需管理员允许）</span></label>
           <p id="prefAutoAiClaimHint" class="admin-hint">认领后自动 AI 需要管理员先开启该功能。</p>
           <label class="field"><span class="field-label">排队提醒（秒） <em class="opt">选填</em></span><input id="prefQueueAlert" type="number" min="10" max="86400" /><span class="field-hint">范围 10–86400 秒；0 或越界会拒绝本次修改。</span></label>
+          <div class="field field-full quickbar-field">
+            <span class="field-label">快捷栏按钮</span>
+            <div id="quickBarOptions" class="quickbar-options"></div>
+            <span class="field-hint">显示在回复草稿上方；默认 AI 生成、AI 引导，只影响当前账号。</span>
+          </div>
           <div class="form-actions"><button id="notifyPermission" class="btn ghost" type="button">请求浏览器通知权限</button><span class="admin-hint">修改后自动保存</span></div>
         </form>
         <div id="personalError" class="form-error" role="alert"></div>

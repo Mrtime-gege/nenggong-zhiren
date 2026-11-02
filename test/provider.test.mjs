@@ -2138,14 +2138,22 @@ test("settings are split into per-user personalization and admin-only functions"
 
   const alicePrefs = await opJson(aliceSession, "/op/api/preferences");
   assert.equal(alicePrefs.preferences.notificationSound, true);
+  assert.deepEqual(alicePrefs.preferences.quickBar, ["ai", "aiPrompt"]);
   const updated = await opJson(aliceSession, "/op/api/preferences", {
     method: "PATCH",
-    body: { notificationSound: false, browserNotifications: false, queueAlertSeconds: 45, autoClaimDefault: true },
+    body: {
+      notificationSound: false,
+      browserNotifications: false,
+      queueAlertSeconds: 45,
+      autoClaimDefault: true,
+      quickBar: ["templates", "bogus", "ai", "ai"],
+    },
   });
   assert.equal(updated.preferences.notificationSound, false);
   assert.equal(updated.preferences.browserNotifications, false);
   assert.equal(updated.preferences.queueAlertSeconds, 45);
   assert.equal(updated.preferences.autoClaimDefault, true);
+  assert.deepEqual(updated.preferences.quickBar, ["templates", "ai"]);
 
   const aliceAgain = await opJson(aliceSession, "/op/api/preferences");
   assert.equal(aliceAgain.preferences.queueAlertSeconds, 45);

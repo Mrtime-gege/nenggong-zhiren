@@ -18,13 +18,29 @@ const PASSWORD_MIN = 8;
 const PASSWORD_MAX = 256;
 const SCRYPT_OPTIONS = Object.freeze({ N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
 const HASH_BYTES = 64;
+const QUICK_BAR_ACTIONS = new Set(["ai", "aiPrompt", "templates", "transfer"]);
+const DEFAULT_QUICK_BAR = Object.freeze(["ai", "aiPrompt"]);
 const DEFAULT_PREFERENCES = Object.freeze({
   browserNotifications: true,
   notificationSound: true,
   autoClaimDefault: false,
   autoAiOnClaim: false,
   queueAlertSeconds: 120,
+  quickBar: DEFAULT_QUICK_BAR,
 });
+
+function normalizeQuickBar(raw, fallback) {
+  if (!Array.isArray(raw)) return [...(fallback || DEFAULT_QUICK_BAR)];
+  const seen = new Set();
+  const result = [];
+  for (const value of raw) {
+    if (!QUICK_BAR_ACTIONS.has(value) || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+    if (result.length >= QUICK_BAR_ACTIONS.size) break;
+  }
+  return result;
+}
 
 function normalizePreferences(raw, fallback = DEFAULT_PREFERENCES) {
   const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
@@ -39,6 +55,7 @@ function normalizePreferences(raw, fallback = DEFAULT_PREFERENCES) {
       Number.isInteger(queueAlertSeconds) && queueAlertSeconds >= 10 && queueAlertSeconds <= 86_400
         ? queueAlertSeconds
         : fallback.queueAlertSeconds,
+    quickBar: normalizeQuickBar(source.quickBar, fallback.quickBar),
   };
 }
 

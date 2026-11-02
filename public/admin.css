@@ -1938,3 +1938,32 @@ body[data-page="settings"] .settings-content > .admin-only {
     font-size: 11px;
   }
 }
+
+/* Personal quick bar selection */
+.quickbar-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  width: 100%;
+}
+
+.quickbar-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 31px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.quickbar-option:hover {
+  border-color: var(--line-strong);
+}
+
+.quickbar-option input {
+  accent-color: var(--accent, #8aa4f8);
+}
