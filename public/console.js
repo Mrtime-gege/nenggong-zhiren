@@ -2826,9 +2826,22 @@ function updateThreadMinimap(d = detail) {
   const top = max > 0 ? Math.round((body.scrollTop / max) * maxTop) : 0;
   viewport.style.height = `${thumbHeight}px`;
   viewport.style.top = `${1 + top}px`;
-  const contentOverflow = Math.max(0, content.scrollHeight - clip.clientHeight);
-  const contentTop = max > 0 ? Math.round((body.scrollTop / max) * contentOverflow) : 0;
-  content.style.transform = `translateY(${-contentTop}px)`;
+  const contentHeight = content.scrollHeight;
+  const clipHeight = clip.clientHeight;
+  if (contentHeight < 2) {
+    minimap.classList.add("hidden");
+    return;
+  }
+  const fits = contentHeight <= clipHeight;
+  minimap.dataset.minimapLayout = fits ? "fit" : "scroll";
+  if (fits) {
+    const offset = Math.max(0, Math.floor((clipHeight - contentHeight) / 2));
+    content.style.transform = `translateY(${offset}px)`;
+  } else {
+    const contentOverflow = Math.max(0, contentHeight - clipHeight);
+    const contentTop = max > 0 ? Math.round((body.scrollTop / max) * contentOverflow) : 0;
+    content.style.transform = `translateY(${-contentTop}px)`;
+  }
 }
 
 function loadMoreThreadHistory(d = detail) {
