@@ -3054,7 +3054,10 @@ test("AI relay appends an optional operator instruction", async () => {
     const body = JSON.parse(received);
     assert.equal(body.messages.at(-1).role, "system");
     assert.match(body.messages.at(-1).content, /回答更简短/);
+    assert.match(body.messages.at(-1).content, /当前情况/);
+    assert.match(body.messages.at(-1).content, /辅助模型/);
     assert.match(body.messages.at(-1).content, /不是调用方的新消息/);
+    assert.match(body.messages.at(-1).content, /不要以任何形式透露/);
     assert.match(body.messages.at(-1).content, /不得在正文/);
     assert.match(body.messages.at(-1).content, /根据要求/);
   } finally {
