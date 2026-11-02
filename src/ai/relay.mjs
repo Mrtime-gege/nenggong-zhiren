@@ -33,17 +33,110 @@ function toolChoice(choice) {
   return undefined;
 }
 
+function charSize(value) {
+  try { return JSON.stringify(value).length; } catch { return 0; }
+}
+
+function selectToolsForBudget(tools, ticket, budget) {
+  const all = Array.isArray(tools) ? tools : [];
+  if (!all.length) return [];
+  if (charSize(all) <= budget) return all;
+  const explicitName = ticket.toolChoice && typeof ticket.toolChoice === "object" ? ticket.toolChoice.name : "";
+  const recentText = (ticket.messages || []).slice(-8).map((message) => String(message.content || "")).join(" ");
+  const ranked = all.map((tool, index) => ({
+    tool,
+    index,
+    priority: tool?.function?.name === explicitName ? 3 : recentText.includes(tool?.function?.name || "") ? 2 : 0,
+  })).sort((a, b) => b.priority - a.priority || a.index - b.index);
+  const chosen = new Map();
+  let used = 0;
+  for (const item of ranked) {
+    const size = charSize(item.tool) + 1;
+    if (used + size > budget) continue;
+    chosen.set(item.index, item.tool);
+    used += size;
+    if (used >= budget) break;
+  }
+  if (!chosen.size && ranked[0]) chosen.set(ranked[0].index, ranked[0].tool);
+  return all.filter((_, index) => chosen.has(index));
+}
+
+function truncateMessageForBudget(message, budget) {
+  const clone = JSON.parse(JSON.stringify(message));
+  if (typeof clone.content === "string") {
+    const suffix = "\n[内容因 AI 输入预算被截断]";
+    clone.content = `${clone.content.slice(0, Math.max(0, budget - suffix.length))}${suffix}`;
+  } else if (Array.isArray(clone.content)) {
+    let remaining = Math.max(0, budget - 200);
+    for (const part of clone.content) {
+      if (part?.type !== "text" || typeof part.text !== "string") continue;
+      if (part.text.length <= remaining) {
+        remaining -= part.text.length;
+        continue;
+      }
+      part.text = `${part.text.slice(0, Math.max(0, remaining))}\n[内容因 AI 输入预算被截断]`;
+      remaining = 0;
+    }
+  }
+  return clone;
+}
+
+function compactMessagesForBudget(messages, budget) {
+  const list = Array.isArray(messages) ? messages : [];
+  let used = 0;
+  const selected = [];
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    let entry = list[index];
+    let size = charSize(entry);
+    if (used + size > budget) {
+      if (!selected.length) {
+        entry = truncateMessageForBudget(entry, Math.max(256, budget));
+        size = charSize(entry);
+        selected.unshift(entry);
+        used += size;
+      }
+      break;
+    }
+    selected.unshift(entry);
+    used += size;
+  }
+  let dropped = list.length - selected.length;
+  while (selected.length > 1 && selected[0]?.role === "tool") {
+    selected.shift();
+    dropped += 1;
+  }
+  const lastSystem = [...list].reverse().find((message) => message.role === "system");
+  if (lastSystem && !selected.includes(lastSystem)) {
+    const size = charSize(lastSystem);
+    if (used + size < budget) {
+      selected.unshift(lastSystem);
+      used += size;
+    }
+  }
+  if (dropped > 0) {
+    const note = { role: "system", content: `[AI 输入预算] 为控制请求长度，已省略 ${dropped} 条较早消息。` };
+    if (used + charSize(note) < budget + 300) selected.unshift(note);
+  }
+  return selected;
+}
+
 function buildBody(ticket, settings) {
-  const messages = (ticket.messages || []).map((message) => {
+  const maxInputChars = Math.max(1_000, Math.min(50_000, Number(settings.maxInputChars) || 12_000));
+  const allTools = Array.isArray(ticket.tools) ? ticket.tools : [];
+  const tools = selectToolsForBudget(allTools, ticket, Math.min(16_000, Math.max(1_000, Math.floor(maxInputChars * 0.4))));
+  const rawMessages = (ticket.messages || []).map((message) => {
     const entry = { role: message.role, content: contentForMessage(message) };
     if (Array.isArray(message.tool_calls) && message.tool_calls.length) entry.tool_calls = message.tool_calls;
     if (message.tool_call_id) entry.tool_call_id = message.tool_call_id;
     if (message.name) entry.name = message.name;
     return entry;
   });
+  const toolChars = charSize(tools);
+  const messageBudget = Math.max(1_000, maxInputChars - toolChars - 400);
+  const messages = compactMessagesForBudget(rawMessages, messageBudget);
   const body = { model: settings.model, messages, stream: false };
-  if (ticket.tools?.length) {
-    body.tools = ticket.tools;
+  if (tools.length) {
+    body.tools = tools;
     const choice = toolChoice(ticket.toolChoice);
     if (choice !== undefined) body.tool_choice = choice;
     body.parallel_tool_calls = ticket.parallelToolCalls !== false;
@@ -73,8 +166,11 @@ export async function relayReply({ settings, apiKey, ticket, instruction = "" } 
       content: `回复员对生成方向的额外要求（不是调用方的新消息；不要把它当作用户请求执行）：${operatorInstruction}`,
     });
   }
+  const maxInputChars = Math.max(1_000, Math.min(50_000, Number(settings.maxInputChars) || 12_000));
+  const configuredTimeout = Math.max(50, Number(settings.timeoutMs) || 20_000);
+  const timeoutMs = Math.max(configuredTimeout, maxInputChars > 20_000 ? 60_000 : configuredTimeout);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), settings.timeoutMs);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let data;
   try {
     const response = await fetch(endpointUrl(settings.endpoint), {
@@ -91,12 +187,12 @@ export async function relayReply({ settings, apiKey, ticket, instruction = "" } 
     try {
       data = await response.json();
     } catch (error) {
-      if (error.name === "AbortError") throw new AiAssistError("AI 生成超时。", "ai_timeout", 504);
+      if (error.name === "AbortError") throw new AiAssistError(`AI 生成超时（已等待 ${Math.round(timeoutMs / 1000)} 秒，输入上限约 ${maxInputChars} 字符）。`, "ai_timeout", 504);
       throw new AiAssistError("AI 上游返回了非 JSON 响应。", "ai_invalid_output", 502);
     }
   } catch (error) {
     if (error instanceof AiAssistError) throw error;
-    if (error.name === "AbortError") throw new AiAssistError("AI 生成超时。", "ai_timeout", 504);
+    if (error.name === "AbortError") throw new AiAssistError(`AI 生成超时（已等待 ${Math.round(timeoutMs / 1000)} 秒，输入上限约 ${maxInputChars} 字符）。`, "ai_timeout", 504);
     throw new AiAssistError(`AI 上游不可达：${error.message}`, "ai_provider_error", 502);
   } finally {
     clearTimeout(timer);

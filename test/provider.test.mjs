@@ -3033,6 +3033,47 @@ test("AI relay timeout covers a delayed response body", async () => {
   }
 });
 
+test("AI relay trims messages and tools to the configured input budget", async () => {
+  const { relayReply } = await import("../src/ai/relay.mjs");
+  let received = "";
+  const mock = http.createServer((req, res) => {
+    let raw = "";
+    req.on("data", (chunk) => { raw += chunk; });
+    req.on("end", () => {
+      received = raw;
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 10, completion_tokens: 1 },
+      }));
+    });
+  });
+  await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
+  try {
+    const messages = Array.from({ length: 60 }, (_, index) => ({
+      role: index % 2 ? "assistant" : "user",
+      content: `message-${index} ${"x".repeat(400)}`,
+    }));
+    const tools = Array.from({ length: 10 }, (_, index) => ({
+      type: "function",
+      function: { name: `tool_${index}`, description: "x".repeat(300), parameters: { type: "object", properties: { q: { type: "string" } } } },
+    }));
+    await relayReply({
+      settings: { endpoint: `http://127.0.0.1:${mock.address().port}/v1`, model: "mock", timeoutMs: 5000, maxInputChars: 5000 },
+      apiKey: "sk",
+      ticket: { id: "budget-ticket", messages, tools },
+    });
+    const body = JSON.parse(received);
+    assert.ok(body.messages.length < messages.length);
+    assert.ok(body.tools.length < tools.length);
+    assert.match(body.messages.at(-1).content, /message-59/);
+    assert.match(body.messages[0].content, /输入预算/);
+    assert.ok(JSON.stringify(body.messages).length + JSON.stringify(body.tools).length < 6000);
+  } finally {
+    await new Promise((resolve) => mock.close(resolve));
+  }
+});
+
 test("brand icon and web manifest assets are served", async () => {
   const expected = new Map([
     ["/icon.svg", /image\/svg\+xml/],
