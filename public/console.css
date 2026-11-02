@@ -5382,3 +5382,23 @@ body[data-page="workbench"] .qitem-foot {
     max-width: 86px;
   }
 }
+
+/* Long custom quick bar labels stay within the reply dock. */
+.quickbar-action {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickbar-info {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quickbar-info-label,
+.quickbar-info-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

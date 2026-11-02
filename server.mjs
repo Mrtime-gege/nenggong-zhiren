@@ -695,7 +695,7 @@ function persistRuntime({ flush = false } = {}) {
     runtimePersistTimer = setTimeout(() => {
       runtimePersistTimer = null;
       writeRuntimeSnapshot();
-    }, 200);
+    }, 1_000);
     runtimePersistTimer.unref?.();
     return;
   }
@@ -2075,12 +2075,16 @@ function ticketSummarySignature(ticket) {
     ticket.claimedBy,
     ticket.finishedAt,
     ticket.sessionTurn,
+    ticket.sessionLastAt || 0,
+    ticket.clientGone ? 1 : 0,
     preferred,
     ticket.tags || [],
     ticket.priority,
     (ticket.notes || []).length,
     ticket.text?.length || 0,
     ticket.text?.slice(-24) || "",
+    ticket.reasoning?.length || 0,
+    ticket.reasoning?.slice(-24) || "",
     ticket.finishReason,
     ticket.usage?.completion_tokens ?? null,
     ticket.messages?.length || 0,
@@ -2090,42 +2094,88 @@ function ticketSummarySignature(ticket) {
   ]);
 }
 
+function ticketSearchText(ticket) {
+  const messages = ticket.messages || [];
+  const tags = ticket.tags || [];
+  const cacheKey = [
+    ticket.id,
+    ticket.callerLabel || "",
+    ticket.claimedBy || "",
+    messages.length,
+    tags.join("\u0000"),
+  ].join("\u0001");
+  if (ticket._searchCache?.key === cacheKey) return ticket._searchCache.value;
+  const value = [
+    ticket.id,
+    ticket.model,
+    ticket.claimedBy,
+    ticket.callerLabel,
+    ...messages.map((message) => message.content),
+    ...tags,
+  ].filter(Boolean).join(" ").toLowerCase();
+  ticket._searchCache = { key: cacheKey, value };
+  return value;
+}
+
 function publicTicketSummary(ticket) {
-  const active = ["queued", "claimed", "streaming", "finishing"].includes(ticket.state);
-  const cacheable = !active;
-  const signature = cacheable ? ticketSummarySignature(ticket) : "";
-  if (cacheable && ticket._summaryCache?.signature === signature) return ticket._summaryCache.value;
-  const full = publicTicket(ticket);
-  delete full.messages;
-  delete full.attachments;
-  delete full.tools;
-  delete full.toolChoice;
-  delete full.toolCalls;
-  delete full.responseFormat;
-  delete full.notes;
-  if (full.aiPending) {
-    full.aiPending = {
-      status: full.aiPending.status,
-      source: full.aiPending.source,
-      createdAt: full.aiPending.createdAt,
-      ...(full.aiPending.error ? { error: full.aiPending.error } : {}),
-    };
+  const signature = ticketSummarySignature(ticket);
+  const cached = ticket._summaryCache;
+  if (cached?.signature === signature) {
+    const end = ticket.finishedAt || Date.now();
+    cached.value.elapsedMs = end - ticket.created;
+    cached.value.queueWaitMs = ticket.claimedAt ? ticket.claimedAt - ticket.created : null;
+    cached.value.handleMs = ticket.claimedAt ? end - ticket.claimedAt : null;
+    return cached.value;
   }
+  const end = ticket.finishedAt || Date.now();
   const summary = {
-    ...full,
+    id: ticket.id,
+    protocol: ticket.protocol,
+    model: ticket.model,
+    stream: ticket.stream,
+    state: ticket.state,
+    createdAt: ticket.created,
+    claimedAt: ticket.claimedAt,
+    finishedAt: ticket.finishedAt,
+    claimedBy: ticket.claimedBy,
+    caller: ticket.callerLabel,
+    clientGone: ticket.clientGone,
+    sessionId: ticket.sessionId || null,
+    sessionTurn: ticket.sessionTurn || 1,
+    preferredOperator: ticket.sessionPreferredOperator || sessionRecords.get(ticket.sessionId)?.preferredOperator || null,
+    sessionStartedAt: ticket.sessionStartedAt || null,
+    sessionLastAt: ticket.sessionLastAt || null,
+    text: ticket.text,
+    reasoning: ticket.reasoning,
+    effort: ticket.effort || "",
+    refusal: ticket.refusal,
+    finishReason: ticket.finishReason,
+    autoAiAt: ticket.autoAiAt || null,
+    aiProposal: ticket.aiProposal || null,
+    aiPending: ticket.aiPending
+      ? {
+          status: ticket.aiPending.status,
+          source: ticket.aiPending.source,
+          createdAt: ticket.aiPending.createdAt,
+          ...(ticket.aiPending.error ? { error: ticket.aiPending.error } : {}),
+        }
+      : null,
+    maxTokens: ticket.maxTokens,
+    stops: ticket.stops,
+    promptTokens: ticket.promptTokens,
+    completionTokens: ticket.usage?.completion_tokens ?? countTokens(ticket.text),
+    tags: Array.isArray(ticket.tags) ? ticket.tags : [],
+    priority: Number.isInteger(ticket.priority) ? ticket.priority : 1,
+    elapsedMs: end - ticket.created,
+    queueWaitMs: ticket.claimedAt ? ticket.claimedAt - ticket.created : null,
+    handleMs: ticket.claimedAt ? end - ticket.claimedAt : null,
+    includeUsage: ticket.includeUsage,
     preview: ticketPreview(ticket),
     purpose: ticketPurpose(ticket),
     noteCount: (ticket.notes || []).length,
-    searchText: [
-      ticket.id,
-      ticket.model,
-      ticket.claimedBy,
-      ticket.callerLabel,
-      ...(ticket.messages || []).map((message) => message.content),
-      ...(ticket.tags || []),
-    ].filter(Boolean).join(" ").toLowerCase(),
+    searchText: ticketSearchText(ticket),
   };
-  if (cacheable) ticket._summaryCache = { signature, value: summary };
+  ticket._summaryCache = { signature, value: summary };
   return summary;
 }
 

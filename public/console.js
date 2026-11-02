@@ -2289,13 +2289,22 @@ function renderInfoExtra(ticket, d) {
     ["usage", ticket.includeUsage ? "返回给调用方" : "不返回"],
     ["客户端", ticket.clientGone ? "已断开" : "在线"],
   ];
+  const values = rows.map(([, value]) => String(value ?? "—"));
+  const existing = d.els.infoExtra.children;
+  if (existing.length === values.length) {
+    for (let index = 0; index < values.length; index += 1) {
+      const node = existing[index].querySelector(".info-extra-value");
+      if (node && node.textContent !== values[index]) node.textContent = values[index];
+    }
+    return;
+  }
   const fragment = document.createDocumentFragment();
-  for (const [label, value] of rows) {
+  rows.forEach(([label], index) => {
     const row = el("div", "info-extra-row");
     row.append(el("span", "info-extra-label", label));
-    row.append(el("span", "info-extra-value", String(value ?? "—")));
+    row.append(el("span", "info-extra-value", values[index]));
     fragment.append(row);
-  }
+  });
   d.els.infoExtra.replaceChildren(fragment);
 }
 
@@ -2303,6 +2312,14 @@ function renderSentPanel(ticket, d) {
   if (!d?.els?.sentSection) return;
   const reasoning = typeof ticket.reasoning === "string" ? ticket.reasoning : "";
   const text = typeof ticket.text === "string" ? ticket.text : "";
+  const signature = [
+    reasoning.length,
+    reasoning.slice(-24),
+    text.length,
+    text.slice(-24),
+  ].join("\u0000");
+  if (d.sentSignature === signature) return;
+  d.sentSignature = signature;
   d.els.sentReasoning.textContent = reasoning;
   d.els.sentText.textContent = text;
   d.els.sentReasoning.classList.toggle("hidden", !reasoning);
@@ -2694,29 +2711,56 @@ function runQuickBarItem(item) {
 function syncQuickBar(ticket, d) {
   if (!d?.els?.quickBar || !ticket) return;
   const items = quickBarItems().filter(quickBarItemAllowed);
-  d.els.quickBar.replaceChildren();
-  d.els.quickBar.classList.toggle("hidden", items.length === 0);
-  if (!items.length) return;
-  for (const item of items) {
+  const entries = items.map((item) => {
     const spec = quickBarSpec(item);
-    if (!spec) continue;
+    if (!spec) return null;
     if (item.kind === "info") {
+      return {
+        kind: "info",
+        item,
+        label: item.label,
+        value: quickBarInfoValue(item, ticket),
+        title: item.value === "memory" && state.quickBarInfo
+          ? `RSS ${state.quickBarInfo.memoryMb} MB · heap ${state.quickBarInfo.heapUsedMb || 0} MB`
+          : item.label,
+      };
+    }
+    return {
+      kind: item.kind,
+      item,
+      label: quickBarDisplayLabel(item, ticket),
+      disabled: quickBarDisabled(item, ticket),
+      title: item.kind === "link" ? item.label : (spec.label || item.label),
+    };
+  }).filter(Boolean);
+  const signature = JSON.stringify(entries.map((entry) => [
+    entry.kind,
+    entry.item.id,
+    entry.label,
+    entry.value || "",
+    entry.disabled ? 1 : 0,
+    entry.title || "",
+  ]));
+  if (d.quickBarSignature === signature) return;
+  d.quickBarSignature = signature;
+  d.els.quickBar.replaceChildren();
+  d.els.quickBar.classList.toggle("hidden", entries.length === 0);
+  for (const entry of entries) {
+    if (entry.kind === "info") {
       const chip = el("span", "quickbar-info");
-      chip.append(el("span", "quickbar-info-label", item.label));
-      chip.append(el("strong", "quickbar-info-value", quickBarInfoValue(item, ticket)));
-      chip.title = item.value === "memory" && state.quickBarInfo
-        ? `RSS ${state.quickBarInfo.memoryMb} MB · heap ${state.quickBarInfo.heapUsedMb || 0} MB`
-        : item.label;
+      chip.append(el("span", "quickbar-info-label", entry.label));
+      chip.append(el("strong", "quickbar-info-value", entry.value));
+      chip.title = entry.title;
       d.els.quickBar.append(chip);
       continue;
     }
-    const button = el("button", "btn ghost quickbar-action", quickBarDisplayLabel(item, ticket));
+    const button = el("button", "btn ghost quickbar-action", entry.label);
     button.type = "button";
-    button.title = item.kind === "link" ? item.label : (spec.label || item.label);
-    button.disabled = quickBarDisabled(item, ticket);
+    button.title = entry.title;
+    button.disabled = entry.disabled;
     button.addEventListener("click", (event) => {
       event.stopPropagation();
-      runQuickBarItem(item);
+      runQuickBarItem(entry.item);
     });
     d.els.quickBar.append(button);
   }
@@ -2738,7 +2782,7 @@ function syncAiTabIndicator(ticket) {
   dot.classList.toggle("running", Boolean(running));
   dot.classList.toggle("error", Boolean(failed));
   dot.classList.toggle("done", Boolean(done));
-  countEl.textContent = count ? String(count) : "";
+  countEl.textContent = count ? (count > 99 ? "99+" : String(count)) : "";
   countEl.classList.toggle("hidden", count === 0);
   button.title = running
     ? `AI 生成中 · 已有 ${count} 个结果`
@@ -2757,6 +2801,7 @@ function syncAiTools(ticket, d) {
   if (!available) {
     d.els.aiEmpty.classList.add("hidden");
     d.els.aiStatus.classList.add("hidden");
+    syncQuickBar(ticket, d);
     return;
   }
   d.els.aiTrigger.classList.remove("hidden");
@@ -2777,6 +2822,7 @@ function syncAiTools(ticket, d) {
     updateAiPromptTrigger(d);
   }
   syncAiCardActions(ticket, d);
+  syncQuickBar(ticket, d);
 }
 
 function updateAiPromptTrigger(d = detail) {
@@ -3245,6 +3291,20 @@ async function runAiTask(task, d, instruction = "") {
 }
 
 function renderBadges(ticket, container) {
+  const signature = JSON.stringify([
+    ticket.state,
+    ticket.stream,
+    ticket.effort || "",
+    purposeOf(ticket).id,
+    ticket.claimedBy || "",
+    ticket.toolCalls?.length || 0,
+    ticket.messages?.length || 0,
+    ticket.tools?.length || 0,
+    ticket.clientGone ? 1 : 0,
+    ticket.finishReason || "",
+  ]);
+  if (container.dataset.badgesSignature === signature) return;
+  container.dataset.badgesSignature = signature;
   const items = [];
   const purpose = purposeOf(ticket);
   items.push(badge(STATE_LABELS[ticket.state] || ticket.state, stateTone(ticket.state)));
@@ -3295,9 +3355,18 @@ function renderSessionBar(ticket, d) {
   const related = ticket.sessionId
     ? state.tickets.filter((item) => item.sessionId === ticket.sessionId).sort((a, b) => a.createdAt - b.createdAt)
     : [ticket];
+  const sessionSignature = JSON.stringify([
+    ticket.sessionId || "",
+    ticket.sessionTurn || 1,
+    ticket.preferredOperator || "",
+    state.selectedId,
+    related.map((item) => [item.id, item.state, item.claimedBy || "", item.sessionTurn || 1]),
+  ]);
   bar.classList.toggle("hidden", !ticket.sessionId);
   d.els.infoSession?.classList.toggle("hidden", !ticket.sessionId);
   if (!ticket.sessionId) return;
+  if (d.sessionSignature === sessionSignature) return;
+  d.sessionSignature = sessionSignature;
   bar.replaceChildren();
 
   const label = el("div", "session-label");
@@ -3339,16 +3408,25 @@ function renderSessionBar(ticket, d) {
 }
 
 function renderMeta(ticket, container) {
-  container.replaceChildren(
-    metaItem("调用方", ticket.caller || "—"),
-    metaItem("创建", fmtTime(ticket.createdAt)),
-    metaItem("排队", ticket.queueWaitMs !== null && ticket.queueWaitMs !== undefined ? fmtMs(ticket.queueWaitMs) : "—"),
-    metaItem("耗时", fmtMs(ticket.elapsedMs)),
-    metaItem("提示 ≈", `${ticket.promptTokens} tok`),
-    metaItem("回复 ≈", `${ticket.completionTokens} tok`),
-    metaItem("max_tokens", ticket.maxTokens ?? "—"),
-    metaItem("finish", ticket.finishReason || "—"),
-  );
+  const rows = [
+    ["调用方", ticket.caller || "—"],
+    ["创建", fmtTime(ticket.createdAt)],
+    ["排队", ticket.queueWaitMs !== null && ticket.queueWaitMs !== undefined ? fmtMs(ticket.queueWaitMs) : "—"],
+    ["耗时", fmtMs(ticket.elapsedMs)],
+    ["提示 ≈", `${ticket.promptTokens} tok`],
+    ["回复 ≈", `${ticket.completionTokens} tok`],
+    ["max_tokens", String(ticket.maxTokens ?? "—")],
+    ["finish", ticket.finishReason || "—"],
+  ];
+  const values = rows.map(([, value]) => String(value));
+  if (container.children.length === values.length) {
+    for (let index = 0; index < values.length; index += 1) {
+      const node = container.children[index].querySelector(".meta-value");
+      if (node && node.textContent !== values[index]) node.textContent = values[index];
+    }
+    return;
+  }
+  container.replaceChildren(...rows.map(([label], index) => metaItem(label, values[index])));
 }
 
 function renderMessageRow(ticket, message, index, isContext) {

@@ -120,7 +120,10 @@ export class StateStore {
   initSqlite() {
     this.db = new DatabaseSync(this.dbFile);
     try { fs.chmodSync(this.dbFile, 0o600); } catch { /* best effort */ }
-    this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;");
+    this.db.exec(
+      "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;" +
+      " PRAGMA cache_size=-32768; PRAGMA temp_store=MEMORY; PRAGMA wal_autocheckpoint=1000;",
+    );
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS tickets (
         id TEXT PRIMARY KEY,
