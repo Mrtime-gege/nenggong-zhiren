@@ -1914,7 +1914,7 @@ function buildDetail(ticket) {
     applyInspectorState(current);
   });
   detail = current;
-  threadBody.addEventListener("scroll", () => scheduleThreadMinimapUpdate(current), { passive: true });
+  threadBody.addEventListener("scroll", () => { scheduleThreadMinimapUpdate(current); revealThreadMinimap(current); }, { passive: true });
   if (typeof ResizeObserver !== "undefined") {
     current.minimapObserver = new ResizeObserver(() => scheduleThreadMinimapUpdate(current));
     current.minimapObserver.observe(threadBody);
@@ -2709,13 +2709,18 @@ function setupThreadMinimap(body, minimap, clip, content, viewport, unloaded) {
     event.preventDefault();
     minimap.setPointerCapture?.(event.pointerId);
     minimap.classList.add("dragging");
+    revealThreadMinimap(detail);
     scrollToPointer(event);
-    const move = (moveEvent) => scrollToPointer(moveEvent);
+    const move = (moveEvent) => {
+      revealThreadMinimap(detail);
+      scrollToPointer(moveEvent);
+    };
     const end = () => {
       minimap.classList.remove("dragging");
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
+      revealThreadMinimap(detail);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
@@ -2729,6 +2734,7 @@ function setupThreadMinimap(body, minimap, clip, content, viewport, unloaded) {
       top: (event.key === "ArrowDown" || event.key === "PageDown" ? 1 : -1) * (page ? body.clientHeight * 0.8 : 80),
       behavior: "smooth",
     });
+    revealThreadMinimap(detail);
     scheduleThreadMinimapUpdate(detail);
   });
 }
@@ -2740,6 +2746,16 @@ function scheduleThreadMinimapUpdate(d = detail) {
     d.minimapRaf = 0;
     updateThreadMinimap(d);
   });
+}
+
+function revealThreadMinimap(d = detail) {
+  const minimap = d?.els?.threadMinimap;
+  if (!minimap) return;
+  minimap.classList.add("visible");
+  clearTimeout(d.minimapHideTimer);
+  d.minimapHideTimer = setTimeout(() => {
+    if (!minimap.classList.contains("dragging")) minimap.classList.remove("visible");
+  }, 1100);
 }
 
 function updateThreadMinimap(d = detail) {

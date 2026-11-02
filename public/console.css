@@ -4252,3 +4252,43 @@ body.compact-ui .context-pane .context-body {
     inset: 6px 4px;
   }
 }
+
+/* The minimap is now an overlay: it never reserves horizontal space in the
+   conversation. Hovering the thread (or scrolling on touch) reveals a
+   semi-transparent overview on top of the history. */
+.thread-body {
+  padding-right: 20px;
+}
+
+.thread-minimap {
+  right: 6px;
+  width: 66px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(8, 13, 19, 0.12) 0%, rgba(8, 13, 19, 0.82) 20%, rgba(8, 13, 19, 0.93) 100%);
+  backdrop-filter: blur(3px);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);
+  transition: opacity 0.14s ease;
+}
+
+.thread-body:hover ~ .thread-minimap,
+.thread-minimap:hover,
+.thread-minimap.visible,
+.thread-minimap.dragging,
+.thread-minimap:focus-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+@media (max-width: 780px) {
+  .thread-body {
+    padding-right: 16px;
+  }
+
+  .thread-minimap {
+    right: 2px;
+    width: 48px;
+  }
+}
