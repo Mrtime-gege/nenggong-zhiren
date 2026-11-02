@@ -3055,6 +3055,8 @@ test("AI relay appends an optional operator instruction", async () => {
     assert.equal(body.messages.at(-1).role, "system");
     assert.match(body.messages.at(-1).content, /回答更简短/);
     assert.match(body.messages.at(-1).content, /不是调用方的新消息/);
+    assert.match(body.messages.at(-1).content, /不得在正文/);
+    assert.match(body.messages.at(-1).content, /根据要求/);
   } finally {
     await new Promise((resolve) => mock.close(resolve));
   }

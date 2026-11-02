@@ -33,7 +33,7 @@
           <span>功能开关</span><small>后台可见能力</small>
         </button>
         <button class="settings-nav-item" type="button" data-settings-tab="ai">
-          <span>AI 辅助</span><small>连接、限额与自动回复</small>
+          <span>AI 辅助</span><small>连接、限额与结果卡片</small>
         </button>
         <button class="settings-nav-item" type="button" data-settings-tab="security">
           <span>安全</span><small>管理员 MFA</small>
@@ -100,13 +100,12 @@
 
         <div class="admin-card">
           <div class="admin-card-title">AI 辅助 <span class="admin-hint">管理员</span></div>
-          <p class="admin-card-desc">AI 作为回复员的中转辅助：转发原始请求、把结果填入人工草稿和工具栏。可配置到达预生成、认领后生成和无人认领超时自动回复。API Key 只保存在本机，不会通过接口回显。</p>
+          <p class="admin-card-desc">AI 作为回复员的中转辅助：转发原始请求，结果作为卡片显示在 AI 子页，由回复员选择填入或追加。可配置到达预生成和认领后生成；不会自动填入，也不会自动回复调用方。API Key 只保存在本机，不会通过接口回显。</p>
           <form id="aiAssistForm" class="admin-form">
             <label class="switch-line field-full"><input id="aiEnabled" type="checkbox" /><span>启用 AI 辅助</span></label>
             <label class="switch-line field-full"><input id="aiAutoClaimEnabled" type="checkbox" /><span>允许回复员认领后自动使用 AI 辅助</span><span class="admin-hint">关闭时，所有账号的认领后 AI 个性化开关都不可用</span></label>
-            <label class="switch-line field-full"><input id="aiAutoReceive" type="checkbox" /><span>收到票据后自动请求 AI 帮助（管理员）</span></label>
-            <p class="admin-hint field-full">管理员级功能：票据到达即请求 AI，结果先暂存；任何人认领后自动填入草稿和工具，不需要回复员开启“认领后 AI”开关。</p>
-            <label class="field"><span class="field-label">无人认领自动回复等待（秒）</span><input id="aiAutoReplyAfter" type="number" min="0" max="86400" /><span class="field-hint">AI 结果就绪且票据仍无人认领时开始计时；范围 0–86400 秒；0 = 关闭自动回复。</span></label>
+            <label class="switch-line field-full"><input id="aiAutoReceive" type="checkbox" /><span>收到票据后自动预生成 AI 卡片</span></label>
+            <p class="admin-hint field-full">管理员级功能：票据到达即请求 AI，结果先暂存为卡片；回复员认领后可在 AI 子页选择填入或追加。不会自动修改草稿、工具调用或调用方响应。</p>
             <div class="settings-subhead">连接</div>
             <label class="field field-wide"><span class="field-label">OpenAI 兼容 Endpoint</span><input id="aiEndpoint" type="url" maxlength="500" placeholder="http://127.0.0.1:11434/v1" /></label>
             <label class="field"><span class="field-label">模型名</span><input id="aiModel" type="text" maxlength="200" placeholder="local-assist" /></label>

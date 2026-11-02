@@ -133,7 +133,6 @@ function fillSettings(data) {
   $("aiEnabled").checked = ai.enabled === true;
   $("aiAutoClaimEnabled").checked = ai.autoClaimEnabled === true;
   $("aiAutoReceive").checked = ai.autoReplyOnReceive === true;
-  $("aiAutoReplyAfter").value = ai.autoReplyAfterSeconds ?? 0;
   $("aiEndpoint").value = ai.endpoint || "";
   $("aiModel").value = ai.model || "";
   $("aiTimeout").value = ai.timeoutMs ?? 20000;
@@ -335,7 +334,6 @@ async function saveAiAssist(version) {
         enabled: $("aiEnabled").checked,
         autoClaimEnabled: $("aiAutoClaimEnabled").checked,
         autoReplyOnReceive: $("aiAutoReceive").checked,
-        autoReplyAfterSeconds: numberField("aiAutoReplyAfter", "无人认领自动回复等待"),
         endpoint: $("aiEndpoint").value.trim(),
         model: $("aiModel").value.trim(),
         timeoutMs: numberField("aiTimeout", "超时"),

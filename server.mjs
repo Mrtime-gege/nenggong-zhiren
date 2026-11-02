@@ -1374,55 +1374,6 @@ function rememberPreferredOperator(ticket) {
   if (record && ticket.claimedBy) record.preferredOperator = ticket.claimedBy;
 }
 
-function scheduleReceiveAiReply(ticket) {
-  clearTimeout(ticket.timers.aiReply);
-  const seconds = Number(live.aiAssist.autoReplyAfterSeconds) || 0;
-  if (seconds <= 0 || !live.aiAssist.autoReplyOnReceive) return;
-  if (ticket.state !== "queued" || ticket.claimedBy || ticket.aiPending?.status !== "ready") return;
-  ticket.timers.aiReply = setTimeout(() => {
-    deliverAutoAiReply(ticket).catch((error) => {
-      log(`[auto-ai-reply] ${ticket.id} failed: ${error.message}`);
-    });
-  }, seconds * 1000);
-  ticket.timers.aiReply.unref?.();
-}
-
-async function deliverAutoAiReply(ticket) {
-  if (ticket.finished || ticket.state !== "queued" || ticket.claimedBy) return false;
-  if (ticket.sessionId && [...tickets.values()].some((other) =>
-    other.id !== ticket.id &&
-    other.sessionId === ticket.sessionId &&
-    ["claimed", "streaming", "finishing"].includes(other.state),
-  )) return false;
-  const pending = ticket.aiPending;
-  if (!pending || pending.status !== "ready") return false;
-  let toolCalls;
-  try {
-    toolCalls = normalizeOperatorToolCalls(ticket, pending.toolCalls || []);
-  } catch (error) {
-    log(`[auto-ai-reply] ${ticket.id} tool validation failed: ${error.message}`);
-    return false;
-  }
-  if (!pending.content && !toolCalls.length) return false;
-  if (ticket.responseFormat && toolCalls.length) return false;
-  try {
-    if (ticket.stream) beginStream(ticket);
-    if (pending.content) appendText(ticket, pending.content);
-    if (toolCalls.length) ticket.toolCalls = toolCalls;
-    if (isJsonMode(ticket) && ticket.text) validateStructuredText(ticket, ticket.text);
-    ticket.state = "finishing";
-    if (ticket.stream) await queueFlush(ticket, true);
-    finalize(ticket, toolCalls.length ? "tool_calls" : "stop");
-    ticket.aiPending = { ...pending, autoRepliedAt: Date.now() };
-    audit.append({ actor: "system", action: "ai.auto_reply", target: ticket.id, detail: `${toolCalls.length} tools` });
-    persistRuntime({ flush: true });
-    return true;
-  } catch (error) {
-    log(`[auto-ai-reply] ${ticket.id} delivery failed: ${error.message}`);
-    return false;
-  }
-}
-
 function startAiRelayForTicket(ticket, source, actor = "system") {
   if (!ticket || ticket.finished || ticket.aiPending?.status === "running") return;
   if (!live.aiAssist.enabled || !live.aiAssist.endpoint || !live.aiAssist.model || !secrets.has("aiApiKey")) return;
@@ -1458,7 +1409,6 @@ function startAiRelayForTicket(ticket, source, actor = "system") {
         createdAt: Date.now(),
       };
       persistRuntime();
-      if (source === "auto_receive") scheduleReceiveAiReply(ticket);
     } catch (error) {
       ticket.aiPending = { status: "error", source, actor, error: String(error.message || "AI 求助失败").slice(0, 500), createdAt: Date.now() };
       persistRuntime();
