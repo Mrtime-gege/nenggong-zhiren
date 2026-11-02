@@ -2953,9 +2953,9 @@ test("AI relay caps forwarded messages before appending operator guidance", asyn
     });
     assert.ok(received.messages.length <= 256);
     assert.equal(received.messages.length, 256);
-    assert.equal(received.messages.at(-1).role, "system");
-    assert.match(received.messages.at(-1).content, /保持简短/);
-    assert.equal(received.messages.at(-2).content, "m299");
+    assert.equal(received.messages[0].role, "system");
+    assert.match(received.messages[0].content, /保持简短/);
+    assert.equal(received.messages.at(-1).content, "m299");
   } finally {
     await new Promise((resolve) => mock.close(resolve));
   }
@@ -3052,14 +3052,15 @@ test("AI relay appends an optional operator instruction", async () => {
       instruction: "回答更简短，先确认订单号",
     });
     const body = JSON.parse(received);
-    assert.equal(body.messages.at(-1).role, "system");
-    assert.match(body.messages.at(-1).content, /回答更简短/);
-    assert.match(body.messages.at(-1).content, /当前情况/);
-    assert.match(body.messages.at(-1).content, /辅助模型/);
-    assert.match(body.messages.at(-1).content, /不是调用方的新消息/);
-    assert.match(body.messages.at(-1).content, /不要以任何形式透露/);
-    assert.match(body.messages.at(-1).content, /不得在正文/);
-    assert.match(body.messages.at(-1).content, /根据要求/);
+    assert.equal(body.messages[0].role, "system");
+    assert.match(body.messages[0].content, /回答更简短/);
+    assert.match(body.messages[0].content, /当前情况/);
+    assert.match(body.messages[0].content, /辅助模型/);
+    assert.match(body.messages[0].content, /不是调用方的新消息/);
+    assert.match(body.messages[0].content, /不要以任何形式透露/);
+    assert.match(body.messages[0].content, /不得在正文/);
+    assert.match(body.messages[0].content, /根据要求/);
+    assert.equal(body.messages[1].content, "原始请求");
   } finally {
     await new Promise((resolve) => mock.close(resolve));
   }
