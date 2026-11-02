@@ -53,8 +53,8 @@ const LEGACY_QUICK_BAR = {
   transfer: { kind: "action", value: "transfer", label: "转交" },
 };
 const DEFAULT_QUICK_BAR = [
-  { id: "default-ai", kind: "action", value: "aiGenerate", label: "AI 生成", roles: ["admin", "operator"] },
-  { id: "default-ai-prompt", kind: "action", value: "aiPrompt", label: "AI 引导", roles: ["admin", "operator"] },
+  { id: "default-ai", kind: "action", value: "aiGenerate", label: "AI 生成" },
+  { id: "default-ai-prompt", kind: "action", value: "aiPrompt", label: "AI 引导" },
 ];
 let quickBarDraft = [];
 let quickBarDraftSeq = 0;
@@ -78,22 +78,17 @@ function normalizeQuickItem(raw, index) {
   if (!options.some((item) => item.value === value)) value = options[0]?.value || "";
   if (!value) return null;
   const spec = quickBarSpec(kind, value);
-  let roles = Array.isArray(source.roles) ? source.roles.filter((entry) => entry === "admin" || entry === "operator") : [];
-  roles = [...new Set(roles)];
-  if (!roles.length) roles = ["admin", "operator"];
-  if (spec?.adminOnly) roles = ["admin"];
   const label = String(source.label || "").trim().slice(0, 40) || spec?.label || value;
   return {
     id: String(source.id || `quick_${Date.now()}_${++quickBarDraftSeq}`).slice(0, 64),
     kind,
     value,
     label,
-    roles,
   };
 }
 
 function normalizeQuickBar(value) {
-  if (!Array.isArray(value)) return DEFAULT_QUICK_BAR.map((item) => ({ ...item, roles: [...item.roles] }));
+  if (!Array.isArray(value)) return DEFAULT_QUICK_BAR.map((item) => ({ ...item }));
   return value.map((item, index) => normalizeQuickItem(item, index)).filter(Boolean);
 }
 
@@ -177,42 +172,13 @@ function quickBarFormRow(item, index) {
   value.addEventListener("change", () => {
     item.value = value.value;
     const spec = quickBarSpec(item.kind, item.value);
-    if (spec?.adminOnly) item.roles = ["admin"];
     if (!item.label || Object.values(LEGACY_QUICK_BAR).some((legacy) => legacy.label === item.label)) item.label = spec?.label || item.label;
     renderQuickBarOptions();
     queueSave("personal", savePersonal);
   });
   top.append(label, kind, value, actions);
 
-  const roles = document.createElement("div");
-  roles.className = "quickbar-roles";
-  roles.append(document.createTextNode("可见角色："));
-  const spec = quickBarSpec(item.kind, item.value);
-  for (const [roleValue, roleLabel] of [["admin", "管理员"], ["operator", "操作员"]]) {
-    const roleLabelNode = document.createElement("label");
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.value = roleValue;
-    checkbox.checked = item.roles.includes(roleValue);
-    checkbox.disabled = Boolean(spec?.adminOnly) && roleValue === "operator";
-    checkbox.addEventListener("change", () => {
-      const set = new Set(item.roles);
-      if (checkbox.checked) set.add(roleValue);
-      else set.delete(roleValue);
-      item.roles = [...set];
-      if (!item.roles.length) item.roles = ["admin", "operator"];
-    });
-    roleLabelNode.append(checkbox, document.createTextNode(roleLabel));
-    roles.append(roleLabelNode);
-  }
-  if (spec?.adminOnly) {
-    const note = document.createElement("span");
-    note.className = "admin-hint";
-    note.textContent = "管理员专用";
-    roles.append(note);
-  }
-
-  row.append(top, roles);
+  row.append(top);
   return row;
 }
 
@@ -238,7 +204,6 @@ function addQuickBarItem() {
     kind: "action",
     value: first.value,
     label: first.label,
-    roles: ["admin", "operator"],
   });
   renderQuickBarOptions();
   queueSave("personal", savePersonal);
@@ -458,7 +423,6 @@ async function savePersonal(version) {
           kind: item.kind,
           value: item.value,
           label: item.label,
-          roles: [...item.roles],
         })),
       },
     });

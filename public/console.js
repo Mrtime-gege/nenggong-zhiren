@@ -2510,8 +2510,8 @@ const LEGACY_QUICK_BAR = {
   transfer: { kind: "action", value: "transfer", label: "转交" },
 };
 const DEFAULT_QUICK_BAR = [
-  { id: "default-ai", kind: "action", value: "aiGenerate", label: "AI 生成", roles: ["admin", "operator"] },
-  { id: "default-ai-prompt", kind: "action", value: "aiPrompt", label: "AI 引导", roles: ["admin", "operator"] },
+  { id: "default-ai", kind: "action", value: "aiGenerate", label: "AI 生成" },
+  { id: "default-ai-prompt", kind: "action", value: "aiPrompt", label: "AI 引导" },
 ];
 
 function quickBarSpec(item) {
@@ -2529,22 +2529,17 @@ function normalizeQuickBarItem(raw, index) {
   const value = Object.prototype.hasOwnProperty.call(options, source.value) ? source.value : "";
   if (!value) return null;
   const spec = quickBarSpec({ kind, value });
-  let roles = Array.isArray(source.roles) ? source.roles.filter((entry) => entry === "admin" || entry === "operator") : [];
-  roles = [...new Set(roles)];
-  if (!roles.length) roles = ["admin", "operator"];
-  if (spec?.adminOnly) roles = ["admin"];
   return {
     id: String(source.id || `quick_${index}`),
     kind,
     value,
     label: String(source.label || "").trim().slice(0, 40) || spec?.label || value,
-    roles,
   };
 }
 
 function quickBarItems() {
   const raw = state.preferences?.quickBar;
-  if (!Array.isArray(raw)) return DEFAULT_QUICK_BAR.map((item) => ({ ...item, roles: [...item.roles] }));
+  if (!Array.isArray(raw)) return DEFAULT_QUICK_BAR.map((item) => ({ ...item }));
   return raw.map((item, index) => normalizeQuickBarItem(item, index)).filter(Boolean);
 }
 
@@ -2552,7 +2547,7 @@ function quickBarItemAllowed(item) {
   const spec = quickBarSpec(item);
   if (!spec) return false;
   if (spec.adminOnly && state.role !== "admin") return false;
-  return item.roles.includes(state.role);
+  return true;
 }
 
 function quickBarAiAttempted(ticket) {

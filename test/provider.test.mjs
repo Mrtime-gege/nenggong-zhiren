@@ -2150,9 +2150,9 @@ test("settings are split into per-user personalization and admin-only functions"
       queueAlertSeconds: 45,
       autoClaimDefault: true,
       quickBar: [
-        { id: "q1", kind: "action", value: "templates", label: "模板", roles: ["admin", "operator"] },
-        { id: "q2", kind: "action", value: "aiGenerate", label: "再来一条", roles: ["admin"] },
-        { id: "q3", kind: "info", value: "memory", label: "内存", roles: ["admin", "operator"] },
+        { id: "q1", kind: "action", value: "templates", label: "模板" },
+        { id: "q2", kind: "action", value: "aiGenerate", label: "再来一条" },
+        { id: "q3", kind: "info", value: "memory", label: "内存" },
         { id: "q4", kind: "link", value: "https://evil.invalid", label: "外链" },
       ],
     },
@@ -2161,11 +2161,12 @@ test("settings are split into per-user personalization and admin-only functions"
   assert.equal(updated.preferences.browserNotifications, false);
   assert.equal(updated.preferences.queueAlertSeconds, 45);
   assert.equal(updated.preferences.autoClaimDefault, true);
-  assert.deepEqual(updated.preferences.quickBar.map((item) => [item.kind, item.value, item.label, item.roles]), [
-    ["action", "templates", "模板", ["admin", "operator"]],
-    ["action", "aiGenerate", "再来一条", ["admin"]],
-    ["info", "memory", "内存", ["admin", "operator"]],
+  assert.deepEqual(updated.preferences.quickBar.map((item) => [item.kind, item.value, item.label]), [
+    ["action", "templates", "模板"],
+    ["action", "aiGenerate", "再来一条"],
+    ["info", "memory", "内存"],
   ]);
+  assert.equal(Object.hasOwn(updated.preferences.quickBar[0], "roles"), false);
 
   const aliceAgain = await opJson(aliceSession, "/op/api/preferences");
   assert.equal(aliceAgain.preferences.queueAlertSeconds, 45);

@@ -27,7 +27,6 @@ const QUICK_BAR_LINKS = new Set([
   "/console/usage", "/console/history", "/console/audit", "/console/settings",
 ]);
 const QUICK_BAR_INFO = new Set(["memory", "uptime", "queue", "aiCards"]);
-const QUICK_BAR_ROLES = new Set(["admin", "operator"]);
 const LEGACY_QUICK_BAR = {
   ai: { kind: "action", value: "aiGenerate", label: "AI 生成" },
   aiPrompt: { kind: "action", value: "aiPrompt", label: "AI 引导" },
@@ -35,8 +34,8 @@ const LEGACY_QUICK_BAR = {
   transfer: { kind: "action", value: "transfer", label: "转交" },
 };
 const DEFAULT_QUICK_BAR = Object.freeze([
-  Object.freeze({ id: "default-ai", kind: "action", value: "aiGenerate", label: "AI 生成", roles: Object.freeze(["admin", "operator"]) }),
-  Object.freeze({ id: "default-ai-prompt", kind: "action", value: "aiPrompt", label: "AI 引导", roles: Object.freeze(["admin", "operator"]) }),
+  Object.freeze({ id: "default-ai", kind: "action", value: "aiGenerate", label: "AI 生成" }),
+  Object.freeze({ id: "default-ai-prompt", kind: "action", value: "aiPrompt", label: "AI 引导" }),
 ]);
 const DEFAULT_PREFERENCES = Object.freeze({
   browserNotifications: true,
@@ -53,7 +52,6 @@ function cloneQuickBarFallback(fallback) {
     kind: item.kind,
     value: item.value,
     label: item.label,
-    roles: Array.isArray(item.roles) ? [...item.roles] : ["admin", "operator"],
   }));
 }
 
@@ -71,10 +69,6 @@ function normalizeQuickBar(raw, fallback) {
     if (kind === "action" && !QUICK_BAR_ACTIONS.has(value)) continue;
     if (kind === "link" && !QUICK_BAR_LINKS.has(value)) continue;
     if (kind === "info" && !QUICK_BAR_INFO.has(value)) continue;
-    let roles = Array.isArray(item.roles)
-      ? [...new Set(item.roles.filter((role) => QUICK_BAR_ROLES.has(role)))]
-      : ["admin", "operator"];
-    if (!roles.length) roles = ["admin", "operator"];
     const label = String(item.label || "").trim().slice(0, 40) || value;
     let id = String(item.id || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64) || `quick_${index}`;
     if (usedIds.has(id)) {
@@ -83,7 +77,7 @@ function normalizeQuickBar(raw, fallback) {
       id = `${id}_${suffix}`;
     }
     usedIds.add(id);
-    result.push({ id, kind, value, label, roles });
+    result.push({ id, kind, value, label });
   }
   return result;
 }
