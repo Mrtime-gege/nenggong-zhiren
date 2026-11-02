@@ -4053,3 +4053,24 @@ body.compact-ui .context-pane .context-body {
   margin: 0;
   transform: translate(-50%, -50%);
 }
+
+/* The reply textarea owns all remaining composer height; chrome stays fixed. */
+.detail-wrap > .composer > .composer-main {
+  height: 100%;
+  min-height: 0;
+}
+
+.detail-wrap > .composer > .composer-main > .composer-head,
+.detail-wrap > .composer > .composer-main > .composer-note {
+  flex: 0 0 auto;
+}
+
+.detail-wrap > .composer > .composer-main > textarea {
+  flex: 1 1 0;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  resize: none;
+  overflow-y: auto;
+}

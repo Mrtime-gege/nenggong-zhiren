@@ -1430,9 +1430,7 @@ function syncDraftMeta(d) {
   if (!d?.els?.draft) return;
   const value = d.els.draft.value || "";
   d.els.draftCount.textContent = `${value.length.toLocaleString("zh-CN")} 字`;
-  d.els.draft.style.height = "auto";
-  const next = Math.max(44, Math.min(160, d.els.draft.scrollHeight || 44));
-  d.els.draft.style.height = `${next}px`;
+  d.els.draft.style.removeProperty("height");
 }
 
 function setupEditorSplitter(splitter, wrap, composer) {
