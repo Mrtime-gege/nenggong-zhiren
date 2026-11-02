@@ -5138,3 +5138,84 @@ body[data-page="workbench"] .context-pane .ticket-extra.context-section {
   align-items: center;
   align-self: center;
 }
+
+/* One visual system for queue, conversation and context columns. */
+body[data-page="workbench"] .layout > .sidebar {
+  margin: 12px 0 12px 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  background: #12151a;
+}
+
+body[data-page="workbench"] .conversation-workspace > .thread-pane,
+body[data-page="workbench"] .conversation-workspace > .context-pane {
+  border-color: rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  background: #12151a;
+}
+
+body[data-page="workbench"] .sidebar-head,
+body[data-page="workbench"] .pane-head,
+body[data-page="workbench"] .inspector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 35px;
+  padding: 0 11px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.065);
+  background: #101318;
+}
+
+body[data-page="workbench"] .sidebar-head .pane-title,
+body[data-page="workbench"] .pane-title,
+body[data-page="workbench"] .inspector-head > span:first-child {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+body[data-page="workbench"] .sidebar-head .pane-note,
+body[data-page="workbench"] .pane-note,
+body[data-page="workbench"] .inspector-hint {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 400;
+}
+
+body[data-page="workbench"] .qitem {
+  margin-bottom: 6px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+body[data-page="workbench"] .qitem-model {
+  font-size: 11.5px;
+}
+
+body[data-page="workbench"] .qitem-preview {
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+body[data-page="workbench"] .qitem-foot {
+  margin-top: 6px;
+  font-size: 9.5px;
+}
+
+@media (max-width: 780px) {
+  body[data-page="workbench"] .layout > .sidebar {
+    margin: 0;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+  }
+}
