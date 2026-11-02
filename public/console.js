@@ -1568,9 +1568,13 @@ function buildDetail(ticket) {
   reasoningBox.append(reasoningSummary, reasoningText);
   const sentTools = el("div", "sent-toolcalls hidden");
   threadBody.append(messages, tools, threadOutputHead, reasoningBox, transcript, sentTools);
-  const turnRail = el("div", "turn-rail");
-  turnRail.setAttribute("aria-label", "会话轮次导航");
-  threadPane.append(threadHead, threadBody, turnRail);
+  const threadMinimap = el("div", "thread-minimap hidden");
+  threadMinimap.setAttribute("aria-label", "会话全局预览");
+  const minimapContent = el("div", "minimap-content");
+  const minimapViewport = el("div", "minimap-viewport");
+  threadMinimap.append(minimapContent, minimapViewport);
+  setupThreadMinimap(threadMinimap, threadBody, minimapViewport);
+  threadPane.append(threadHead, threadBody, threadMinimap);
 
   const composer = el("div", "composer");
   const label = el("label", "composer-title", "回复草稿");
@@ -1808,7 +1812,9 @@ function buildDetail(ticket) {
     threadPane,
     threadBody,
     threadOutputHead,
-    turnRail,
+    threadMinimap,
+    minimapContent,
+    minimapViewport,
     contextSplitter,
     inspector,
     inspectorHead,
@@ -1901,7 +1907,9 @@ function buildDetail(ticket) {
     applyInspectorState(current);
   });
   detail = current;
-  threadBody.addEventListener("scroll", () => updateTurnRailActive(current), { passive: true });
+  threadBody.addEventListener("scroll", () => updateThreadMinimap(current), { passive: true });
+  window.addEventListener("resize", () => { if (detail === current) updateThreadMinimap(current); });
+  requestAnimationFrame(() => updateThreadMinimap(current));
   applyInspectorState(current);
   activateInspectorTab(current, current.inspectorTab);
   return current;
@@ -1964,7 +1972,7 @@ function updateDetail(ticket) {
   renderMessages(ticket, d);
   renderTranscript(ticket, d);
   renderSentToolCalls(ticket, d);
-  renderTurnRail(ticket, d);
+  renderThreadMinimap(ticket, d);
   renderToolPanel(ticket, d);
   renderTicketExtras(ticket, d);
   updateComposer(ticket, d);
@@ -2677,88 +2685,95 @@ async function openAttachmentPreview(ticket, attachment) {
   else if (preview.truncated) els.attachmentWarning.textContent = "预览已截断，完整内容请下载原文件。";
 }
 
-function turnMarkLabel(index) {
-  return `第 ${index + 1} 轮`;
+function setupThreadMinimap(minimap, body, viewport) {
+  const scrollToPointer = (event) => {
+    const rect = minimap.getBoundingClientRect();
+    if (!rect.height) return;
+    const ratio = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+    const max = Math.max(0, body.scrollHeight - body.clientHeight);
+    body.scrollTop = ratio * max;
+    updateThreadMinimap(detail);
+  };
+  minimap.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    minimap.setPointerCapture?.(event.pointerId);
+    minimap.classList.add("dragging");
+    scrollToPointer(event);
+    const move = (moveEvent) => scrollToPointer(moveEvent);
+    const end = () => {
+      minimap.classList.remove("dragging");
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  });
+  minimap.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "PageDown" && event.key !== "PageUp") return;
+    event.preventDefault();
+    const direction = event.key === "ArrowDown" || event.key === "PageDown" ? 1 : -1;
+    body.scrollBy({ top: direction * (event.key.startsWith("Page") ? body.clientHeight * 0.8 : 80), behavior: "smooth" });
+  });
 }
 
-function updateTurnRailActive(d = detail) {
-  if (!d?.els?.turnRail || d.turnRailMode !== "messages") return;
+function updateThreadMinimap(d = detail) {
+  if (!d?.els?.threadBody || !d.els.threadMinimap || !d.els.minimapViewport) return;
   const body = d.els.threadBody;
-  const marks = [...d.els.turnRail.querySelectorAll(".turn-mark")];
-  if (!marks.length) return;
-  const bodyTop = body.getBoundingClientRect().top;
-  let active = 0;
-  marks.forEach((mark, index) => {
-    const target = body.querySelector(`.msg[data-message-index="${mark.dataset.messageIndex}"][data-context="0"]`);
-    if (!target) return;
-    if (target.getBoundingClientRect().top <= bodyTop + 18) active = index;
-  });
-  marks.forEach((mark, index) => {
-    mark.classList.toggle("is-active", index === active);
-    mark.setAttribute("aria-current", index === active ? "true" : "false");
-  });
+  const minimap = d.els.threadMinimap;
+  const viewport = d.els.minimapViewport;
+  const max = Math.max(0, body.scrollHeight - body.clientHeight);
+  minimap.classList.toggle("hidden", max < 8);
+  if (max < 8) return;
+  const visibleRatio = Math.max(0.04, Math.min(1, body.clientHeight / Math.max(1, body.scrollHeight)));
+  const topRatio = Math.max(0, Math.min(1 - visibleRatio, body.scrollTop / Math.max(1, body.scrollHeight)));
+  viewport.style.height = `${Math.max(12, visibleRatio * 100)}%`;
+  viewport.style.top = `${topRatio * 100}%`;
 }
 
-function renderTurnRail(ticket, d) {
-  const rail = d?.els?.turnRail;
-  if (!rail) return;
-  const related = ticket.sessionId
-    ? state.tickets.filter((item) => item.sessionId === ticket.sessionId).sort((a, b) => a.createdAt - b.createdAt)
-    : [];
-  const messageRows = [...d.els.messages.querySelectorAll('.msg[data-message-role="user"][data-context="0"]')];
-  // Prefer message-level turns for long conversations; session tickets are
-  // only a fallback when the current ticket contains a single user message.
-  const useSessions = related.length > 1 && messageRows.length <= 1;
-  const total = useSessions ? related.length : messageRows.length;
-  const signature = `${useSessions ? "session" : "message"}:${total}:${ticket.id}:${useSessions ? related.map((item) => item.id).join(",") : ""}`;
-  if (d.turnRailSignature === signature) {
-    updateTurnRailActive(d);
-    return;
-  }
-  d.turnRailSignature = signature;
-  d.turnRailMode = useSessions ? "sessions" : "messages";
-  rail.replaceChildren();
-  rail.classList.toggle("hidden", total === 0);
-  rail.classList.toggle("turn-rail-sessions", useSessions);
-  rail.classList.toggle("turn-rail-dense", total > 40);
-  if (!total) return;
-  for (let index = 0; index < total; index += 1) {
-    const mark = el("button", "turn-mark");
-    mark.type = "button";
-    mark.dataset.index = String(index);
-    const top = total === 1 ? 50 : (index / (total - 1)) * 100;
-    mark.style.top = `${top}%`;
-    if (useSessions) {
-      const item = related[index];
-      const isCurrent = item.id === ticket.id;
-      mark.dataset.ticketId = item.id;
-      mark.classList.toggle("is-active", isCurrent);
-      mark.classList.toggle("is-loaded", true);
-      mark.title = `${turnMarkLabel(index)} · ${STATE_LABELS[item.state] || item.state}${isCurrent ? " · 当前" : ""}`;
-      mark.setAttribute("aria-label", isCurrent ? `${turnMarkLabel(index)}，当前轮次` : `跳转到${turnMarkLabel(index)}`);
-      mark.setAttribute("aria-current", isCurrent ? "true" : "false");
-      mark.addEventListener("click", () => {
-        state.selectedId = item.id;
-        rememberSelectedTicket(item.id);
-        if (window.matchMedia("(max-width: 780px)").matches) setMobileView("detail");
-        render();
-      });
-    } else {
-      const row = messageRows[index];
-      const messageIndex = row?.dataset.messageIndex;
-      mark.dataset.messageIndex = messageIndex || "";
-      mark.title = `${turnMarkLabel(index)} · 用户消息`;
-      mark.setAttribute("aria-label", `跳转到${turnMarkLabel(index)}的用户消息`);
-      mark.addEventListener("click", () => {
-        if (!row) return;
-        const body = d.els.threadBody;
-        const targetTop = row.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop - 12;
-        body.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
-      });
+function renderThreadMinimap(ticket, d) {
+  if (!d?.els?.minimapContent || !d.els.threadMinimap) return;
+  const rows = [...d.els.messages.querySelectorAll('.msg[data-context="0"]')];
+  const signature = [
+    rows.length,
+    ticket.text?.length || 0,
+    ticket.reasoning?.length || 0,
+    ticket.toolCalls?.length || 0,
+    ticket.state,
+  ].join(":");
+  if (d.minimapSignature !== signature) {
+    d.minimapSignature = signature;
+    const fragment = document.createDocumentFragment();
+    let used = 0;
+    const pushLine = (role, width, tall = false) => {
+      if (used >= 170) return;
+      used += 1;
+      const line = document.createElement("span");
+      line.className = `minimap-line ${role}${tall ? " tall" : ""}`;
+      line.style.width = `${Math.max(14, Math.min(96, width))}%`;
+      fragment.append(line);
+    };
+    for (const row of rows) {
+      const role = row.dataset.messageRole === "user" ? "user"
+        : row.dataset.messageRole === "tool" ? "tool"
+          : row.dataset.messageRole === "assistant" ? "assistant" : "system";
+      const text = row.querySelector(".msg-content")?.textContent || "";
+      const width = 18 + Math.min(76, Math.round(text.length / 4));
+      pushLine(role, width, row.classList.contains("msg-error"));
+      if (text.length > 360) pushLine(role, Math.min(88, width + 8));
     }
-    rail.append(mark);
+    const output = ticket.text || "";
+    if (output) {
+      pushLine("output", 46 + Math.min(42, Math.round(output.length / 10)));
+      if (output.length > 180) pushLine("output", 38 + Math.min(48, Math.round(output.length / 18)));
+    }
+    (ticket.toolCalls || []).forEach(() => pushLine("tool", 34));
+    if ((ticket.reasoning || "").length) pushLine("reasoning", 54);
+    d.els.minimapContent.replaceChildren(fragment);
   }
-  updateTurnRailActive(d);
+  requestAnimationFrame(() => updateThreadMinimap(d));
 }
 
 function renderMessages(ticket, d) {

@@ -3650,58 +3650,6 @@ body {
   padding-right: 24px;
 }
 
-.turn-rail {
-  position: absolute;
-  top: 40px;
-  right: 2px;
-  bottom: 14px;
-  z-index: 4;
-  width: 13px;
-  pointer-events: none;
-}
-
-.turn-rail.hidden {
-  display: none;
-}
-
-.turn-mark {
-  position: absolute;
-  right: 2px;
-  width: 9px;
-  height: 7px;
-  padding: 0;
-  border: 0;
-  border-radius: 2px;
-  background: var(--line-strong);
-  opacity: 0.68;
-  transform: translateY(-50%);
-  cursor: pointer;
-  pointer-events: auto;
-}
-
-.turn-mark:hover,
-.turn-mark:focus-visible {
-  width: 12px;
-  background: var(--text-dim);
-  opacity: 1;
-  outline: none;
-}
-
-.turn-mark.is-active {
-  width: 13px;
-  background: var(--accent);
-  opacity: 1;
-  box-shadow: 0 0 0 2px rgba(138, 164, 248, 0.13);
-}
-
-.turn-mark.is-loaded {
-  opacity: 0.8;
-}
-
-.turn-rail-sessions .turn-mark {
-  height: 9px;
-}
-
 .context-width-splitter {
   flex: 0 0 7px;
   width: 7px;
@@ -3742,22 +3690,6 @@ body {
 }
 
 @media (max-width: 780px) {
-  .turn-rail {
-    top: 38px;
-    right: 0;
-    bottom: 8px;
-    width: 11px;
-  }
-
-  .turn-mark {
-    width: 7px;
-    height: 6px;
-  }
-
-  .turn-mark.is-active {
-    width: 10px;
-  }
-
   .context-width-splitter {
     display: none;
   }
@@ -3765,25 +3697,6 @@ body {
   .thread-body {
     padding-right: 18px;
   }
-}
-
-.turn-rail-dense .turn-mark {
-  height: 2px;
-  width: 8px;
-  border-radius: 1px;
-  opacity: 0.55;
-}
-
-.turn-rail-dense .turn-mark:hover,
-.turn-rail-dense .turn-mark:focus-visible {
-  width: 12px;
-  opacity: 1;
-}
-
-.turn-rail-dense .turn-mark.is-active {
-  width: 13px;
-  height: 3px;
-  opacity: 1;
 }
 
 /* Market-standard UX: command palette, collapsible queue and density. */
@@ -3986,4 +3899,105 @@ body.compact-ui .context-pane .context-body {
   .command-palette-backdrop {
     padding: 60px 8px 8px;
   }
+}
+
+/* Code-editor-style conversation minimap replaces the native scrollbar and
+   the previous turn markers. */
+.thread-body {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding-right: 72px;
+}
+
+.thread-body::-webkit-scrollbar {
+  display: none;
+}
+
+.thread-minimap {
+  position: absolute;
+  top: 40px;
+  right: 3px;
+  bottom: 14px;
+  z-index: 5;
+  width: 58px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(8, 13, 19, 0.62);
+  box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.thread-minimap.hidden {
+  display: none;
+}
+
+.thread-minimap.dragging {
+  border-color: var(--line-strong);
+}
+
+.minimap-content {
+  position: absolute;
+  inset: 7px 5px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 2px;
+  overflow: hidden;
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.minimap-line {
+  flex: 0 0 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--line-strong);
+}
+
+.minimap-line.user { background: rgba(138, 164, 248, 0.68); }
+.minimap-line.assistant { background: rgba(196, 207, 223, 0.62); }
+.minimap-line.output { background: rgba(131, 199, 164, 0.78); height: 3px; }
+.minimap-line.tool { background: rgba(216, 178, 106, 0.7); }
+.minimap-line.reasoning { background: rgba(160, 143, 204, 0.65); }
+.minimap-line.system { background: rgba(135, 149, 163, 0.42); }
+.minimap-line.tall { height: 3px; }
+
+.minimap-viewport {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  z-index: 2;
+  min-height: 14px;
+  border: 1px solid rgba(138, 164, 248, 0.62);
+  border-radius: 3px;
+  background: rgba(138, 164, 248, 0.13);
+  box-shadow: 0 0 0 1px rgba(138, 164, 248, 0.05);
+  pointer-events: none;
+}
+
+.thread-minimap:hover .minimap-viewport,
+.thread-minimap.dragging .minimap-viewport {
+  background: rgba(138, 164, 248, 0.2);
+}
+
+@media (max-width: 780px) {
+  .thread-body {
+    padding-right: 50px;
+  }
+
+  .thread-minimap {
+    right: 1px;
+    width: 40px;
+  }
+
+  .minimap-content {
+    inset: 6px 4px;
+  }
+}
+
+/* The minimap should jump to the selected position, not animate far past it. */
+.thread-body {
+  scroll-behavior: auto;
 }
