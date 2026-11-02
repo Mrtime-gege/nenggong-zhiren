@@ -4073,3 +4073,13 @@ body.compact-ui .context-pane .context-body {
   resize: none;
   overflow-y: auto;
 }
+
+/* Align the queue panel with the detail pane's 9px / 12px / 10px gutter. */
+@media (min-width: 781px) {
+  .sidebar {
+    margin: 9px 0 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+}
