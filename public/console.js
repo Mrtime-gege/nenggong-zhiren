@@ -126,7 +126,7 @@ const state = {
   httpCache: new Map(),
   detailLoading: null,
   minimapMode: "overlay",
-  minimapSlider: "hover",
+  minimapSlider: "always",
   minimapLayout: "auto",
 };
 
@@ -155,14 +155,14 @@ function loadMinimapMode() {
 }
 
 function normalizeMinimapSlider(value) {
-  return MINIMAP_SLIDER_MODES.has(value) ? value : "hover";
+  return MINIMAP_SLIDER_MODES.has(value) ? value : "always";
 }
 
 function loadMinimapSlider() {
   try {
     return normalizeMinimapSlider(localStorage.getItem(MINIMAP_SLIDER_KEY));
   } catch {
-    return "hover";
+    return "always";
   }
 }
 
@@ -1666,11 +1666,14 @@ function buildDetail(ticket) {
   const minimapViewport = el("div", "minimap-viewport");
   const minimapUnloaded = el("button", "minimap-unloaded hidden");
   minimapUnloaded.type = "button";
+  const minimapLatest = el("button", "minimap-latest hidden", "回到最新");
+  minimapLatest.type = "button";
+  minimapLatest.title = "跳到最新消息";
   const minimapSlider = el("div", "minimap-slider");
   minimapSlider.append(minimapViewport);
   minimapClip.append(minimapContent, minimapCanvas);
-  threadMinimap.append(minimapClip, minimapSlider, minimapUnloaded);
-  setupThreadMinimap(threadBody, threadMinimap, minimapClip, minimapContent, minimapViewport, minimapUnloaded);
+  threadMinimap.append(minimapClip, minimapSlider, minimapUnloaded, minimapLatest);
+  setupThreadMinimap(threadBody, threadMinimap, minimapClip, minimapContent, minimapViewport, minimapUnloaded, minimapLatest);
   threadPane.append(threadHead, threadBody, threadMinimap);
 
   const composer = el("div", "composer");
@@ -1916,6 +1919,7 @@ function buildDetail(ticket) {
     minimapSlider,
     minimapViewport,
     minimapUnloaded,
+    minimapLatest,
     contextSplitter,
     inspector,
     inspectorHead,
@@ -2802,25 +2806,43 @@ async function openAttachmentPreview(ticket, attachment) {
   else if (preview.truncated) els.attachmentWarning.textContent = "预览已截断，完整内容请下载原文件。";
 }
 
-function setupThreadMinimap(body, minimap, clip, content, viewport, unloaded) {
+function setupThreadMinimap(body, minimap, clip, content, viewport, unloaded, latest) {
+  const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
   const scrollToPointer = (event) => {
     const rect = minimap.getBoundingClientRect();
     if (!rect.height) return;
-    const ratio = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+    const thumbHeight = viewport.getBoundingClientRect().height || 24;
+    const usable = Math.max(1, rect.height - thumbHeight);
+    const y = Math.max(0, Math.min(usable, event.clientY - rect.top - thumbHeight / 2));
     const max = Math.max(0, body.scrollHeight - body.clientHeight);
-    body.scrollTop = ratio * max;
+    body.scrollTop = (y / usable) * max;
+    revealThreadMinimap(detail);
     scheduleThreadMinimapUpdate(detail);
   };
   minimap.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || event.target.closest(".minimap-unloaded")) return;
+    if (event.button !== 0 || event.target.closest(".minimap-unloaded, .minimap-latest")) return;
     event.preventDefault();
     minimap.setPointerCapture?.(event.pointerId);
     minimap.classList.add("dragging");
     revealThreadMinimap(detail);
-    scrollToPointer(event);
+    const rect = minimap.getBoundingClientRect();
+    const viewportRect = viewport.getBoundingClientRect();
+    const thumbHeight = viewportRect.height || 24;
+    const usable = Math.max(1, rect.height - thumbHeight);
+    const max = Math.max(0, body.scrollHeight - body.clientHeight);
+    const onThumb = event.clientY >= viewportRect.top && event.clientY <= viewportRect.bottom;
+    const startY = event.clientY;
+    const startScroll = body.scrollTop;
+    if (!onThumb) scrollToPointer(event);
     const move = (moveEvent) => {
       revealThreadMinimap(detail);
-      scrollToPointer(moveEvent);
+      if (onThumb) {
+        const delta = moveEvent.clientY - startY;
+        body.scrollTop = startScroll + (delta / usable) * max;
+        scheduleThreadMinimapUpdate(detail);
+      } else {
+        scrollToPointer(moveEvent);
+      }
     };
     const end = () => {
       minimap.classList.remove("dragging");
@@ -2840,8 +2862,7 @@ function setupThreadMinimap(body, minimap, clip, content, viewport, unloaded) {
   minimap.addEventListener("keydown", (event) => {
     if (!["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
-    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-    const behavior = reduced ? "auto" : "smooth";
+    const behavior = reducedMotion() ? "auto" : "smooth";
     if (event.key === "Home" || event.key === "End") {
       body.scrollTo({ top: event.key === "Home" ? 0 : body.scrollHeight, behavior });
     } else {
@@ -2851,6 +2872,13 @@ function setupThreadMinimap(body, minimap, clip, content, viewport, unloaded) {
         behavior,
       });
     }
+    revealThreadMinimap(detail);
+    scheduleThreadMinimapUpdate(detail);
+  });
+  latest.addEventListener("pointerdown", (event) => event.stopPropagation());
+  latest.addEventListener("click", (event) => {
+    event.stopPropagation();
+    body.scrollTo({ top: body.scrollHeight, behavior: reducedMotion() ? "auto" : "smooth" });
     revealThreadMinimap(detail);
     scheduleThreadMinimapUpdate(detail);
   });
@@ -2922,10 +2950,15 @@ function updateThreadMinimap(d = detail) {
   const content = d.els.minimapContent;
   const slider = d.els.minimapSlider;
   const viewport = d.els.minimapViewport;
+  const latest = d.els.minimapLatest;
   const max = Math.max(0, body.scrollHeight - body.clientHeight);
   const shouldHide = max < 8;
   minimap.classList.toggle("hidden", shouldHide);
-  if (shouldHide) return;
+  if (shouldHide) {
+    latest?.classList.add("hidden");
+    return;
+  }
+  if (latest) latest.classList.toggle("hidden", max - body.scrollTop <= 20);
   const railHeight = slider?.clientHeight || minimap.clientHeight;
   if (railHeight < 16) {
     minimap.classList.add("hidden");
@@ -2947,6 +2980,7 @@ function updateThreadMinimap(d = detail) {
   const clipHeight = clip.clientHeight;
   if (contentHeight < 2) {
     minimap.classList.add("hidden");
+    latest?.classList.add("hidden");
     return;
   }
   const layoutPreference = state.minimapLayout || "auto";

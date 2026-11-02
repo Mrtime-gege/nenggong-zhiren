@@ -4413,3 +4413,57 @@ body.compact-ui .context-pane .context-body {
     opacity: 1;
   }
 }
+
+/* Direct slider overlay: the viewport frame sits on top of the miniature
+   content again, instead of using a separate narrow right-hand track. */
+.minimap-clip {
+  right: 5px;
+}
+
+.minimap-slider {
+  inset: 0;
+  width: auto;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.minimap-viewport {
+  left: 2px;
+  right: 2px;
+  border-color: rgba(138, 164, 248, 0.72);
+  background: rgba(138, 164, 248, 0.2);
+}
+
+.minimap-latest {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  bottom: 3px;
+  z-index: 7;
+  height: 14px;
+  padding: 0 2px;
+  border: 1px dashed rgba(138, 164, 248, 0.5);
+  border-radius: 3px;
+  background: rgba(8, 13, 19, 0.92);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 7px;
+  line-height: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.minimap-latest:hover {
+  border-color: var(--accent);
+  color: var(--text-dim);
+}
+
+.minimap-latest.hidden {
+  display: none;
+}
+
+.thread-minimap[data-minimap-slider="always"] .minimap-slider {
+  opacity: 1;
+}
