@@ -3716,7 +3716,7 @@ body {
 
 @media (min-width: 781px) {
   body.queue-collapsed .layout {
-    grid-template-columns: 0 minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 
   body.queue-collapsed .sidebar {
