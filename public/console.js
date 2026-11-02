@@ -1944,12 +1944,13 @@ function buildDetail(ticket) {
   const aiAppend = el("button", "btn ghost ai-card-append", "追加");
   aiAppend.type = "button";
   aiAppend.title = "把选中的 AI 结果追加到当前草稿和工具调用之后";
-  aiCardToolbar.append(aiCardSelection, aiReplace, aiAppend);
+  aiCardToolbar.append(aiTools, aiCardSelection, aiReplace, aiAppend);
   aiReplace.addEventListener("click", () => applySelectedAiCard("replace"));
   aiAppend.addEventListener("click", () => applySelectedAiCard("append"));
   const aiCardList = el("div", "ai-card-list hidden");
+  const aiStatus = el("div", "ai-compact-status hidden");
   const aiEmpty = el("div", "ai-empty", "还没有 AI 结果。使用上方「AI 生成」创建结果卡片。");
-  aiSection.append(aiTools, aiPanel, aiCardToolbar, aiCardList, aiEmpty);
+  aiSection.append(aiCardToolbar, aiCardList, aiStatus, aiEmpty);
 
   const clearButton = el("button", "btn ghost editor-clear", "清空");
   clearButton.type = "button";
@@ -2028,6 +2029,7 @@ function buildDetail(ticket) {
     aiReplace,
     aiAppend,
     aiCardList,
+    aiStatus,
     aiPanelTitle,
     aiPanelHint,
     aiPanelBody,
@@ -2459,8 +2461,10 @@ function syncQuickBar(ticket, d) {
 function syncAiTools(ticket, d) {
   const available = Boolean(state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
   d.els.aiTools.classList.toggle("hidden", !available);
+  d.els.aiCardToolbar.classList.toggle("hidden", !available);
   if (!available) {
     d.els.aiEmpty.classList.add("hidden");
+    d.els.aiStatus.classList.add("hidden");
     return;
   }
   d.els.aiTrigger.classList.remove("hidden");
@@ -2569,8 +2573,10 @@ function showAiLoading(d, startedAt = Date.now()) {
   clearAiLoadingTimer(d);
   updateAiLoadingHint(d);
   d.aiLoadingTimer = setInterval(() => updateAiLoadingHint(d), 1000);
-  d.els.aiPanel.classList.remove("hidden");
+  d.els.aiCardToolbar.classList.remove("hidden");
   d.els.aiEmpty.classList.add("hidden");
+  d.els.aiStatus.classList.add("hidden");
+  d.els.aiPanel.classList.remove("hidden");
   d.els.aiPanelTitle.textContent = "AI 生成中…";
   d.els.aiPanelBody.textContent = "正在请求 AI 辅助，请稍候…";
   d.els.aiPanel.classList.remove("expanded");
@@ -2619,13 +2625,9 @@ function renderAiRun(ticket, d, run) {
   }
   if (run.status === "error") {
     clearAiLoadingTimer(d);
-    d.els.aiPanel.classList.remove("hidden");
-    d.els.aiPanelTitle.textContent = "AI 辅助不可用";
-    d.els.aiPanelHint.textContent = "不会自动发送";
-    d.els.aiPanelBody.textContent = run.error || "AI 生成失败。";
-    d.els.aiInsert.classList.add("hidden");
-    d.els.aiApply.classList.add("hidden");
-    d.els.aiExpand.classList.add("hidden");
+    d.els.aiPanel.classList.add("hidden");
+    d.els.aiStatus.textContent = run.error || "AI 生成失败。";
+    d.els.aiStatus.classList.remove("hidden");
     d.els.aiEmpty.classList.add("hidden");
     d.aiRenderedRun = run;
     return;
@@ -2634,6 +2636,7 @@ function renderAiRun(ticket, d, run) {
   d.els.aiPanel.classList.add("hidden");
   d.els.aiPanel.classList.remove("expanded");
   d.els.aiPanelBody.textContent = "";
+  d.els.aiStatus.classList.add("hidden");
   d.aiRenderedRun = run;
   renderAiCards(ticket, d, true);
 }
@@ -2849,7 +2852,6 @@ function renderAiCards(ticket, d, force = false) {
 
   const hasCards = cards.length > 0;
   list.classList.toggle("hidden", !hasCards);
-  d.els.aiCardToolbar.classList.toggle("hidden", !hasCards);
   d.els.aiEmpty.classList.toggle("hidden", hasCards || panelVisible);
   syncAiCardActions(ticket, d);
 }
