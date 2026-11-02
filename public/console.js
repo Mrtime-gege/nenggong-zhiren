@@ -5,6 +5,8 @@ const $ = (id) => document.getElementById(id);
 const els = {
   userLabel: $("userLabel"),
   logout: $("logout"),
+  queueToggle: $("queueToggle"),
+  commandPaletteBtn: $("commandPaletteBtn"),
   usersModal: $("usersModal"),
   usersClose: $("usersClose"),
   userCreateForm: $("userCreateForm"),
@@ -4269,7 +4271,187 @@ function nextTicket() {
   render();
 }
 
+let commandPaletteState = null;
+let commandPaletteItems = [];
+let commandPaletteIndex = 0;
+
+function ensureCommandPalette() {
+  if (commandPaletteState?.root?.isConnected) return commandPaletteState;
+  const root = el("div", "command-palette-backdrop hidden");
+  root.setAttribute("role", "dialog");
+  root.setAttribute("aria-modal", "true");
+  root.setAttribute("aria-label", "命令面板");
+  const panel = el("section", "command-palette");
+  const top = el("div", "command-palette-top");
+  top.append(el("span", "command-palette-key", "⌘K"));
+  const input = el("input", "command-palette-input");
+  input.placeholder = "搜索票据或执行操作…";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  top.append(input);
+  const list = el("div", "command-palette-list");
+  const foot = el("div", "command-palette-foot", "↑↓ 选择 · Enter 执行 · Esc 关闭");
+  panel.append(top, list, foot);
+  root.append(panel);
+  document.body.append(root);
+  commandPaletteState = { root, input, list };
+  root.addEventListener("click", (event) => {
+    if (event.target === root) closeCommandPalette();
+  });
+  input.addEventListener("input", () => {
+    commandPaletteIndex = 0;
+    renderCommandPalette();
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      commandPaletteIndex = commandPaletteItems.length ? (commandPaletteIndex + 1) % commandPaletteItems.length : 0;
+      renderCommandPalette();
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      commandPaletteIndex = commandPaletteItems.length ? (commandPaletteIndex - 1 + commandPaletteItems.length) % commandPaletteItems.length : 0;
+      renderCommandPalette();
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      executeCommandPalette();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeCommandPalette();
+    }
+  });
+  return commandPaletteState;
+}
+
+function commandPaletteActions() {
+  const ticket = currentTicket();
+  const actions = [];
+  const add = (group, label, hint, run, badge = "") => actions.push({ group, label, hint, run, badge });
+  if (ticket) {
+    if (ticket.state === "queued") add("当前票据", "认领票据", "取得当前票据的编辑权", () => doAction("claim"), "Enter");
+    if (isTicketEditable(ticket)) {
+      add("当前票据", "AI 生成", "将当前会话交给 AI 辅助", () => runAiTask("reply", detail, state.aiPrompts.get(ticket.id) || ""), "AI");
+      add("当前票据", "AI 引导", "附加方向提示后生成", () => detail?.els?.aiPromptTrigger?.click());
+      add("当前票据", "工具调用", "打开右侧工具标签", () => {
+        if (!detail) return;
+        detail.inspectorCollapsed = false;
+        applyInspectorState(detail);
+        activateInspectorTab(detail, "tools");
+      }, "TOOL");
+      add("当前票据", "内部备注", "打开右侧备注标签", () => {
+        if (!detail) return;
+        detail.inspectorCollapsed = false;
+        applyInspectorState(detail);
+        activateInspectorTab(detail, "notes");
+      });
+      add("当前票据", "快捷回复", "插入一条已保存的模板", openTemplateModal);
+      add("当前票据", "正文并完成", "发送当前草稿并结束票据", () => doAction("finish"), "⌘↵");
+      if (ticket.state === "claimed") add("当前票据", "转交票据", "把票据交给其他回复员", openTransfer);
+      if (isActive(ticket)) add("当前票据", "取消请求", "中止请求并通知调用方", () => doAction("cancel"));
+    }
+    add("工作台", "下一张票据", "切换到队列中的下一张票据", nextTicket);
+    add("工作台", "聚焦回复框", "把光标放到回复编辑器", focusDraft);
+    add("工作台", document.body.classList.contains("queue-collapsed") ? "展开队列" : "收起队列", "释放会话区域的横向空间", toggleQueue, "[");
+    add("工作台", document.body.classList.contains("compact-ui") ? "切换舒适密度" : "切换紧凑密度", "紧凑显示队列和消息", toggleCompactUi);
+    add("工作台", "快捷键面板", "查看和自定义键盘快捷键", openShortcuts, "?");
+  }
+  const tickets = [...state.tickets]
+    .sort((a, b) => (a.state === "queued" ? 0 : isActive(a) ? 1 : 2) - (b.state === "queued" ? 0 : isActive(b) ? 1 : 2) || (a.created || a.createdAt) - (b.created || b.createdAt))
+    .slice(0, 20);
+  for (const item of tickets) {
+    add("票据", item.preview || item.id, `${item.model || ""} · ${STATE_LABELS[item.state] || item.state}`, () => {
+      state.selectedId = item.id;
+      rememberSelectedTicket(item.id);
+      if (window.matchMedia("(max-width: 780px)").matches) setMobileView("detail");
+      render();
+    }, shortId(item.id));
+  }
+  return actions;
+}
+
+function renderCommandPalette() {
+  const palette = commandPaletteState;
+  if (!palette) return;
+  const query = palette.input.value.trim().toLowerCase();
+  const all = commandPaletteActions();
+  commandPaletteItems = all.filter((item) => !query || `${item.group} ${item.label} ${item.hint}`.toLowerCase().includes(query));
+  if (commandPaletteIndex >= commandPaletteItems.length) commandPaletteIndex = Math.max(0, commandPaletteItems.length - 1);
+  palette.list.replaceChildren();
+  if (!commandPaletteItems.length) {
+    palette.list.append(el("div", "command-palette-empty", "没有匹配的票据或操作"));
+    return;
+  }
+  let group = "";
+  commandPaletteItems.forEach((item, index) => {
+    if (item.group !== group) {
+      group = item.group;
+      palette.list.append(el("div", "command-palette-group", group));
+    }
+    const button = el("button", "command-palette-item");
+    button.type = "button";
+    button.classList.toggle("active", index === commandPaletteIndex);
+    const main = el("span", "command-palette-main");
+    main.append(el("span", "command-palette-label", item.label));
+    main.append(el("span", "command-palette-hint", item.hint));
+    button.append(main);
+    if (item.badge) button.append(el("kbd", "command-palette-badge", item.badge));
+    button.addEventListener("click", () => {
+      commandPaletteIndex = index;
+      executeCommandPalette();
+    });
+    palette.list.append(button);
+  });
+  palette.list.querySelector(".command-palette-item.active")?.scrollIntoView({ block: "nearest" });
+}
+
+function openCommandPalette() {
+  const palette = ensureCommandPalette();
+  palette.input.value = "";
+  commandPaletteIndex = 0;
+  renderCommandPalette();
+  palette.root.classList.remove("hidden");
+  requestAnimationFrame(() => palette.input.focus());
+}
+
+function closeCommandPalette() {
+  commandPaletteState?.root?.classList.add("hidden");
+}
+
+function executeCommandPalette() {
+  const item = commandPaletteItems[commandPaletteIndex];
+  if (!item) return;
+  closeCommandPalette();
+  try { item.run(); } catch (error) { toast(error.message); }
+}
+
+function toggleQueue() {
+  const next = !document.body.classList.contains("queue-collapsed");
+  document.body.classList.toggle("queue-collapsed", next);
+  try { localStorage.setItem("ngzr.queueCollapsed", next ? "1" : "0"); } catch { /* optional */ }
+  syncQueueToggle();
+}
+
+function syncQueueToggle() {
+  if (!els.queueToggle) return;
+  els.queueToggle.textContent = document.body.classList.contains("queue-collapsed") ? "展开队列" : "收起队列";
+}
+
+function toggleCompactUi() {
+  const next = !document.body.classList.contains("compact-ui");
+  document.body.classList.toggle("compact-ui", next);
+  try { localStorage.setItem("ngzr.compactUi", next ? "1" : "0"); } catch { /* optional */ }
+}
+
 function handleGlobalShortcut(event) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    openCommandPalette();
+    return;
+  }
+  if (commandPaletteState?.root?.classList.contains("hidden") === false) {
+    if (event.key === "Escape") closeCommandPalette();
+    return;
+  }
   if (event.key === "Escape") {
     if (!els.shortcutModal.classList.contains("hidden")) {
       closeShortcuts();
@@ -4321,6 +4503,13 @@ function init() {
   installAudioUnlock();
   state.shortcuts = loadShortcuts();
   updateShortcutLabels();
+  try {
+    if (localStorage.getItem("ngzr.queueCollapsed") === "1") document.body.classList.add("queue-collapsed");
+    if (localStorage.getItem("ngzr.compactUi") === "1") document.body.classList.add("compact-ui");
+  } catch { /* optional */ }
+  syncQueueToggle();
+  els.queueToggle?.addEventListener("click", toggleQueue);
+  els.commandPaletteBtn?.addEventListener("click", openCommandPalette);
   els.autoclaim.checked = localStorage.getItem("ngzr.autoclaim") === "1";
 
   els.autoclaim.addEventListener("change", () => {
