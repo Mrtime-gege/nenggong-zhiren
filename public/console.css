@@ -4369,3 +4369,19 @@ body.compact-ui .context-pane .context-body {
   box-shadow: 0 0 0 1px rgba(138, 164, 248, 0.08);
   pointer-events: none;
 }
+
+/* Stage 4: above the density threshold the miniature content is painted on
+   a canvas instead of creating hundreds of DOM nodes. */
+.minimap-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.minimap-canvas.hidden,
+.minimap-content.hidden {
+  display: none;
+}

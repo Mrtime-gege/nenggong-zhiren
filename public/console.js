@@ -1629,12 +1629,14 @@ function buildDetail(ticket) {
   threadMinimap.tabIndex = 0;
   const minimapClip = el("div", "minimap-clip");
   const minimapContent = el("div", "minimap-content");
+  const minimapCanvas = el("canvas", "minimap-canvas hidden");
+  minimapCanvas.setAttribute("aria-hidden", "true");
   const minimapViewport = el("div", "minimap-viewport");
   const minimapUnloaded = el("button", "minimap-unloaded hidden");
   minimapUnloaded.type = "button";
   const minimapSlider = el("div", "minimap-slider");
   minimapSlider.append(minimapViewport);
-  minimapClip.append(minimapContent);
+  minimapClip.append(minimapContent, minimapCanvas);
   threadMinimap.append(minimapClip, minimapSlider, minimapUnloaded);
   setupThreadMinimap(threadBody, threadMinimap, minimapClip, minimapContent, minimapViewport, minimapUnloaded);
   threadPane.append(threadHead, threadBody, threadMinimap);
@@ -1878,6 +1880,7 @@ function buildDetail(ticket) {
     threadMinimap,
     minimapClip,
     minimapContent,
+    minimapCanvas,
     minimapSlider,
     minimapViewport,
     minimapUnloaded,
@@ -2830,6 +2833,44 @@ function revealThreadMinimap(d = detail) {
   }, 1100);
 }
 
+function drawMinimapCanvas(d, { contentTop = 0, offset = 0, fits = false } = {}) {
+  const canvas = d?.els?.minimapCanvas;
+  const clip = d?.els?.minimapClip;
+  if (!canvas || !clip) return;
+  const width = Math.max(1, clip.clientWidth);
+  const height = Math.max(1, clip.clientHeight);
+  const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  const backingWidth = Math.max(1, Math.round(width * dpr));
+  const backingHeight = Math.max(1, Math.round(height * dpr));
+  if (canvas.width !== backingWidth || canvas.height !== backingHeight) {
+    canvas.width = backingWidth;
+    canvas.height = backingHeight;
+  }
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  context.clearRect(0, 0, width, height);
+  const colors = {
+    user: "rgba(138, 164, 248, 0.72)",
+    assistant: "rgba(196, 207, 223, 0.62)",
+    tool: "rgba(216, 178, 106, 0.72)",
+    output: "rgba(131, 199, 164, 0.82)",
+    reasoning: "rgba(160, 143, 204, 0.72)",
+    system: "rgba(135, 149, 163, 0.45)",
+  };
+  const lines = d.minimapLines || [];
+  const startIndex = fits ? 0 : Math.max(0, Math.floor(contentTop / 4) - 1);
+  const endIndex = fits ? lines.length : Math.min(lines.length, Math.ceil((contentTop + height) / 4) + 1);
+  for (let index = startIndex; index < endIndex; index += 1) {
+    const line = lines[index];
+    const y = (fits ? offset : 0) + index * 4 - contentTop;
+    const lineHeight = line.tall ? 3 : 2;
+    if (y + lineHeight < 0 || y > height) continue;
+    context.fillStyle = colors[line.role] || colors.system;
+    context.fillRect(0, y, Math.max(2, width * (line.width / 100)), lineHeight);
+  }
+}
+
 function updateThreadMinimap(d = detail) {
   if (!d?.els?.threadBody || !d.els.threadMinimap) return;
   const body = d.els.threadBody;
@@ -2854,7 +2895,9 @@ function updateThreadMinimap(d = detail) {
   const top = max > 0 ? Math.round((body.scrollTop / max) * maxTop) : 0;
   viewport.style.height = `${thumbHeight}px`;
   viewport.style.top = `${top}px`;
-  const contentHeight = content.scrollHeight;
+  const lines = d.minimapLines || [];
+  const useCanvas = d.minimapRenderMode === "canvas" && lines.length > 0;
+  const contentHeight = useCanvas ? Math.max(2, lines.length * 4 - 2) : content.scrollHeight;
   const clipHeight = clip.clientHeight;
   if (contentHeight < 2) {
     minimap.classList.add("hidden");
@@ -2862,13 +2905,13 @@ function updateThreadMinimap(d = detail) {
   }
   const fits = contentHeight <= clipHeight;
   minimap.dataset.minimapLayout = fits ? "fit" : "scroll";
-  if (fits) {
-    const offset = Math.max(0, Math.floor((clipHeight - contentHeight) / 2));
-    content.style.transform = `translateY(${offset}px)`;
+  const fitOffset = fits ? Math.max(0, Math.floor((clipHeight - contentHeight) / 2)) : 0;
+  const contentOverflow = Math.max(0, contentHeight - clipHeight);
+  const contentTop = !fits && max > 0 ? Math.round((body.scrollTop / max) * contentOverflow) : 0;
+  if (useCanvas) {
+    drawMinimapCanvas(d, { contentTop, offset: fitOffset, fits });
   } else {
-    const contentOverflow = Math.max(0, contentHeight - clipHeight);
-    const contentTop = max > 0 ? Math.round((body.scrollTop / max) * contentOverflow) : 0;
-    content.style.transform = `translateY(${-contentTop}px)`;
+    content.style.transform = `translateY(${fits ? fitOffset : -contentTop}px)`;
   }
 }
 
@@ -2978,16 +3021,12 @@ function renderThreadMinimap(ticket, d) {
     return;
   }
   d.minimapSignature = signature;
-  const fragment = document.createDocumentFragment();
-  const maxLines = semantic ? 240 : 360;
+  const maxLines = 360;
   const stride = Math.max(1, Math.ceil(source.length / maxLines));
   const sampled = source.filter((entry, index) => index % stride === 0 || index === source.length - 1);
+  const lines = [];
   const pushLine = (role, width, tall = false, title = "") => {
-    const line = document.createElement("span");
-    line.className = `minimap-line ${role}${tall ? " tall" : ""}`;
-    line.style.width = `${Math.max(14, Math.min(96, width))}%`;
-    if (title) line.title = title;
-    fragment.append(line);
+    lines.push({ role, width: Math.max(14, Math.min(96, width)), tall, title });
   };
   for (const item of sampled) {
     if (semantic) {
@@ -3017,7 +3056,28 @@ function renderThreadMinimap(ticket, d) {
   }
   (ticket.toolCalls || []).slice(0, 8).forEach(() => pushLine("tool", 34));
   if ((ticket.reasoning || "").length) pushLine("reasoning", 54);
-  d.els.minimapContent.replaceChildren(fragment);
+  d.minimapLines = lines;
+  const canvas = d.els.minimapCanvas;
+  let useCanvas = lines.length >= 300 && Boolean(canvas);
+  if (useCanvas) {
+    try { useCanvas = Boolean(canvas.getContext("2d")); } catch { useCanvas = false; }
+  }
+  d.minimapRenderMode = useCanvas ? "canvas" : "dom";
+  d.els.minimapContent.classList.toggle("hidden", useCanvas);
+  canvas?.classList.toggle("hidden", !useCanvas);
+  if (useCanvas) {
+    d.els.minimapContent.replaceChildren();
+  } else {
+    const fragment = document.createDocumentFragment();
+    for (const item of lines) {
+      const line = document.createElement("span");
+      line.className = `minimap-line ${item.role}${item.tall ? " tall" : ""}`;
+      line.style.width = `${item.width}%`;
+      if (item.title) line.title = item.title;
+      fragment.append(line);
+    }
+    d.els.minimapContent.replaceChildren(fragment);
+  }
   scheduleThreadMinimapUpdate(d);
 }
 
