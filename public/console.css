@@ -3407,7 +3407,7 @@ body {
 .workspace.conversation-workspace {
   display: flex;
   flex: 1 1 auto;
-  gap: 10px;
+  gap: 2px;
   min-height: 0;
   height: 100%;
 }
