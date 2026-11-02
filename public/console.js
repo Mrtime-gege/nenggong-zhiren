@@ -151,7 +151,14 @@ function loadMinimapMode() {
 function setMinimapMode(mode) {
   const next = normalizeMinimapMode(mode);
   state.minimapMode = next;
-  if (detail?.els?.threadMinimap) detail.els.threadMinimap.dataset.minimapMode = next;
+  if (detail?.els?.threadMinimap) {
+    detail.els.threadMinimap.dataset.minimapMode = next;
+    const ticket = currentTicket();
+    if (ticket) {
+      detail.minimapSignature = "";
+      renderThreadMinimap(ticket, detail);
+    }
+  }
   try { localStorage.setItem(MINIMAP_MODE_KEY, next); } catch { /* optional */ }
   return next;
 }
@@ -422,7 +429,8 @@ function queuePriority(a, b) {
 function isContextMessage(message) {
   if (message.role === "system" || message.role === "developer") return true;
   if (message.role !== "user") return false;
-  const text = (message.content || "").trimStart();
+  if (typeof message.content !== "string") return false;
+  const text = message.content.trimStart();
   return (
     text.startsWith("Current runtime context.") ||
     text.startsWith("<system-reminder>") ||
@@ -2839,6 +2847,63 @@ function loadMoreThreadHistory(d = detail) {
   });
 }
 
+function minimapMessageText(message) {
+  if (typeof message?.content === "string") return message.content;
+  if (Array.isArray(message?.content)) {
+    return message.content
+      .filter((part) => part?.type === "text" && typeof part.text === "string")
+      .map((part) => part.text)
+      .join("\n");
+  }
+  return "";
+}
+
+/**
+ * Conversation-aware minimap model. Consecutive tool messages (and
+ * tool-only assistant messages) collapse into one tool group, while user and
+ * assistant turns remain separate. This keeps tool-heavy runs from drowning
+ * out the actual conversation.
+ */
+function buildMinimapTurns(ticket) {
+  const { conversation } = messageBuckets(ticket);
+  const turns = [];
+  let toolGroup = null;
+  for (const entry of conversation) {
+    const message = entry.message || {};
+    const role = message.role || "unknown";
+    const text = minimapMessageText(message);
+    const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls.length : 0;
+    const toolOnlyAssistant = role === "assistant" && !text.trim() && toolCalls > 0;
+    if (role === "tool" || toolOnlyAssistant) {
+      if (!toolGroup) {
+        toolGroup = {
+          kind: "tool",
+          role: "tool",
+          count: 0,
+          chars: 0,
+          messageCount: 0,
+          firstIndex: entry.index,
+        };
+        turns.push(toolGroup);
+      }
+      toolGroup.messageCount += 1;
+      toolGroup.count += role === "tool" ? 1 : Math.max(1, toolCalls);
+      toolGroup.chars += text.length + toolCalls * 180;
+      continue;
+    }
+    toolGroup = null;
+    turns.push({
+      kind: role === "user" ? "user" : role === "assistant" ? "assistant" : "system",
+      role,
+      count: 1,
+      chars: text.length,
+      messageCount: 1,
+      firstIndex: entry.index,
+    });
+  }
+  return turns;
+}
+
 function renderThreadMinimap(ticket, d) {
   if (!d?.els?.minimapContent || !d.els.threadMinimap) return;
   const rows = [...d.els.messages.querySelectorAll('.msg[data-context="0"]')];
@@ -2846,8 +2911,12 @@ function renderThreadMinimap(ticket, d) {
   const hidden = Math.max(0, conversation.length - rows.length);
   const minimap = d.els.threadMinimap;
   const unloaded = d.els.minimapUnloaded;
+  const semantic = state.minimapMode === "semantic";
+  const source = semantic ? buildMinimapTurns(ticket) : conversation;
   const signature = [
+    state.minimapMode,
     conversation.length,
+    source.length,
     ticket.text?.length || 0,
     ticket.reasoning?.length || 0,
     ticket.toolCalls?.length || 0,
@@ -2869,23 +2938,36 @@ function renderThreadMinimap(ticket, d) {
   }
   d.minimapSignature = signature;
   const fragment = document.createDocumentFragment();
-  const maxLines = 360;
-  const stride = Math.max(1, Math.ceil(conversation.length / maxLines));
-  const sampled = conversation.filter((entry, index) => index % stride === 0 || index === conversation.length - 1);
-  const pushLine = (role, width, tall = false) => {
+  const maxLines = semantic ? 240 : 360;
+  const stride = Math.max(1, Math.ceil(source.length / maxLines));
+  const sampled = source.filter((entry, index) => index % stride === 0 || index === source.length - 1);
+  const pushLine = (role, width, tall = false, title = "") => {
     const line = document.createElement("span");
     line.className = `minimap-line ${role}${tall ? " tall" : ""}`;
     line.style.width = `${Math.max(14, Math.min(96, width))}%`;
+    if (title) line.title = title;
     fragment.append(line);
   };
-  for (const entry of sampled) {
-    const role = entry.message.role === "user" ? "user"
-      : entry.message.role === "tool" ? "tool"
-        : entry.message.role === "assistant" ? "assistant" : "system";
-    const text = typeof entry.message.content === "string" ? entry.message.content : "";
-    const width = 18 + Math.min(76, Math.round(text.length / 4));
-    pushLine(role, width, false);
-    if (text.length > 360 && sampled.length < 240) pushLine(role, Math.min(88, width + 8));
+  for (const item of sampled) {
+    if (semantic) {
+      const chars = Number(item.chars) || 0;
+      const width = item.kind === "tool"
+        ? 26 + Math.min(62, Math.round(Math.log2((item.count || 1) + 1) * 14))
+        : 18 + Math.min(76, Math.round(chars / 4));
+      const tall = item.kind === "tool" && (item.count || 0) >= 3;
+      const title = item.kind === "tool"
+        ? `工具组 · ${item.count} 项`
+        : item.kind === "user" ? "用户消息" : item.kind === "assistant" ? "助手消息" : "系统消息";
+      pushLine(item.kind, width, tall, title);
+    } else {
+      const role = item.message.role === "user" ? "user"
+        : item.message.role === "tool" ? "tool"
+          : item.message.role === "assistant" ? "assistant" : "system";
+      const text = typeof item.message.content === "string" ? item.message.content : "";
+      const width = 18 + Math.min(76, Math.round(text.length / 4));
+      pushLine(role, width, false);
+      if (text.length > 360 && sampled.length < 240) pushLine(role, Math.min(88, width + 8));
+    }
   }
   const output = ticket.text || "";
   if (output) {
