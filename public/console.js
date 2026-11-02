@@ -126,6 +126,7 @@ const state = {
   httpCache: new Map(),
   detailLoading: null,
   minimapMode: "overlay",
+  minimapSlider: "hover",
 };
 
 const DRAFT_STORAGE_PREFIX = "ngzr.drafts.v1:";
@@ -134,6 +135,8 @@ const INSPECTOR_TAB_KEY = "ngzr.inspectorTab";
 const INSPECTOR_COLLAPSED_KEY = "ngzr.inspectorCollapsed";
 const MINIMAP_MODE_KEY = "ngzr.minimapMode";
 const MINIMAP_MODES = new Set(["overlay", "semantic"]);
+const MINIMAP_SLIDER_KEY = "ngzr.minimapSlider";
+const MINIMAP_SLIDER_MODES = new Set(["hover", "always"]);
 let draftSaveTimer = null;
 
 function normalizeMinimapMode(value) {
@@ -146,6 +149,26 @@ function loadMinimapMode() {
   } catch {
     return "overlay";
   }
+}
+
+function normalizeMinimapSlider(value) {
+  return MINIMAP_SLIDER_MODES.has(value) ? value : "hover";
+}
+
+function loadMinimapSlider() {
+  try {
+    return normalizeMinimapSlider(localStorage.getItem(MINIMAP_SLIDER_KEY));
+  } catch {
+    return "hover";
+  }
+}
+
+function setMinimapSlider(mode) {
+  const next = normalizeMinimapSlider(mode);
+  state.minimapSlider = next;
+  if (detail?.els?.threadMinimap) detail.els.threadMinimap.dataset.minimapSlider = next;
+  try { localStorage.setItem(MINIMAP_SLIDER_KEY, next); } catch { /* optional */ }
+  return next;
 }
 
 function setMinimapMode(mode) {
@@ -1601,6 +1624,7 @@ function buildDetail(ticket) {
   threadBody.append(messages, tools, threadOutputHead, reasoningBox, transcript, sentTools);
   const threadMinimap = el("div", "thread-minimap hidden");
   threadMinimap.dataset.minimapMode = state.minimapMode;
+  threadMinimap.dataset.minimapSlider = state.minimapSlider;
   threadMinimap.setAttribute("aria-label", "会话微缩总览");
   threadMinimap.tabIndex = 0;
   const minimapClip = el("div", "minimap-clip");
@@ -1608,8 +1632,10 @@ function buildDetail(ticket) {
   const minimapViewport = el("div", "minimap-viewport");
   const minimapUnloaded = el("button", "minimap-unloaded hidden");
   minimapUnloaded.type = "button";
+  const minimapSlider = el("div", "minimap-slider");
+  minimapSlider.append(minimapViewport);
   minimapClip.append(minimapContent);
-  threadMinimap.append(minimapClip, minimapViewport, minimapUnloaded);
+  threadMinimap.append(minimapClip, minimapSlider, minimapUnloaded);
   setupThreadMinimap(threadBody, threadMinimap, minimapClip, minimapContent, minimapViewport, minimapUnloaded);
   threadPane.append(threadHead, threadBody, threadMinimap);
 
@@ -1852,6 +1878,7 @@ function buildDetail(ticket) {
     threadMinimap,
     minimapClip,
     minimapContent,
+    minimapSlider,
     minimapViewport,
     minimapUnloaded,
     contextSplitter,
@@ -2809,23 +2836,24 @@ function updateThreadMinimap(d = detail) {
   const minimap = d.els.threadMinimap;
   const clip = d.els.minimapClip;
   const content = d.els.minimapContent;
+  const slider = d.els.minimapSlider;
   const viewport = d.els.minimapViewport;
   const max = Math.max(0, body.scrollHeight - body.clientHeight);
   const shouldHide = max < 8;
   minimap.classList.toggle("hidden", shouldHide);
   if (shouldHide) return;
-  const railHeight = minimap.clientHeight;
+  const railHeight = slider?.clientHeight || minimap.clientHeight;
   if (railHeight < 16) {
     minimap.classList.add("hidden");
     return;
   }
   const visibleRatio = Math.max(0.015, Math.min(1, body.clientHeight / Math.max(1, body.scrollHeight)));
-  const maxThumb = Math.max(12, railHeight - 4);
+  const maxThumb = Math.max(12, railHeight - 2);
   const thumbHeight = Math.max(Math.min(24, maxThumb), Math.min(maxThumb, Math.round(railHeight * visibleRatio)));
-  const maxTop = Math.max(0, railHeight - thumbHeight - 2);
+  const maxTop = Math.max(0, railHeight - thumbHeight);
   const top = max > 0 ? Math.round((body.scrollTop / max) * maxTop) : 0;
   viewport.style.height = `${thumbHeight}px`;
-  viewport.style.top = `${1 + top}px`;
+  viewport.style.top = `${top}px`;
   const contentHeight = content.scrollHeight;
   const clipHeight = clip.clientHeight;
   if (contentHeight < 2) {
@@ -4734,6 +4762,7 @@ function handleGlobalShortcut(event) {
 function init() {
   installAudioUnlock();
   state.minimapMode = loadMinimapMode();
+  state.minimapSlider = loadMinimapSlider();
   state.shortcuts = loadShortcuts();
   updateShortcutLabels();
   try {

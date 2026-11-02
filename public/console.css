@@ -4323,3 +4323,49 @@ body.compact-ui .context-pane .context-body {
 .thread-minimap:focus-visible {
   transition: opacity 120ms ease, visibility 0s linear 0s;
 }
+
+/* Stage 3: the miniature content and the viewport slider are separate
+   layers. The slider has its own narrow track at the right edge. */
+.minimap-clip {
+  right: 14px;
+}
+
+.minimap-slider {
+  position: absolute;
+  top: 7px;
+  right: 4px;
+  bottom: 7px;
+  z-index: 3;
+  width: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.045);
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.12s ease;
+}
+
+.thread-minimap[data-minimap-slider="hover"] .minimap-slider {
+  opacity: 0;
+}
+
+.thread-minimap[data-minimap-slider="hover"]:hover .minimap-slider {
+  opacity: 1;
+}
+
+.thread-minimap[data-minimap-slider="always"] .minimap-slider {
+  opacity: 1;
+}
+
+.minimap-viewport {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  width: auto;
+  min-height: 12px;
+  border: 1px solid rgba(138, 164, 248, 0.68);
+  border-radius: 4px;
+  background: rgba(138, 164, 248, 0.28);
+  box-shadow: 0 0 0 1px rgba(138, 164, 248, 0.08);
+  pointer-events: none;
+}
