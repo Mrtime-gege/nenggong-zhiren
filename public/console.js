@@ -1914,7 +1914,20 @@ function buildDetail(ticket) {
     applyInspectorState(current);
   });
   detail = current;
-  threadBody.addEventListener("scroll", () => { scheduleThreadMinimapUpdate(current); revealThreadMinimap(current); }, { passive: true });
+  threadBody.addEventListener("scroll", () => scheduleThreadMinimapUpdate(current), { passive: true });
+  threadBody.addEventListener("pointermove", (event) => {
+    if (event.pointerType === "touch" || current.minimapHoverReady) return;
+    current.minimapHoverReady = true;
+    threadMinimap.classList.add("hover-ready");
+  }, { passive: true });
+  threadBody.addEventListener("wheel", () => {
+    if (!current.minimapHoverReady) {
+      current.minimapHoverReady = true;
+      threadMinimap.classList.add("hover-ready");
+    }
+    revealThreadMinimap(current);
+  }, { passive: true });
+  threadBody.addEventListener("touchstart", () => revealThreadMinimap(current), { passive: true });
   if (typeof ResizeObserver !== "undefined") {
     current.minimapObserver = new ResizeObserver(() => scheduleThreadMinimapUpdate(current));
     current.minimapObserver.observe(threadBody);

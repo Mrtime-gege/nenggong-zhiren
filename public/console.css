@@ -4272,8 +4272,8 @@ body.compact-ui .context-pane .context-body {
   transition: opacity 0.14s ease;
 }
 
-.thread-body:hover ~ .thread-minimap,
-.thread-minimap:hover,
+.thread-body:hover ~ .thread-minimap.hover-ready,
+.thread-minimap.hover-ready:hover,
 .thread-minimap.visible,
 .thread-minimap.dragging,
 .thread-minimap:focus-visible {
@@ -4291,4 +4291,35 @@ body.compact-ui .context-pane .context-body {
     right: 2px;
     width: 48px;
   }
+}
+
+/* Hide on load; reveal only after the pointer actually enters the history
+   (or on a touch scroll). Fade in quickly and fade out even faster. */
+.thread-minimap {
+  transition: opacity 120ms ease, visibility 0s linear 0s;
+  backdrop-filter: blur(8px) saturate(1.12);
+  -webkit-backdrop-filter: blur(8px) saturate(1.12);
+  will-change: opacity;
+}
+
+.thread-body:hover ~ .thread-minimap.hover-ready,
+.thread-minimap.hover-ready:hover,
+.thread-minimap.visible,
+.thread-minimap.dragging,
+.thread-minimap:focus-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 120ms ease, visibility 0s linear 0s;
+}
+
+.thread-minimap {
+  transition: opacity 80ms ease, visibility 0s linear 80ms;
+}
+
+.thread-minimap.hover-ready:hover,
+.thread-minimap.dragging,
+.thread-minimap.visible,
+.thread-minimap:focus-visible {
+  transition: opacity 120ms ease, visibility 0s linear 0s;
 }
