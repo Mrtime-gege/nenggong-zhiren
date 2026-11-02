@@ -297,6 +297,16 @@ function el(tag, className = "", text = null) {
   return node;
 }
 
+function contextSection(title, hint = "") {
+  const section = el("section", "context-section");
+  const head = el("div", "context-section-head");
+  head.append(el("span", "context-section-title", title));
+  if (hint) head.append(el("span", "context-section-hint", hint));
+  const body = el("div", "context-section-body");
+  section.append(head, body);
+  return { section, body };
+}
+
 function clampNumber(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -1762,8 +1772,14 @@ function buildDetail(ticket) {
   }
   const inspectorBody = el("div", "inspector-body context-body");
   const infoSection = el("div", "inspector-tab-panel context-info");
+  const infoOverview = contextSection("票据概览", "当前请求");
+  infoOverview.body.append(meta, purposeHint);
+  const infoDetails = contextSection("请求详情", "协议 / 限制 / 客户端");
   const infoExtra = el("div", "info-extra");
-  infoSection.append(meta, purposeHint, sessionBar, infoExtra);
+  infoDetails.body.append(infoExtra);
+  const infoSession = contextSection("相关会话", "同会话轮次");
+  infoSession.body.append(sessionBar);
+  infoSection.append(infoOverview.section, infoDetails.section, infoSession.section);
   const sentSection = el("div", "inspector-tab-panel context-sent");
   const sentHead = el("div", "sent-panel-head");
   sentHead.append(el("span", "sent-panel-title", "当前发送"));
@@ -1820,22 +1836,25 @@ function buildDetail(ticket) {
   moreHistory.type = "button";
   moreHistory.addEventListener("click", () => openSubpage(`/console/history?ticket=${encodeURIComponent(ticket.id)}`, "历史"));
   moreActions.append(moreRefresh, moreCopyId, moreCopyReply, moreHistory);
-  const otherActions = el("div", "editor-quick-actions context-actions");
   const quickTemplate = el("button", "btn ghost", "快捷回复");
   quickTemplate.type = "button";
   quickTemplate.addEventListener("click", openTemplateModal);
   const quickTransfer = el("button", "btn ghost", "转交");
   quickTransfer.type = "button";
   quickTransfer.addEventListener("click", openTransfer);
-  otherActions.append(quickTemplate, quickTransfer);
+  moreActions.append(quickTemplate, quickTransfer);
   let quickTakeover = null;
   if (state.role === "admin") {
     quickTakeover = el("button", "btn ghost editor-takeover", "管理员接管");
     quickTakeover.type = "button";
     quickTakeover.addEventListener("click", takeoverTicket);
-    otherActions.append(quickTakeover);
+    moreActions.append(quickTakeover);
   }
-  notesSection.append(moreActions, otherActions, routingPanel, notesPanel);
+  const moreActionsSection = contextSection("操作", "刷新 / 复制 / 模板 / 转交");
+  moreActionsSection.body.append(moreActions);
+  routingPanel.classList.add("context-section");
+  notesPanel.classList.add("context-section");
+  notesSection.append(moreActionsSection.section, routingPanel, notesPanel);
   inspectorBody.append(infoSection, sentSection, toolsSection, aiSection, notesSection);
   inspector.append(inspectorHead, inspectorTabs, inspectorBody);
 
@@ -2057,6 +2076,7 @@ function buildDetail(ticket) {
     inspectorBody,
     infoSection,
     infoExtra,
+    infoSession: infoSession.section,
     sentSection,
     sentReasoning,
     sentReasoningCount,
@@ -3005,6 +3025,7 @@ function renderSessionBar(ticket, d) {
     ? state.tickets.filter((item) => item.sessionId === ticket.sessionId).sort((a, b) => a.createdAt - b.createdAt)
     : [ticket];
   bar.classList.toggle("hidden", !ticket.sessionId);
+  d.els.infoSession?.classList.toggle("hidden", !ticket.sessionId);
   if (!ticket.sessionId) return;
   bar.replaceChildren();
 

@@ -4938,3 +4938,168 @@ body.compact-ui .context-pane .context-body {
 .ai-compact-status.hidden {
   display: none;
 }
+
+/* Context tabs: shared section framing for 资料 and 更多. */
+.context-section {
+  margin: 0 0 9px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.016);
+}
+
+.context-section:last-child {
+  margin-bottom: 0;
+}
+
+.context-section-head,
+.context-section > .ticket-extra-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.context-section-title {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.context-section-hint,
+.context-section > .ticket-extra-head .ticket-extra-hint {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 400;
+}
+
+.context-section-body,
+.context-section > .ticket-extra-body {
+  padding: 8px 9px;
+}
+
+.context-section-body > .meta {
+  margin: 0;
+}
+
+/* Meta, detail rows and session strip are content inside one shared frame. */
+.context-pane .info-extra {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.context-pane .info-extra-row {
+  grid-template-columns: 78px minmax(0, 1fr);
+  gap: 7px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+}
+
+.context-pane .info-extra-row:first-child {
+  padding-top: 0;
+}
+
+.context-pane .info-extra-row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.context-pane .meta {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  gap: 4px;
+}
+
+.context-pane .meta-item {
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.context-pane .session-bar {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.context-pane .purpose-hint {
+  margin-bottom: 8px;
+}
+
+/* 更多: action groups and routing/notes use the same section card. */
+.context-pane .more-action-grid {
+  margin: 0;
+}
+
+.context-pane .more-action-grid .btn,
+.context-pane .context-actions .btn {
+  height: 26px;
+  min-height: 26px;
+  font-size: 9.5px;
+}
+
+.context-pane .context-actions {
+  display: flex;
+  grid-column: auto;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+
+.context-pane .ticket-extra.context-section {
+  margin-top: 9px;
+  padding-top: 0;
+  border-top: 1px solid var(--line);
+}
+
+.context-pane .ticket-extra.context-section .ticket-extra-head {
+  margin: 0;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.context-pane .ticket-extra.context-section .ticket-extra-body {
+  padding: 8px 9px;
+}
+
+/* Workbench theme has higher-specificity meta/session rules; neutralize them inside context cards. */
+body[data-page="workbench"] .context-pane .context-section-body > .meta {
+  gap: 4px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+body[data-page="workbench"] .context-pane .context-section-body > .meta .meta-item {
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+body[data-page="workbench"] .context-pane .context-section-body > .session-bar {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+body[data-page="workbench"] .context-pane .ticket-extra.context-section {
+  margin-top: 9px;
+  padding-top: 0;
+  border-top: 1px solid var(--line);
+}
