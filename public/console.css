@@ -5103,3 +5103,10 @@ body[data-page="workbench"] .context-pane .ticket-extra.context-section {
   padding-top: 0;
   border-top: 1px solid var(--line);
 }
+
+/* Never let the resizable context consume the thread after the queue reopens. */
+@media (min-width: 781px) {
+  .workspace.conversation-workspace > .context-pane {
+    max-width: calc(100% - 340px);
+  }
+}

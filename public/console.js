@@ -1591,6 +1591,20 @@ function setupEditorSplitter(splitter, wrap, composer) {
   });
 }
 
+function reflowContextWidth() {
+  const workspace = detail?.els?.workspace;
+  const inspector = detail?.els?.inspector;
+  if (!workspace || !inspector || detail.inspectorCollapsed) return;
+  const total = workspace.getBoundingClientRect().width;
+  if (!total) return;
+  const max = Math.max(300, Math.floor(total - 340));
+  const configured = Number.parseFloat(workspace.style.getPropertyValue("--context-width"));
+  const current = Number.isFinite(configured) ? configured : inspector.getBoundingClientRect().width;
+  if (current <= max + 0.5) return;
+  workspace.style.setProperty("--context-width", `${max}px`);
+  try { localStorage.setItem("ngzr.contextWidth", String(max)); } catch { /* optional */ }
+}
+
 function setupContextSplitter(splitter, workspace, inspector) {
   const storageKey = "ngzr.contextWidth";
   const clamp = (width) => {
@@ -2221,6 +2235,7 @@ function applyInspectorState(d) {
     d.els.inspectorToggle.textContent = d.inspectorCollapsed ? "显示上下文" : "隐藏上下文";
     d.els.inspectorToggle.setAttribute("aria-expanded", d.inspectorCollapsed ? "false" : "true");
   }
+  if (!d.inspectorCollapsed) requestAnimationFrame(reflowContextWidth);
 }
 
 function activateInspectorTab(d, tab) {
@@ -5308,6 +5323,7 @@ function toggleQueue() {
   document.body.classList.toggle("queue-collapsed", next);
   try { localStorage.setItem("ngzr.queueCollapsed", next ? "1" : "0"); } catch { /* optional */ }
   syncQueueToggle();
+  requestAnimationFrame(reflowContextWidth);
 }
 
 function syncQueueToggle() {
@@ -5453,6 +5469,7 @@ function init() {
     closeCommandMenu();
   });
   window.addEventListener("resize", closeCommandMenu);
+  window.addEventListener("resize", () => requestAnimationFrame(reflowContextWidth));
   window.addEventListener("scroll", closeCommandMenu, true);
   document.addEventListener("click", (event) => {
     if (!event.target.closest?.(".ai-tools")) closeAiMenus();
