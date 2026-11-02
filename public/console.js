@@ -125,13 +125,36 @@ const state = {
   recordingShortcut: null,
   httpCache: new Map(),
   detailLoading: null,
+  minimapMode: "overlay",
 };
 
 const DRAFT_STORAGE_PREFIX = "ngzr.drafts.v1:";
 const SELECTED_STORAGE_KEY = "ngzr.selectedTicket";
 const INSPECTOR_TAB_KEY = "ngzr.inspectorTab";
 const INSPECTOR_COLLAPSED_KEY = "ngzr.inspectorCollapsed";
+const MINIMAP_MODE_KEY = "ngzr.minimapMode";
+const MINIMAP_MODES = new Set(["overlay", "semantic"]);
 let draftSaveTimer = null;
+
+function normalizeMinimapMode(value) {
+  return MINIMAP_MODES.has(value) ? value : "overlay";
+}
+
+function loadMinimapMode() {
+  try {
+    return normalizeMinimapMode(localStorage.getItem(MINIMAP_MODE_KEY));
+  } catch {
+    return "overlay";
+  }
+}
+
+function setMinimapMode(mode) {
+  const next = normalizeMinimapMode(mode);
+  state.minimapMode = next;
+  if (detail?.els?.threadMinimap) detail.els.threadMinimap.dataset.minimapMode = next;
+  try { localStorage.setItem(MINIMAP_MODE_KEY, next); } catch { /* optional */ }
+  return next;
+}
 
 function draftStorageKey() {
   return `${DRAFT_STORAGE_PREFIX}${state.operator || "anonymous"}`;
@@ -1569,6 +1592,7 @@ function buildDetail(ticket) {
   const sentTools = el("div", "sent-toolcalls hidden");
   threadBody.append(messages, tools, threadOutputHead, reasoningBox, transcript, sentTools);
   const threadMinimap = el("div", "thread-minimap hidden");
+  threadMinimap.dataset.minimapMode = state.minimapMode;
   threadMinimap.setAttribute("aria-label", "会话微缩总览");
   threadMinimap.tabIndex = 0;
   const minimapClip = el("div", "minimap-clip");
@@ -4614,6 +4638,7 @@ function handleGlobalShortcut(event) {
 
 function init() {
   installAudioUnlock();
+  state.minimapMode = loadMinimapMode();
   state.shortcuts = loadShortcuts();
   updateShortcutLabels();
   try {
