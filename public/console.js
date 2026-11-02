@@ -1719,10 +1719,10 @@ function buildDetail(ticket) {
   const inspector = el("aside", "inspector context-pane");
   const inspectorHead = el("div", "inspector-head");
   inspectorHead.append(el("span", "", "上下文"));
-  inspectorHead.append(el("span", "inspector-hint", "资料 / 工具 / AI / 备注"));
+  inspectorHead.append(el("span", "inspector-hint", "资料 / 当前发送 / 工具 / AI / 备注"));
   const inspectorTabs = el("div", "inspector-tabs");
   const tabButtons = {};
-  for (const [key, tabLabel] of [["info", "资料"], ["tools", "工具"], ["ai", "AI"], ["notes", "备注"]]) {
+  for (const [key, tabLabel] of [["info", "资料"], ["sent", "当前发送"], ["tools", "工具"], ["ai", "AI"], ["notes", "备注"]]) {
     const button = el("button", "inspector-tab", tabLabel);
     button.type = "button";
     button.dataset.tab = key;
@@ -1733,6 +1733,33 @@ function buildDetail(ticket) {
   const inspectorBody = el("div", "inspector-body context-body");
   const infoSection = el("div", "inspector-tab-panel context-info");
   infoSection.append(meta, purposeHint, sessionBar);
+  const sentSection = el("div", "inspector-tab-panel context-sent");
+  const sentHead = el("div", "sent-panel-head");
+  sentHead.append(el("span", "sent-panel-title", "当前发送"));
+  sentHead.append(el("span", "sent-panel-hint", "已发送给调用方"));
+  const sentReasoningBlock = el("section", "sent-block sent-reasoning-block");
+  const sentReasoningHead = el("div", "sent-block-head");
+  const sentReasoningTitle = el("span", "sent-block-title", "思考");
+  const sentReasoningCount = el("span", "sent-block-count", "0 字");
+  const sentReasoningCopy = el("button", "sent-copy", "复制");
+  sentReasoningCopy.type = "button";
+  sentReasoningHead.append(sentReasoningTitle, sentReasoningCount, sentReasoningCopy);
+  const sentReasoning = el("pre", "sent-content sent-reasoning-content");
+  const sentReasoningEmpty = el("div", "sent-empty sent-reasoning-empty", "还没有发送思考");
+  sentReasoningBlock.append(sentReasoningHead, sentReasoning, sentReasoningEmpty);
+  const sentTextBlock = el("section", "sent-block sent-text-block");
+  const sentTextHead = el("div", "sent-block-head");
+  const sentTextTitle = el("span", "sent-block-title", "正文");
+  const sentTextCount = el("span", "sent-block-count", "0 字");
+  const sentTextCopy = el("button", "sent-copy", "复制");
+  sentTextCopy.type = "button";
+  sentTextHead.append(sentTextTitle, sentTextCount, sentTextCopy);
+  const sentText = el("pre", "sent-content sent-text-content");
+  const sentTextEmpty = el("div", "sent-empty sent-text-empty", "还没有发送正文");
+  sentTextBlock.append(sentTextHead, sentText, sentTextEmpty);
+  sentSection.append(sentHead, sentReasoningBlock, sentTextBlock);
+  sentReasoningCopy.addEventListener("click", () => copyMessageText(sentReasoning.textContent));
+  sentTextCopy.addEventListener("click", () => copyMessageText(sentText.textContent));
   const toolsSection = el("div", "inspector-tab-panel");
   const aiSection = el("div", "inspector-tab-panel");
   const notesSection = el("div", "inspector-tab-panel");
@@ -1756,7 +1783,7 @@ function buildDetail(ticket) {
     otherActions.append(quickTakeover);
   }
   notesSection.append(otherActions, routingPanel, notesPanel);
-  inspectorBody.append(infoSection, toolsSection, aiSection, notesSection);
+  inspectorBody.append(infoSection, sentSection, toolsSection, aiSection, notesSection);
   inspector.append(inspectorHead, inspectorTabs, inspectorBody);
 
   const aiTools = el("div", "ai-tools hidden");
@@ -1926,6 +1953,15 @@ function buildDetail(ticket) {
     inspectorTabs,
     inspectorBody,
     infoSection,
+    sentSection,
+    sentReasoning,
+    sentReasoningCount,
+    sentReasoningEmpty,
+    sentReasoningCopy,
+    sentText,
+    sentTextCount,
+    sentTextEmpty,
+    sentTextCopy,
     toolsSection,
     aiSection,
     notesSection,
@@ -2041,6 +2077,7 @@ function loadInspectorTab() {
     const value = localStorage.getItem(INSPECTOR_TAB_KEY);
     if (value === "tools") return "tools";
     if (value === "ai") return "ai";
+    if (value === "sent") return "sent";
     if (["notes", "routing", "other"].includes(value)) return "notes";
   } catch { /* storage is optional */ }
   return "info";
@@ -2061,7 +2098,7 @@ function applyInspectorState(d) {
 
 function activateInspectorTab(d, tab) {
   if (!d?.els?.inspectorTabs) return;
-  const next = ["info", "tools", "ai", "notes"].includes(tab)
+  const next = ["info", "sent", "tools", "ai", "notes"].includes(tab)
     ? tab
     : tab === "tools" ? "tools" : ["notes", "routing", "other"].includes(tab) ? "notes" : "info";
   d.inspectorTab = next;
@@ -2071,6 +2108,7 @@ function activateInspectorTab(d, tab) {
     button.setAttribute("aria-selected", key === next ? "true" : "false");
   }
   d.els.infoSection.classList.toggle("hidden", next !== "info");
+  d.els.sentSection.classList.toggle("hidden", next !== "sent");
   d.els.toolsSection.classList.toggle("hidden", next !== "tools");
   d.els.aiSection.classList.toggle("hidden", next !== "ai");
   d.els.notesSection.classList.toggle("hidden", next !== "notes");
@@ -2078,6 +2116,22 @@ function activateInspectorTab(d, tab) {
     const ticket = currentTicket();
     if (ticket) renderToolPanel(ticket, d);
   }
+}
+
+function renderSentPanel(ticket, d) {
+  if (!d?.els?.sentSection) return;
+  const reasoning = typeof ticket.reasoning === "string" ? ticket.reasoning : "";
+  const text = typeof ticket.text === "string" ? ticket.text : "";
+  d.els.sentReasoning.textContent = reasoning;
+  d.els.sentText.textContent = text;
+  d.els.sentReasoning.classList.toggle("hidden", !reasoning);
+  d.els.sentText.classList.toggle("hidden", !text);
+  d.els.sentReasoningEmpty.classList.toggle("hidden", Boolean(reasoning));
+  d.els.sentTextEmpty.classList.toggle("hidden", Boolean(text));
+  d.els.sentReasoningCount.textContent = `${reasoning.length} 字`;
+  d.els.sentTextCount.textContent = `${text.length} 字`;
+  d.els.sentReasoningCopy.disabled = !reasoning;
+  d.els.sentTextCopy.disabled = !text;
 }
 
 function updateDetail(ticket) {
@@ -2090,6 +2144,7 @@ function updateDetail(ticket) {
   renderMeta(ticket, d.els.meta);
   renderPurposeHint(ticket, d);
   renderSessionBar(ticket, d);
+  renderSentPanel(ticket, d);
   renderMessages(ticket, d);
   renderTranscript(ticket, d);
   renderSentToolCalls(ticket, d);

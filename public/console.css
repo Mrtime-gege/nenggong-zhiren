@@ -4467,3 +4467,108 @@ body.compact-ui .context-pane .context-body {
 .thread-minimap[data-minimap-slider="always"] .minimap-slider {
   opacity: 1;
 }
+
+/* Context: current sent reasoning and reply body. */
+.context-pane .inspector-tab {
+  padding-left: 3px;
+  padding-right: 3px;
+  font-size: 9.5px;
+}
+
+.sent-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+
+.sent-panel-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sent-panel-hint {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.sent-block {
+  margin-bottom: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.sent-block-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.sent-block-title {
+  color: var(--text-dim);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.sent-block-count {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.sent-copy {
+  margin-left: auto;
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.sent-copy:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  color: var(--text-dim);
+}
+
+.sent-copy:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.sent-content {
+  max-height: 280px;
+  margin: 0;
+  padding: 9px 10px;
+  overflow: auto;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.sent-reasoning-content {
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.sent-text-content {
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.sent-empty {
+  padding: 12px 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
