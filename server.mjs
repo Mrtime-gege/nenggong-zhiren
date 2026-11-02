@@ -1451,6 +1451,7 @@ function startAiRelayForTicket(ticket, source, actor = "system") {
         source,
         actor,
         content: result.content || "",
+        reasoning: result.reasoning || "",
         toolCalls: result.toolCalls || [],
         finishReason: result.finishReason || "",
         usage: result.usage || null,

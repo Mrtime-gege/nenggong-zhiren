@@ -200,6 +200,11 @@ export async function relayReply({ settings, apiKey, ticket, instruction = "" } 
   const choice = data?.choices?.[0] || {};
   const message = choice.message || {};
   const content = sanitizeToolAnnotations(typeof message.content === "string" ? message.content : "");
+  const reasoning = typeof message.reasoning_content === "string"
+    ? message.reasoning_content
+    : typeof message.reasoning === "string"
+      ? message.reasoning
+      : "";
   const toolCalls = [];
   for (const call of Array.isArray(message.tool_calls) ? message.tool_calls : []) {
     const name = String(call?.function?.name || "").trim();
@@ -217,6 +222,7 @@ export async function relayReply({ settings, apiKey, ticket, instruction = "" } 
   }
   return {
     content,
+    reasoning,
     toolCalls,
     finishReason: choice.finish_reason || "stop",
     model: settings.model,

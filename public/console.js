@@ -108,6 +108,9 @@ const state = {
   drafts: new Map(),
   toolDrafts: new Map(),
   aiRuns: new Map(),
+  aiCards: new Map(),
+  aiSelectedCards: new Map(),
+  aiAutoCardsShown: new Map(),
   aiPrompts: new Map(),
   autoQueueSeen: null,
   autoClaimSeen: null,
@@ -1261,27 +1264,28 @@ function applyPendingAiHelp(ticket) {
     return;
   }
   if (detail.aiAutoShownAt === pending.createdAt) return;
+  if (state.aiAutoCardsShown.get(ticket.id) === pending.createdAt) return;
   detail.aiAutoShownAt = pending.createdAt;
-  const calls = normalizeAiToolCalls(pending.toolCalls);
-  const run = {
+  state.aiAutoCardsShown.set(ticket.id, pending.createdAt);
+  state.aiRuns.set(ticket.id, {
     status: "done",
     task: "reply",
     relay: true,
-    result: {
-      suggestion: {
-        text: stripAiToolAnnotations(pending.content || ""),
-        toolCalls: calls,
-        reason: "",
-      },
-    },
     startedAt: pending.createdAt,
     autoPendingAt: pending.createdAt,
-  };
-  state.aiRuns.set(ticket.id, run);
-  detail.aiRunDismissed = false;
-  renderAiRun(ticket, detail, run);
+  });
+  detail.els.aiPanel.classList.add("hidden");
+  addAiCard(ticket, detail, {
+    reasoning: pending.reasoning || "",
+    content: pending.content || "",
+    toolCalls: pending.toolCalls,
+    source: pending.source || "auto",
+    finishReason: pending.finishReason || "",
+    usage: pending.usage || null,
+    createdAt: pending.createdAt,
+  });
   updateComposer(ticket, detail);
-  toast("AI 结果已显示在右侧 AI 子页，请确认后使用");
+  toast("AI 结果已加入 AI 子页，请选择后填入或追加");
 }
 
 function showEmpty() {
@@ -1932,8 +1936,20 @@ function buildDetail(ticket) {
   aiClose.type = "button";
   aiPanelActions.append(aiExpand, aiCopy, aiClose);
   aiPanel.append(aiPanelHead, aiPanelBody, aiPanelActions);
-  const aiEmpty = el("div", "ai-empty", "使用上方 AI 控制生成候选回复或工具调用；结果显示在这里。");
-  aiSection.append(aiTools, aiPanel, aiEmpty);
+  const aiCardToolbar = el("div", "ai-card-toolbar hidden");
+  const aiCardSelection = el("span", "ai-card-selection", "未选择结果");
+  const aiReplace = el("button", "btn primary ai-card-replace", "填入");
+  aiReplace.type = "button";
+  aiReplace.title = "用选中的 AI 结果替换当前草稿和全部工具调用";
+  const aiAppend = el("button", "btn ghost ai-card-append", "追加");
+  aiAppend.type = "button";
+  aiAppend.title = "把选中的 AI 结果追加到当前草稿和工具调用之后";
+  aiCardToolbar.append(aiCardSelection, aiReplace, aiAppend);
+  aiReplace.addEventListener("click", () => applySelectedAiCard("replace"));
+  aiAppend.addEventListener("click", () => applySelectedAiCard("append"));
+  const aiCardList = el("div", "ai-card-list hidden");
+  const aiEmpty = el("div", "ai-empty", "还没有 AI 结果。使用上方「AI 生成」创建结果卡片。");
+  aiSection.append(aiTools, aiPanel, aiCardToolbar, aiCardList, aiEmpty);
 
   const clearButton = el("button", "btn ghost editor-clear", "清空");
   clearButton.type = "button";
@@ -2007,6 +2023,11 @@ function buildDetail(ticket) {
     aiPromptClear,
     aiPanel,
     aiEmpty,
+    aiCardToolbar,
+    aiCardSelection,
+    aiReplace,
+    aiAppend,
+    aiCardList,
     aiPanelTitle,
     aiPanelHint,
     aiPanelBody,
@@ -2438,8 +2459,10 @@ function syncQuickBar(ticket, d) {
 function syncAiTools(ticket, d) {
   const available = Boolean(state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
   d.els.aiTools.classList.toggle("hidden", !available);
-  d.els.aiEmpty.classList.toggle("hidden", !available);
-  if (!available) return;
+  if (!available) {
+    d.els.aiEmpty.classList.add("hidden");
+    return;
+  }
   d.els.aiTrigger.classList.remove("hidden");
   d.els.aiPromptTrigger.classList.remove("hidden");
   const editable = isTicketEditable(ticket) && !d.els.draft.disabled;
@@ -2447,7 +2470,7 @@ function syncAiTools(ticket, d) {
   const pending = ticket.aiPending;
   const auto = isAutoAiPending(ticket);
   const aiRunning = run?.status === "running" || (auto && pending?.status === "running");
-  const aiAttempted = run?.status === "done" || run?.status === "error" ||
+  const aiAttempted = aiCardsFor(ticket.id).length > 0 || run?.status === "done" || run?.status === "error" ||
     (auto && ["ready", "error"].includes(pending?.status));
   for (const button of Object.values(d.els.aiButtons)) {
     button.disabled = Boolean(aiRunning) || !editable;
@@ -2458,6 +2481,7 @@ function syncAiTools(ticket, d) {
     updateAiPromptTrigger(d);
   }
   if (d.els.quickAiPrompt) d.els.quickAiPrompt.disabled = Boolean(aiRunning) || !editable;
+  syncAiCardActions(ticket, d);
 }
 
 function updateAiPromptTrigger(d = detail) {
@@ -2546,6 +2570,7 @@ function showAiLoading(d, startedAt = Date.now()) {
   updateAiLoadingHint(d);
   d.aiLoadingTimer = setInterval(() => updateAiLoadingHint(d), 1000);
   d.els.aiPanel.classList.remove("hidden");
+  d.els.aiEmpty.classList.add("hidden");
   d.els.aiPanelTitle.textContent = "AI 生成中…";
   d.els.aiPanelBody.textContent = "正在请求 AI 辅助，请稍候…";
   d.els.aiPanel.classList.remove("expanded");
@@ -2587,6 +2612,11 @@ function fillReplyAndTools(ticket, d, reply) {
 }
 
 function renderAiRun(ticket, d, run) {
+  if (run.status === "running") {
+    showAiLoading(d, run.startedAt);
+    d.aiRunLoadingShown = run;
+    return;
+  }
   if (run.status === "error") {
     clearAiLoadingTimer(d);
     d.els.aiPanel.classList.remove("hidden");
@@ -2596,69 +2626,36 @@ function renderAiRun(ticket, d, run) {
     d.els.aiInsert.classList.add("hidden");
     d.els.aiApply.classList.add("hidden");
     d.els.aiExpand.classList.add("hidden");
+    d.els.aiEmpty.classList.add("hidden");
     d.aiRenderedRun = run;
     return;
   }
-  if (run.status === "running") {
-    showAiLoading(d, run.startedAt);
-    d.aiRunLoadingShown = run;
-    return;
-  }
-  const result = run.result;
-  const task = run.task;
-  const reply = task === "reply" && result?.suggestion && typeof result.suggestion === "object" ? result.suggestion : null;
-  const suggestion = reply
-    ? [
-        reply.text ? `回复正文：\n${reply.text}` : "回复正文：（无）",
-        reply.toolCalls?.length
-          ? `工具调用：\n${reply.toolCalls.map((call) => `- ${call.name} ${JSON.stringify(call.arguments)}`).join("\n")}`
-          : "工具调用：（无）",
-        reply.reason ? `依据：${reply.reason}` : "",
-      ].filter(Boolean).join("\n\n")
-    : typeof result.suggestion === "string" ? result.suggestion : JSON.stringify(result.suggestion, null, 2);
-  const titles = { summary: "摘要", translate: "翻译", reply: "候选回复 + 工具调用" };
-  const options = {
-    insertable: task === "translate",
-    selection: task === "translate" ? run.selection : null,
-  };
-  if (reply) {
-    const canApply = isTicketEditable(ticket);
-    options.applyLabel = canApply
-      ? reply.toolCalls?.length ? "填入回复与工具" : "填入回复"
-      : "票据已结束";
-    options.onApply = !canApply ? null : async () => {
-      try {
-        fillReplyAndTools(ticket, d, reply);
-        d.els.aiPanel.classList.add("hidden");
-        toast(reply.toolCalls?.length ? "已填入回复和工具调用，请确认后发送" : "已填入回复，请确认后发送");
-      } catch (error) {
-        toast(error.message);
-      }
-    };
-
-  }
-  aiShowPanel(ticket, d, titles[task] || "AI 建议", suggestion, options);
-  d.aiRenderedEditable = isTicketEditable(ticket);
-  if (run.warnings?.length) {
-    d.els.aiPanelHint.textContent = `${suggestion.length} 字 · ${run.warnings.join(" ")}`;
-  } else if (reply && !isTicketEditable(ticket)) {
-    d.els.aiPanelHint.textContent = `${suggestion.length} 字 · 票据已结束，无法填入`;
-  }
+  clearAiLoadingTimer(d);
+  d.els.aiPanel.classList.add("hidden");
+  d.els.aiPanel.classList.remove("expanded");
+  d.els.aiPanelBody.textContent = "";
   d.aiRenderedRun = run;
+  renderAiCards(ticket, d, true);
 }
 
 function restoreAiRun(ticket, d) {
   const run = state.aiRuns.get(ticket.id);
-  if (!run) return;
+  if (!run) {
+    renderAiCards(ticket, d);
+    return;
+  }
   if (run.status === "running") {
     if (d.aiRunLoadingShown !== run) renderAiRun(ticket, d, run);
     return;
   }
-  if (d.aiRunDismissed) return;
-  if (d.aiRenderedRun !== run || d.aiRenderedEditable !== isTicketEditable(ticket)) {
-    d.aiRenderedEditable = isTicketEditable(ticket);
-    renderAiRun(ticket, d, run);
+  if (run.status === "error") {
+    if (d.aiRunDismissed) { renderAiCards(ticket, d); return; }
+    if (d.aiRenderedRun !== run) renderAiRun(ticket, d, run);
+    else renderAiCards(ticket, d);
+    return;
   }
+  d.els.aiPanel.classList.add("hidden");
+  renderAiCards(ticket, d);
 }
 
 function normalizeAiToolCalls(calls) {
@@ -2677,6 +2674,225 @@ function normalizeAiToolCalls(calls) {
       };
     })
     .filter(Boolean);
+}
+
+let aiCardSequence = 0;
+
+function aiCardsFor(ticketId) {
+  if (!state.aiCards) state.aiCards = new Map();
+  let cards = state.aiCards.get(ticketId);
+  if (!cards) {
+    cards = [];
+    state.aiCards.set(ticketId, cards);
+  }
+  return cards;
+}
+
+function selectedAiCard(ticketId) {
+  const cards = aiCardsFor(ticketId);
+  const id = state.aiSelectedCards?.get(ticketId);
+  return cards.find((card) => card.id === id) || null;
+}
+
+function cardSourceLabel(source) {
+  if (source === "auto_receive") return "自动生成";
+  if (source === "auto_claim") return "认领生成";
+  if (source === "manual") return "手动生成";
+  return source ? String(source) : "AI 结果";
+}
+
+function addAiCard(ticket, d, { reasoning = "", content = "", toolCalls = [], source = "manual", finishReason = "", usage = null, createdAt = Date.now() } = {}) {
+  const cards = aiCardsFor(ticket.id);
+  const card = {
+    id: `ai_${Date.now()}_${++aiCardSequence}`,
+    reasoning: typeof reasoning === "string" ? reasoning : "",
+    content: typeof content === "string" ? content : "",
+    toolCalls: normalizeAiToolCalls(toolCalls),
+    source,
+    finishReason,
+    usage,
+    createdAt,
+  };
+  cards.push(card);
+  state.aiSelectedCards.set(ticket.id, card.id);
+  if (d) d.aiCardsSignature = "";
+  renderAiCards(ticket, d, true);
+  return card;
+}
+
+function cardToolDraftCalls(calls) {
+  return normalizeAiToolCalls(calls).map((call) => ({
+    name: call.name,
+    arguments: typeof call.arguments === "string" ? call.arguments : JSON.stringify(call.arguments ?? {}),
+  }));
+}
+
+function validateCardToolDrafts(ticket, calls) {
+  if (calls.length > 16) throw new Error("最多 16 个工具调用。");
+  if (ticket.toolChoice && typeof ticket.toolChoice === "object") {
+    const invalid = calls.find((call) => call.name !== ticket.toolChoice.name);
+    if (invalid) throw new Error(`此请求指定使用工具 ${ticket.toolChoice.name}。`);
+  }
+  if (ticket.parallelToolCalls === false && calls.length > 1) {
+    throw new Error("此请求只允许一个工具调用。");
+  }
+  return calls;
+}
+
+function syncAiCardActions(ticket, d) {
+  if (!d?.els?.aiReplace) return;
+  const cards = aiCardsFor(ticket.id);
+  const selected = selectedAiCard(ticket.id);
+  const editable = isTicketEditable(ticket);
+  d.els.aiCardSelection.textContent = selected
+    ? `已选 ${cards.findIndex((card) => card.id === selected.id) + 1} / ${cards.length}`
+    : cards.length ? "未选择结果" : "暂无结果";
+  const disabled = state.busy || !selected || !editable;
+  d.els.aiReplace.disabled = disabled;
+  d.els.aiAppend.disabled = disabled;
+}
+
+function selectAiCard(ticket, d, cardId) {
+  const cards = aiCardsFor(ticket.id);
+  if (!cards.some((card) => card.id === cardId)) return;
+  state.aiSelectedCards.set(ticket.id, cardId);
+  d.aiCardsSignature = "";
+  renderAiCards(ticket, d, true);
+}
+
+function toolCallArgsText(call) {
+  try {
+    return JSON.stringify(call.arguments ?? {}, null, 2);
+  } catch {
+    return String(call.arguments ?? "");
+  }
+}
+
+function renderAiCards(ticket, d, force = false) {
+  if (!d?.els?.aiCardList) return;
+  const cards = aiCardsFor(ticket.id);
+  let selected = selectedAiCard(ticket.id);
+  if (!selected && cards.length) {
+    selected = cards[cards.length - 1];
+    state.aiSelectedCards.set(ticket.id, selected.id);
+  }
+  if (!selected && !cards.length) state.aiSelectedCards.delete(ticket.id);
+  const panelVisible = !d.els.aiPanel.classList.contains("hidden");
+  const signature = JSON.stringify({
+    cards: cards.map((card) => [card.id, card.reasoning, card.content, card.toolCalls, card.source, card.createdAt]),
+    selected: selected?.id || "",
+    editable: isTicketEditable(ticket),
+    panelVisible,
+  });
+  if (!force && d.aiCardsSignature === signature) {
+    syncAiCardActions(ticket, d);
+    return;
+  }
+  d.aiCardsSignature = signature;
+  const list = d.els.aiCardList;
+  list.replaceChildren();
+  cards.forEach((card, index) => {
+    const node = el("article", `ai-card${selected?.id === card.id ? " selected" : ""}`);
+    node.dataset.cardId = card.id;
+    node.tabIndex = 0;
+    node.setAttribute("role", "radio");
+    node.setAttribute("aria-checked", selected?.id === card.id ? "true" : "false");
+    node.addEventListener("click", () => selectAiCard(ticket, d, card.id));
+    node.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      selectAiCard(ticket, d, card.id);
+    });
+
+    const head = el("div", "ai-card-head");
+    const radio = el("span", "ai-card-radio");
+    radio.setAttribute("aria-hidden", "true");
+    const title = el("span", "ai-card-title", `AI 结果 ${index + 1}`);
+    head.append(radio, title);
+    const meta = el("span", "ai-card-meta");
+    meta.textContent = `${cardSourceLabel(card.source)} · ${fmtTime(card.createdAt)}`;
+    head.append(meta);
+    node.append(head);
+
+    const reasoningBlock = el("section", "ai-card-section");
+    const reasoningHead = el("div", "ai-card-section-title", "思考");
+    const reasoningBody = el("pre", "ai-card-text ai-card-reasoning", card.reasoning || "（无思考文本）");
+    reasoningBody.classList.toggle("is-empty", !card.reasoning);
+    reasoningBlock.append(reasoningHead, reasoningBody);
+    node.append(reasoningBlock);
+
+    const textBlock = el("section", "ai-card-section");
+    const textHead = el("div", "ai-card-section-title", "正文");
+    const textBody = el("pre", "ai-card-text ai-card-content", card.content || "（无正文）");
+    textBody.classList.toggle("is-empty", !card.content);
+    textBlock.append(textHead, textBody);
+    node.append(textBlock);
+
+    const toolsBlock = el("section", "ai-card-section");
+    const toolsHead = el("div", "ai-card-section-title", `工具调用 · ${card.toolCalls.length}`);
+    toolsBlock.append(toolsHead);
+    if (card.toolCalls.length) {
+      const tools = el("div", "ai-card-tools");
+      for (const call of card.toolCalls) {
+        const tool = el("div", "ai-card-tool");
+        tool.append(el("div", "ai-card-tool-name", call.name));
+        tool.append(el("pre", "ai-card-tool-args", toolCallArgsText(call)));
+        tools.append(tool);
+      }
+      toolsBlock.append(tools);
+    } else {
+      toolsBlock.append(el("div", "ai-card-empty-line", "（无工具调用）"));
+    }
+    node.append(toolsBlock);
+    list.append(node);
+  });
+
+  const hasCards = cards.length > 0;
+  list.classList.toggle("hidden", !hasCards);
+  d.els.aiCardToolbar.classList.toggle("hidden", !hasCards);
+  d.els.aiEmpty.classList.toggle("hidden", hasCards || panelVisible);
+  syncAiCardActions(ticket, d);
+}
+
+function applySelectedAiCard(mode) {
+  const ticket = currentTicket();
+  const d = detail;
+  if (!ticket || !d || d.id !== ticket.id) return;
+  if (!isTicketEditable(ticket)) {
+    toast("票据当前不可编辑。");
+    return;
+  }
+  const card = selectedAiCard(ticket.id);
+  if (!card) {
+    toast("先选择一条 AI 结果。");
+    return;
+  }
+  try {
+    const cardTools = cardToolDraftCalls(card.toolCalls);
+    const existingTools = state.toolDrafts.get(ticket.id) || [];
+    const tools = mode === "append" ? validateCardToolDrafts(ticket, [...existingTools, ...cardTools]) : validateCardToolDrafts(ticket, cardTools);
+    const current = d.els.draft.value;
+    const nextText = mode === "append"
+      ? `${current}${current && card.content ? "\n\n" : ""}${card.content}`
+      : card.content;
+    setDraft(ticket.id, nextText);
+    d.els.draft.value = nextText;
+    d.els.draft.dispatchEvent(new Event("input", { bubbles: true }));
+    if (tools.length) state.toolDrafts.set(ticket.id, tools);
+    else state.toolDrafts.delete(ticket.id);
+    if (mode === "replace") {
+      setToolEditMode(d, null);
+      d.els.toolArgs.value = "";
+      d.toolArgsDirty = false;
+      d.els.draftStatus.textContent = "已填入 AI 结果";
+    }
+    syncDraftMeta(d);
+    renderToolPanel(ticket, d);
+    updateComposer(ticket, d);
+    toast(mode === "replace" ? "已用 AI 结果替换草稿和工具调用" : "已追加 AI 结果到草稿和工具调用");
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 function stripAiToolAnnotations(value) {
@@ -2710,19 +2926,21 @@ async function runAiTask(task, d, instruction = "") {
       method: "POST",
       body: instruction ? { instruction } : {},
     });
-    const text = stripAiToolAnnotations(result.content || "");
-    const calls = normalizeAiToolCalls(result.toolCalls);
     run.status = "done";
-    run.result = { suggestion: { text, toolCalls: calls, reason: "" } };
     state.aiRuns.set(ticket.id, run);
     d.aiRunDismissed = false;
-    d.aiRenderedRun = null;
     clearAiLoadingTimer(d);
-    renderAiRun(ticket, d, run);
+    d.els.aiPanel.classList.add("hidden");
+    addAiCard(ticket, d, {
+      reasoning: result.reasoning || "",
+      content: stripAiToolAnnotations(result.content || ""),
+      toolCalls: result.toolCalls,
+      source: "manual",
+      finishReason: result.finishReason || "",
+      usage: result.usage || null,
+    });
     updateComposer(ticket, d);
-    toast(calls.length
-      ? `AI 已生成候选回复和 ${calls.length} 个工具调用，请在 AI 子页确认`
-      : "AI 已生成候选回复，请在 AI 子页确认");
+    toast("AI 结果已加入 AI 子页，请选择后填入或追加");
   } catch (error) {
     run.status = "error";
     run.error = error.message;

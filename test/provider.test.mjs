@@ -2872,6 +2872,7 @@ test("AI relay forwards the original request without an added system prompt", as
         choices: [{
           message: {
             content: "好的，我来处理。",
+            reasoning_content: "先查订单，再确认配送。",
             tool_calls: [{
               id: "call_1",
               type: "function",
@@ -2901,6 +2902,7 @@ test("AI relay forwards the original request without an added system prompt", as
       },
     });
     assert.equal(result.content, "好的，我来处理。");
+    assert.equal(result.reasoning, "先查订单，再确认配送。");
     assert.equal(result.toolCalls[0].name, "lookup");
     assert.equal(result.toolCalls[0].arguments, "{\"id\":\"A-1\"}");
     assert.deepEqual(result.toolCalls[0].parsedArguments, { id: "A-1" });
