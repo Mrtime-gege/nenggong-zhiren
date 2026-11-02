@@ -4039,3 +4039,16 @@ body.compact-ui .context-pane .context-body {
   box-sizing: border-box;
   min-height: 12px;
 }
+
+/* Center the context-width grabber on the splitter, not the top edge. */
+.context-width-splitter {
+  position: relative;
+}
+
+.context-width-splitter::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  transform: translate(-50%, -50%);
+}
