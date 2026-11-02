@@ -4385,3 +4385,31 @@ body.compact-ui .context-pane .context-body {
 .minimap-content.hidden {
   display: none;
 }
+
+/* Stage 5: keyboard/focus and reduced-motion hooks. */
+.minimap-content {
+  transform-origin: top left;
+}
+
+.thread-minimap {
+  /* Keep it focusable for keyboard users; opacity still hides it until focus. */
+  visibility: visible;
+}
+
+.thread-minimap:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-minimap,
+  .thread-minimap-slider {
+    transition: none !important;
+  }
+}
+
+@media (hover: none) {
+  .thread-minimap[data-minimap-slider="hover"] .minimap-slider {
+    opacity: 1;
+  }
+}

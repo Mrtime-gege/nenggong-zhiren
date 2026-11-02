@@ -127,6 +127,7 @@ const state = {
   detailLoading: null,
   minimapMode: "overlay",
   minimapSlider: "hover",
+  minimapLayout: "auto",
 };
 
 const DRAFT_STORAGE_PREFIX = "ngzr.drafts.v1:";
@@ -137,6 +138,8 @@ const MINIMAP_MODE_KEY = "ngzr.minimapMode";
 const MINIMAP_MODES = new Set(["overlay", "semantic"]);
 const MINIMAP_SLIDER_KEY = "ngzr.minimapSlider";
 const MINIMAP_SLIDER_MODES = new Set(["hover", "always"]);
+const MINIMAP_LAYOUT_KEY = "ngzr.minimapLayout";
+const MINIMAP_LAYOUTS = new Set(["auto", "fit", "scroll"]);
 let draftSaveTimer = null;
 
 function normalizeMinimapMode(value) {
@@ -168,6 +171,27 @@ function setMinimapSlider(mode) {
   state.minimapSlider = next;
   if (detail?.els?.threadMinimap) detail.els.threadMinimap.dataset.minimapSlider = next;
   try { localStorage.setItem(MINIMAP_SLIDER_KEY, next); } catch { /* optional */ }
+  return next;
+}
+
+function normalizeMinimapLayout(value) {
+  return MINIMAP_LAYOUTS.has(value) ? value : "auto";
+}
+
+function loadMinimapLayout() {
+  try {
+    return normalizeMinimapLayout(localStorage.getItem(MINIMAP_LAYOUT_KEY));
+  } catch {
+    return "auto";
+  }
+}
+
+function setMinimapLayout(layout) {
+  const next = normalizeMinimapLayout(layout);
+  state.minimapLayout = next;
+  if (detail?.els?.threadMinimap) detail.els.threadMinimap.dataset.minimapLayoutPreference = next;
+  try { localStorage.setItem(MINIMAP_LAYOUT_KEY, next); } catch { /* optional */ }
+  scheduleThreadMinimapUpdate(detail);
   return next;
 }
 
@@ -1605,6 +1629,7 @@ function buildDetail(ticket) {
   const msgCount = el("span", "pane-note", "");
   threadHead.append(threadTitle, msgCount);
   const threadBody = el("div", "thread-body");
+  threadBody.id = `thread-body-${ticket.id}`;
   const messages = el("div", "messages");
   const tools = el("div", "tools");
   tools.style.display = "none";
@@ -1625,7 +1650,14 @@ function buildDetail(ticket) {
   const threadMinimap = el("div", "thread-minimap hidden");
   threadMinimap.dataset.minimapMode = state.minimapMode;
   threadMinimap.dataset.minimapSlider = state.minimapSlider;
-  threadMinimap.setAttribute("aria-label", "会话微缩总览");
+  threadMinimap.dataset.minimapLayoutPreference = state.minimapLayout;
+  threadMinimap.setAttribute("aria-label", "会话微缩总览与滚动位置");
+  threadMinimap.setAttribute("aria-controls", threadBody.id);
+  threadMinimap.setAttribute("role", "scrollbar");
+  threadMinimap.setAttribute("aria-orientation", "vertical");
+  threadMinimap.setAttribute("aria-valuemin", "0");
+  threadMinimap.setAttribute("aria-valuemax", "100");
+  threadMinimap.setAttribute("aria-valuenow", "0");
   threadMinimap.tabIndex = 0;
   const minimapClip = el("div", "minimap-clip");
   const minimapContent = el("div", "minimap-content");
@@ -2801,14 +2833,24 @@ function setupThreadMinimap(body, minimap, clip, content, viewport, unloaded) {
     window.addEventListener("pointerup", end);
     window.addEventListener("pointercancel", end);
   });
+  minimap.addEventListener("focus", () => revealThreadMinimap(detail));
+  minimap.addEventListener("blur", () => {
+    if (!minimap.matches(":hover")) minimap.classList.remove("visible");
+  });
   minimap.addEventListener("keydown", (event) => {
-    if (!["ArrowDown", "ArrowUp", "PageDown", "PageUp"].includes(event.key)) return;
+    if (!["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
-    const page = event.key === "PageDown" || event.key === "PageUp";
-    body.scrollBy({
-      top: (event.key === "ArrowDown" || event.key === "PageDown" ? 1 : -1) * (page ? body.clientHeight * 0.8 : 80),
-      behavior: "smooth",
-    });
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+    const behavior = reduced ? "auto" : "smooth";
+    if (event.key === "Home" || event.key === "End") {
+      body.scrollTo({ top: event.key === "Home" ? 0 : body.scrollHeight, behavior });
+    } else {
+      const page = event.key === "PageDown" || event.key === "PageUp";
+      body.scrollBy({
+        top: (event.key === "ArrowDown" || event.key === "PageDown" ? 1 : -1) * (page ? body.clientHeight * 0.8 : 80),
+        behavior,
+      });
+    }
     revealThreadMinimap(detail);
     scheduleThreadMinimapUpdate(detail);
   });
@@ -2833,7 +2875,7 @@ function revealThreadMinimap(d = detail) {
   }, 1100);
 }
 
-function drawMinimapCanvas(d, { contentTop = 0, offset = 0, fits = false } = {}) {
+function drawMinimapCanvas(d, { contentTop = 0, offset = 0, fits = false, scale = 1 } = {}) {
   const canvas = d?.els?.minimapCanvas;
   const clip = d?.els?.minimapClip;
   if (!canvas || !clip) return;
@@ -2859,12 +2901,13 @@ function drawMinimapCanvas(d, { contentTop = 0, offset = 0, fits = false } = {})
     system: "rgba(135, 149, 163, 0.45)",
   };
   const lines = d.minimapLines || [];
-  const startIndex = fits ? 0 : Math.max(0, Math.floor(contentTop / 4) - 1);
-  const endIndex = fits ? lines.length : Math.min(lines.length, Math.ceil((contentTop + height) / 4) + 1);
+  const step = Math.max(0.5, 4 * scale);
+  const startIndex = fits ? 0 : Math.max(0, Math.floor(contentTop / step) - 1);
+  const endIndex = fits ? lines.length : Math.min(lines.length, Math.ceil((contentTop + height) / step) + 1);
   for (let index = startIndex; index < endIndex; index += 1) {
     const line = lines[index];
-    const y = (fits ? offset : 0) + index * 4 - contentTop;
-    const lineHeight = line.tall ? 3 : 2;
+    const y = (fits ? offset : 0) + index * step - contentTop;
+    const lineHeight = Math.max(1, (line.tall ? 3 : 2) * scale);
     if (y + lineHeight < 0 || y > height) continue;
     context.fillStyle = colors[line.role] || colors.system;
     context.fillRect(0, y, Math.max(2, width * (line.width / 100)), lineHeight);
@@ -2895,6 +2938,9 @@ function updateThreadMinimap(d = detail) {
   const top = max > 0 ? Math.round((body.scrollTop / max) * maxTop) : 0;
   viewport.style.height = `${thumbHeight}px`;
   viewport.style.top = `${top}px`;
+  const positionPercent = max > 0 ? Math.round((body.scrollTop / max) * 100) : 0;
+  minimap.setAttribute("aria-valuenow", String(positionPercent));
+  minimap.setAttribute("aria-valuetext", `会话位置 ${positionPercent}%`);
   const lines = d.minimapLines || [];
   const useCanvas = d.minimapRenderMode === "canvas" && lines.length > 0;
   const contentHeight = useCanvas ? Math.max(2, lines.length * 4 - 2) : content.scrollHeight;
@@ -2903,15 +2949,19 @@ function updateThreadMinimap(d = detail) {
     minimap.classList.add("hidden");
     return;
   }
-  const fits = contentHeight <= clipHeight;
+  const layoutPreference = state.minimapLayout || "auto";
+  const forcedFit = layoutPreference === "fit";
+  const fits = forcedFit || (layoutPreference === "auto" && contentHeight <= clipHeight);
+  const scale = forcedFit && contentHeight > clipHeight ? clipHeight / contentHeight : 1;
+  const visualHeight = contentHeight * scale;
   minimap.dataset.minimapLayout = fits ? "fit" : "scroll";
-  const fitOffset = fits ? Math.max(0, Math.floor((clipHeight - contentHeight) / 2)) : 0;
-  const contentOverflow = Math.max(0, contentHeight - clipHeight);
+  const fitOffset = fits ? Math.max(0, Math.floor((clipHeight - visualHeight) / 2)) : 0;
+  const contentOverflow = Math.max(0, visualHeight - clipHeight);
   const contentTop = !fits && max > 0 ? Math.round((body.scrollTop / max) * contentOverflow) : 0;
   if (useCanvas) {
-    drawMinimapCanvas(d, { contentTop, offset: fitOffset, fits });
+    drawMinimapCanvas(d, { contentTop, offset: fitOffset, fits, scale });
   } else {
-    content.style.transform = `translateY(${fits ? fitOffset : -contentTop}px)`;
+    content.style.transform = `translateY(${fits ? fitOffset : -contentTop}px) scaleY(${scale})`;
   }
 }
 
@@ -4675,6 +4725,20 @@ function commandPaletteActions() {
     add("工作台", document.body.classList.contains("compact-ui") ? "切换舒适密度" : "切换紧凑密度", "紧凑显示队列和消息", toggleCompactUi);
     add("工作台", "快捷键面板", "查看和自定义键盘快捷键", openShortcuts, "?");
   }
+  const layoutLabels = { auto: "自动", fit: "适配", scroll: "滚动" };
+  for (const [key, label] of Object.entries(layoutLabels)) {
+    add("微缩总览", `布局：${label}`, "短会话适配或长会话滚动", () => setMinimapLayout(key), state.minimapLayout === key ? "当前" : "");
+  }
+  add("微缩总览", "滑块：悬停显示", "只在指针进入微缩条时显示滑块", () => setMinimapSlider("hover"), state.minimapSlider === "hover" ? "当前" : "");
+  add("微缩总览", "滑块：一直显示", "微缩总览出现时始终显示滑块", () => setMinimapSlider("always"), state.minimapSlider === "always" ? "当前" : "");
+  add("微缩总览", state.minimapMode === "semantic" ? "语义聚合：关闭" : "语义聚合：开启", "按用户/助手轮次聚合，合并工具组", () => setMinimapMode(state.minimapMode === "semantic" ? "overlay" : "semantic"), state.minimapMode === "semantic" ? "已开启" : "");
+  add("微缩总览", "聚焦微缩总览", "用键盘方向键、Home/End 导航", () => {
+    const minimap = detail?.els?.threadMinimap;
+    if (!minimap || minimap.classList.contains("hidden")) return;
+    minimap.classList.add("visible");
+    minimap.focus({ preventScroll: true });
+  });
+
   const tickets = [...state.tickets]
     .sort((a, b) => (a.state === "queued" ? 0 : isActive(a) ? 1 : 2) - (b.state === "queued" ? 0 : isActive(b) ? 1 : 2) || (a.created || a.createdAt) - (b.created || b.createdAt))
     .slice(0, 20);
@@ -4823,6 +4887,7 @@ function init() {
   installAudioUnlock();
   state.minimapMode = loadMinimapMode();
   state.minimapSlider = loadMinimapSlider();
+  state.minimapLayout = loadMinimapLayout();
   state.shortcuts = loadShortcuts();
   updateShortcutLabels();
   try {
