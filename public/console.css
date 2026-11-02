@@ -5242,3 +5242,64 @@ body[data-page="workbench"] .qitem-foot {
   overflow-y: auto;
   margin-top: 0;
 }
+
+/* AI tab status: result count plus generating/completed indicator. */
+.inspector-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.inspector-tab-label {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.ai-tab-dot {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.ai-tab-dot.running {
+  background: var(--accent-strong);
+  animation: ai-tab-pulse 1.1s ease-in-out infinite;
+}
+
+.ai-tab-dot.done {
+  background: var(--green);
+  box-shadow: 0 0 0 2px rgba(127, 196, 154, 0.12);
+}
+
+.ai-tab-dot.error {
+  background: var(--red, #d87878);
+}
+
+.ai-tab-count {
+  min-width: 14px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 8px;
+  line-height: 13px;
+  text-align: center;
+}
+
+@keyframes ai-tab-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-tab-dot.running {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

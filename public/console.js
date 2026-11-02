@@ -1787,10 +1787,20 @@ function buildDetail(ticket) {
   inspectorHead.append(el("span", "inspector-hint", "资料 / 当前发送 / 工具 / AI / 更多"));
   const inspectorTabs = el("div", "inspector-tabs");
   const tabButtons = {};
+  let aiTabDot = null;
+  let aiTabCount = null;
   for (const [key, tabLabel] of [["info", "资料"], ["sent", "当前发送"], ["tools", "工具"], ["ai", "AI"], ["more", "更多"]]) {
-    const button = el("button", "inspector-tab", tabLabel);
+    const button = el("button", "inspector-tab");
     button.type = "button";
     button.dataset.tab = key;
+    button.append(el("span", "inspector-tab-label", tabLabel));
+    if (key === "ai") {
+      aiTabDot = el("span", "ai-tab-dot hidden");
+      aiTabCount = el("span", "ai-tab-count hidden");
+      aiTabDot.setAttribute("aria-hidden", "true");
+      aiTabCount.setAttribute("aria-hidden", "true");
+      button.append(aiTabDot, aiTabCount);
+    }
     button.addEventListener("click", () => activateInspectorTab(current, key));
     tabButtons[key] = button;
     inspectorTabs.append(button);
@@ -2120,6 +2130,8 @@ function buildDetail(ticket) {
     clearButton,
     quickTakeover,
     tabButtons,
+    aiTabDot,
+    aiTabCount,
     toolPanel,
     toolEmpty,
     toolTitle,
@@ -2504,7 +2516,35 @@ function syncQuickBar(ticket, d) {
     !(ticket.claimedBy === state.operator || state.role === "admin");
 }
 
+function syncAiTabIndicator(ticket) {
+  const dot = detail?.els?.aiTabDot;
+  const countEl = detail?.els?.aiTabCount;
+  const button = detail?.els?.tabButtons?.ai;
+  if (!dot || !countEl || !button || !ticket) return;
+  const count = aiCardsFor(ticket.id).length;
+  const run = state.aiRuns.get(ticket.id);
+  const pending = ticket.aiPending;
+  const auto = isAutoAiPending(ticket);
+  const running = run?.status === "running" || (auto && pending?.status === "running");
+  const failed = !running && (run?.status === "error" || (auto && pending?.status === "error"));
+  const done = !running && !failed && (count > 0 || run?.status === "done" || (auto && pending?.status === "ready"));
+  dot.classList.toggle("hidden", !running && !failed && !done);
+  dot.classList.toggle("running", Boolean(running));
+  dot.classList.toggle("error", Boolean(failed));
+  dot.classList.toggle("done", Boolean(done));
+  countEl.textContent = count ? String(count) : "";
+  countEl.classList.toggle("hidden", count === 0);
+  button.title = running
+    ? `AI 生成中 · 已有 ${count} 个结果`
+    : failed
+      ? `AI 生成失败 · 已有 ${count} 个结果`
+      : done
+        ? `AI 已完成 · ${count} 个结果`
+        : "AI 辅助";
+}
+
 function syncAiTools(ticket, d) {
+  syncAiTabIndicator(ticket);
   const available = Boolean(state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
   d.els.aiTools.classList.toggle("hidden", !available);
   d.els.aiCardToolbar.classList.toggle("hidden", !available);
