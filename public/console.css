@@ -5110,3 +5110,31 @@ body[data-page="workbench"] .context-pane .ticket-extra.context-section {
     max-width: calc(100% - 340px);
   }
 }
+
+/* Detail header: title left, compact queue/context actions then badges. */
+.detail-head-actions {
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.detail-head-buttons {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.detail-head-buttons .btn {
+  height: 26px;
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+
+.detail-head-actions .badges {
+  align-items: center;
+  align-self: center;
+}

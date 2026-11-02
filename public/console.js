@@ -1667,10 +1667,15 @@ function buildDetail(ticket) {
   title.append(model, id);
   titleWrap.append(title);
   const badges = el("div", "badges");
+  const queueToggle = el("button", "btn ghost queue-toggle", document.body.classList.contains("queue-collapsed") ? "展开队列" : "收起队列");
+  queueToggle.type = "button";
+  queueToggle.addEventListener("click", toggleQueue);
   const inspectorToggle = el("button", "btn ghost inspector-toggle", "隐藏上下文");
   inspectorToggle.type = "button";
+  const detailButtons = el("div", "detail-head-buttons");
+  detailButtons.append(queueToggle, inspectorToggle);
   const headActions = el("div", "detail-head-actions");
-  headActions.append(inspectorToggle, badges);
+  headActions.append(detailButtons, badges);
   head.append(titleWrap, headActions);
 
   const meta = el("div", "meta");
@@ -5327,8 +5332,9 @@ function toggleQueue() {
 }
 
 function syncQueueToggle() {
-  if (!els.queueToggle) return;
-  els.queueToggle.textContent = document.body.classList.contains("queue-collapsed") ? "展开队列" : "收起队列";
+  const text = document.body.classList.contains("queue-collapsed") ? "展开队列" : "收起队列";
+  if (els.queueToggle) els.queueToggle.textContent = text;
+  for (const button of document.querySelectorAll(".queue-toggle")) button.textContent = text;
 }
 
 function toggleCompactUi() {
