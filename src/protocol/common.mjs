@@ -45,7 +45,7 @@ export function validateFileId(value) {
   return typeof value === "string" && /^file_[A-Za-z0-9_-]{8,80}$/.test(value);
 }
 
-export const MAX_MESSAGES_PER_REQUEST = 256;
+export const MAX_MESSAGES_PER_REQUEST = 1024;
 export const MAX_CONTENT_PARTS_PER_MESSAGE = 512;
 
 export function collectFiles(parts, messageIndex) {

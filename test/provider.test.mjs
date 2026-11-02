@@ -2301,7 +2301,7 @@ test("image URL and request-shape caps reject unbounded payloads", async () => {
 
   const tooManyMessages = await startChat({
     model: "human-1",
-    messages: Array.from({ length: 257 }, (_, index) => ({ role: "user", content: `m${index}` })),
+    messages: Array.from({ length: 1025 }, (_, index) => ({ role: "user", content: `m${index}` })),
   });
   assert.equal(tooManyMessages.status, 400);
   assert.equal((await tooManyMessages.json()).error.code, "too_many_messages");
@@ -2913,6 +2913,49 @@ test("AI relay forwards the original request without an added system prompt", as
     ]);
     assert.equal(body.model, "relay-mock");
     assert.equal(body.messages.length, 2);
+  } finally {
+    await new Promise((resolve) => mock.close(resolve));
+  }
+});
+
+test("AI relay caps forwarded messages before appending operator guidance", async () => {
+  const { relayReply } = await import("../src/ai/relay.mjs");
+  let received = null;
+  const mock = http.createServer((req, res) => {
+    let raw = "";
+    req.on("data", (chunk) => { raw += chunk; });
+    req.on("end", () => {
+      received = JSON.parse(raw);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 10, completion_tokens: 1 },
+      }));
+    });
+  });
+  await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
+  try {
+    await relayReply({
+      settings: {
+        endpoint: `http://127.0.0.1:${mock.address().port}/v1`,
+        model: "relay-mock",
+        timeoutMs: 5000,
+        maxInputChars: 50_000,
+      },
+      apiKey: "sk",
+      ticket: {
+        id: "long-thread",
+        messages: Array.from({ length: 300 }, (_, index) => ({ role: "user", content: `m${index}` })),
+        tools: [],
+        toolChoice: "auto",
+      },
+      instruction: "保持简短",
+    });
+    assert.ok(received.messages.length <= 256);
+    assert.equal(received.messages.length, 256);
+    assert.equal(received.messages.at(-1).role, "system");
+    assert.match(received.messages.at(-1).content, /保持简短/);
+    assert.equal(received.messages.at(-2).content, "m299");
   } finally {
     await new Promise((resolve) => mock.close(resolve));
   }

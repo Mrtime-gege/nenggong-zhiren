@@ -2,6 +2,11 @@
 
 import { AiAssistError } from "./assist.mjs";
 
+// Some OpenAI-compatible gateways reject requests above 256 messages. Reserve
+// one entry so an operator instruction can still be appended after compaction.
+const MAX_RELAY_MESSAGES = 256;
+const MAX_COMPACTED_MESSAGES = MAX_RELAY_MESSAGES - 1;
+
 export function sanitizeToolAnnotations(value) {
   return String(value || "")
     .replace(/\[tool use:\s*[^\]]+\]/giu, "")
@@ -81,11 +86,13 @@ function truncateMessageForBudget(message, budget) {
   return clone;
 }
 
-function compactMessagesForBudget(messages, budget) {
+function compactMessagesForBudget(messages, budget, maxEntries = MAX_COMPACTED_MESSAGES) {
   const list = Array.isArray(messages) ? messages : [];
+  const limit = Math.max(1, Math.min(MAX_COMPACTED_MESSAGES, Number(maxEntries) || MAX_COMPACTED_MESSAGES));
   let used = 0;
   const selected = [];
   for (let index = list.length - 1; index >= 0; index -= 1) {
+    if (selected.length >= limit) break;
     let entry = list[index];
     let size = charSize(entry);
     if (used + size > budget) {
@@ -106,18 +113,18 @@ function compactMessagesForBudget(messages, budget) {
     dropped += 1;
   }
   const lastSystem = [...list].reverse().find((message) => message.role === "system");
-  if (lastSystem && !selected.includes(lastSystem)) {
+  if (lastSystem && !selected.includes(lastSystem) && selected.length < limit) {
     const size = charSize(lastSystem);
     if (used + size < budget) {
       selected.unshift(lastSystem);
       used += size;
     }
   }
-  if (dropped > 0) {
+  if (dropped > 0 && selected.length < limit) {
     const note = { role: "system", content: `[AI 输入预算] 为控制请求长度，已省略 ${dropped} 条较早消息。` };
     if (used + charSize(note) < budget + 300) selected.unshift(note);
   }
-  return selected;
+  return selected.slice(0, limit);
 }
 
 function buildBody(ticket, settings) {
@@ -133,7 +140,7 @@ function buildBody(ticket, settings) {
   });
   const toolChars = charSize(tools);
   const messageBudget = Math.max(1_000, maxInputChars - toolChars - 400);
-  const messages = compactMessagesForBudget(rawMessages, messageBudget);
+  const messages = compactMessagesForBudget(rawMessages, messageBudget, MAX_COMPACTED_MESSAGES);
   const body = { model: settings.model, messages, stream: false };
   if (tools.length) {
     body.tools = tools;
