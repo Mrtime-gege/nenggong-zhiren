@@ -18,8 +18,26 @@ const PASSWORD_MIN = 8;
 const PASSWORD_MAX = 256;
 const SCRYPT_OPTIONS = Object.freeze({ N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
 const HASH_BYTES = 64;
-const QUICK_BAR_ACTIONS = new Set(["ai", "aiPrompt", "templates", "transfer"]);
-const DEFAULT_QUICK_BAR = Object.freeze(["ai", "aiPrompt"]);
+const QUICK_BAR_ACTIONS = new Set([
+  "aiGenerate", "aiPrompt", "templates", "transfer", "routing", "tools", "more",
+  "claim", "next", "status", "users", "models", "keys", "usage", "history", "audit", "settings",
+]);
+const QUICK_BAR_LINKS = new Set([
+  "/console/status", "/console/users", "/console/models", "/console/keys",
+  "/console/usage", "/console/history", "/console/audit", "/console/settings",
+]);
+const QUICK_BAR_INFO = new Set(["memory", "uptime", "queue", "aiCards"]);
+const QUICK_BAR_ROLES = new Set(["admin", "operator"]);
+const LEGACY_QUICK_BAR = {
+  ai: { kind: "action", value: "aiGenerate", label: "AI 生成" },
+  aiPrompt: { kind: "action", value: "aiPrompt", label: "AI 引导" },
+  templates: { kind: "action", value: "templates", label: "快捷回复" },
+  transfer: { kind: "action", value: "transfer", label: "转交" },
+};
+const DEFAULT_QUICK_BAR = Object.freeze([
+  Object.freeze({ id: "default-ai", kind: "action", value: "aiGenerate", label: "AI 生成", roles: Object.freeze(["admin", "operator"]) }),
+  Object.freeze({ id: "default-ai-prompt", kind: "action", value: "aiPrompt", label: "AI 引导", roles: Object.freeze(["admin", "operator"]) }),
+]);
 const DEFAULT_PREFERENCES = Object.freeze({
   browserNotifications: true,
   notificationSound: true,
@@ -29,15 +47,43 @@ const DEFAULT_PREFERENCES = Object.freeze({
   quickBar: DEFAULT_QUICK_BAR,
 });
 
+function cloneQuickBarFallback(fallback) {
+  return (Array.isArray(fallback) ? fallback : DEFAULT_QUICK_BAR).map((item) => ({
+    id: item.id,
+    kind: item.kind,
+    value: item.value,
+    label: item.label,
+    roles: Array.isArray(item.roles) ? [...item.roles] : ["admin", "operator"],
+  }));
+}
+
 function normalizeQuickBar(raw, fallback) {
-  if (!Array.isArray(raw)) return [...(fallback || DEFAULT_QUICK_BAR)];
-  const seen = new Set();
+  if (!Array.isArray(raw)) return cloneQuickBarFallback(fallback);
   const result = [];
-  for (const value of raw) {
-    if (!QUICK_BAR_ACTIONS.has(value) || seen.has(value)) continue;
-    seen.add(value);
-    result.push(value);
-    if (result.length >= QUICK_BAR_ACTIONS.size) break;
+  const usedIds = new Set();
+  for (let index = 0; index < raw.length; index += 1) {
+    const source = raw[index];
+    const item = typeof source === "string" ? LEGACY_QUICK_BAR[source] : source;
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const kind = ["action", "link", "info"].includes(item.kind) ? item.kind : "";
+    const value = String(item.value || "").trim();
+    if (!kind || !value) continue;
+    if (kind === "action" && !QUICK_BAR_ACTIONS.has(value)) continue;
+    if (kind === "link" && !QUICK_BAR_LINKS.has(value)) continue;
+    if (kind === "info" && !QUICK_BAR_INFO.has(value)) continue;
+    let roles = Array.isArray(item.roles)
+      ? [...new Set(item.roles.filter((role) => QUICK_BAR_ROLES.has(role)))]
+      : ["admin", "operator"];
+    if (!roles.length) roles = ["admin", "operator"];
+    const label = String(item.label || "").trim().slice(0, 40) || value;
+    let id = String(item.id || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64) || `quick_${index}`;
+    if (usedIds.has(id)) {
+      let suffix = 2;
+      while (usedIds.has(`${id}_${suffix}`)) suffix += 1;
+      id = `${id}_${suffix}`;
+    }
+    usedIds.add(id);
+    result.push({ id, kind, value, label, roles });
   }
   return result;
 }

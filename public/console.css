@@ -5303,3 +5303,28 @@ body[data-page="workbench"] .qitem-foot {
     transform: none;
   }
 }
+
+/* User-defined quick bar entries, including non-clickable info chips. */
+.quickbar-info {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-height: 24px;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+
+.quickbar-info-label {
+  color: var(--muted);
+}
+
+.quickbar-info-value {
+  color: var(--text-dim);
+  font-weight: 600;
+}

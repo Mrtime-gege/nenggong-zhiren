@@ -6,35 +6,242 @@ let role = "";
 let latest = null;
 let preferences = null;
 let autoClaimAvailable = false;
-const QUICK_BAR_OPTIONS = [
-  ["ai", "AI 生成 / 再次生成"],
-  ["aiPrompt", "AI 引导"],
-  ["templates", "快捷回复"],
-  ["transfer", "转交"],
+const QUICK_KINDS = [
+  ["action", "动作"],
+  ["link", "页面跳转"],
+  ["info", "信息显示"],
 ];
-const DEFAULT_QUICK_BAR = ["ai", "aiPrompt"];
+const QUICK_ACTIONS = [
+  { value: "aiGenerate", label: "AI 生成 / 再次生成" },
+  { value: "aiPrompt", label: "AI 引导" },
+  { value: "templates", label: "快捷回复" },
+  { value: "transfer", label: "转交" },
+  { value: "routing", label: "打开路由" },
+  { value: "tools", label: "打开工具" },
+  { value: "more", label: "打开更多" },
+  { value: "claim", label: "认领票据" },
+  { value: "next", label: "下一张票据" },
+  { value: "history", label: "查看历史" },
+  { value: "settings", label: "打开设置" },
+  { value: "status", label: "打开状态页", adminOnly: true },
+  { value: "users", label: "打开用户管理", adminOnly: true },
+  { value: "models", label: "打开模型管理", adminOnly: true },
+  { value: "keys", label: "打开 API 密钥", adminOnly: true },
+  { value: "usage", label: "打开用量", adminOnly: true },
+  { value: "audit", label: "打开审计", adminOnly: true },
+];
+const QUICK_LINKS = [
+  { value: "/console/status", label: "状态页", adminOnly: true },
+  { value: "/console/users", label: "用户管理", adminOnly: true },
+  { value: "/console/models", label: "模型管理", adminOnly: true },
+  { value: "/console/keys", label: "API 密钥", adminOnly: true },
+  { value: "/console/usage", label: "用量", adminOnly: true },
+  { value: "/console/audit", label: "审计", adminOnly: true },
+  { value: "/console/history", label: "历史" },
+  { value: "/console/settings", label: "设置" },
+];
+const QUICK_INFOS = [
+  { value: "memory", label: "内存占用" },
+  { value: "uptime", label: "运行时长" },
+  { value: "queue", label: "队列数量" },
+  { value: "aiCards", label: "AI 结果数" },
+];
+const LEGACY_QUICK_BAR = {
+  ai: { kind: "action", value: "aiGenerate", label: "AI 生成" },
+  aiPrompt: { kind: "action", value: "aiPrompt", label: "AI 引导" },
+  templates: { kind: "action", value: "templates", label: "快捷回复" },
+  transfer: { kind: "action", value: "transfer", label: "转交" },
+};
+const DEFAULT_QUICK_BAR = [
+  { id: "default-ai", kind: "action", value: "aiGenerate", label: "AI 生成", roles: ["admin", "operator"] },
+  { id: "default-ai-prompt", kind: "action", value: "aiPrompt", label: "AI 引导", roles: ["admin", "operator"] },
+];
+let quickBarDraft = [];
+let quickBarDraftSeq = 0;
+
+function quickBarSpec(kind, value) {
+  const list = kind === "action" ? QUICK_ACTIONS : kind === "link" ? QUICK_LINKS : kind === "info" ? QUICK_INFOS : [];
+  return list.find((item) => item.value === value) || null;
+}
+
+function quickBarOptionsFor(kind) {
+  const list = kind === "action" ? QUICK_ACTIONS : kind === "link" ? QUICK_LINKS : kind === "info" ? QUICK_INFOS : [];
+  return list.filter((item) => !item.adminOnly || role === "admin");
+}
+
+function normalizeQuickItem(raw, index) {
+  const source = typeof raw === "string" ? LEGACY_QUICK_BAR[raw] : raw;
+  if (!source || typeof source !== "object") return null;
+  const kind = QUICK_KINDS.some(([value]) => value === source.kind) ? source.kind : "action";
+  const options = quickBarOptionsFor(kind);
+  let value = String(source.value || "");
+  if (!options.some((item) => item.value === value)) value = options[0]?.value || "";
+  if (!value) return null;
+  const spec = quickBarSpec(kind, value);
+  let roles = Array.isArray(source.roles) ? source.roles.filter((entry) => entry === "admin" || entry === "operator") : [];
+  roles = [...new Set(roles)];
+  if (!roles.length) roles = ["admin", "operator"];
+  if (spec?.adminOnly) roles = ["admin"];
+  const label = String(source.label || "").trim().slice(0, 40) || spec?.label || value;
+  return {
+    id: String(source.id || `quick_${Date.now()}_${++quickBarDraftSeq}`).slice(0, 64),
+    kind,
+    value,
+    label,
+    roles,
+  };
+}
 
 function normalizeQuickBar(value) {
-  if (!Array.isArray(value)) return [...DEFAULT_QUICK_BAR];
-  const allowed = new Set(QUICK_BAR_OPTIONS.map(([key]) => key));
-  return [...new Set(value.filter((key) => allowed.has(key)))];
+  if (!Array.isArray(value)) return DEFAULT_QUICK_BAR.map((item) => ({ ...item, roles: [...item.roles] }));
+  return value.map((item, index) => normalizeQuickItem(item, index)).filter(Boolean);
+}
+
+function quickBarFormRow(item, index) {
+  const row = document.createElement("div");
+  row.className = "quickbar-item";
+  row.dataset.index = String(index);
+
+  const top = document.createElement("div");
+  top.className = "quickbar-item-main";
+  const label = document.createElement("input");
+  label.className = "quickbar-label-input";
+  label.maxLength = 40;
+  label.value = item.label;
+  label.placeholder = "显示名称";
+  label.setAttribute("aria-label", "快捷项名称");
+  label.addEventListener("input", () => { item.label = label.value; });
+
+  const kind = document.createElement("select");
+  kind.className = "quickbar-kind-select";
+  kind.setAttribute("aria-label", "快捷项类型");
+  for (const [value, text] of QUICK_KINDS) kind.append(new Option(text, value, false, item.kind === value));
+
+  const value = document.createElement("select");
+  value.className = "quickbar-value-select";
+  value.setAttribute("aria-label", "快捷项功能");
+  const fillValueOptions = () => {
+    const options = quickBarOptionsFor(item.kind);
+    value.replaceChildren();
+    for (const option of options) value.append(new Option(option.label, option.value, false, item.value === option.value));
+    if (!options.some((option) => option.value === item.value)) item.value = options[0]?.value || "";
+    value.value = item.value;
+  };
+  fillValueOptions();
+
+  const actions = document.createElement("div");
+  actions.className = "quickbar-item-actions";
+  const up = document.createElement("button");
+  up.type = "button";
+  up.className = "btn ghost quickbar-mini";
+  up.textContent = "↑";
+  up.title = "上移";
+  up.disabled = index === 0;
+  up.addEventListener("click", () => {
+    [quickBarDraft[index - 1], quickBarDraft[index]] = [quickBarDraft[index], quickBarDraft[index - 1]];
+    renderQuickBarOptions();
+    queueSave("personal", savePersonal);
+  });
+  const down = document.createElement("button");
+  down.type = "button";
+  down.className = "btn ghost quickbar-mini";
+  down.textContent = "↓";
+  down.title = "下移";
+  down.disabled = index === quickBarDraft.length - 1;
+  down.addEventListener("click", () => {
+    [quickBarDraft[index + 1], quickBarDraft[index]] = [quickBarDraft[index], quickBarDraft[index + 1]];
+    renderQuickBarOptions();
+    queueSave("personal", savePersonal);
+  });
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "btn ghost quickbar-mini quickbar-remove";
+  remove.textContent = "删除";
+  remove.title = "删除此快捷项";
+  remove.addEventListener("click", () => {
+    quickBarDraft.splice(index, 1);
+    renderQuickBarOptions();
+    queueSave("personal", savePersonal);
+  });
+  actions.append(up, down, remove);
+
+  kind.addEventListener("change", () => {
+    item.kind = kind.value;
+    item.value = quickBarOptionsFor(item.kind)[0]?.value || "";
+    if (!item.label || Object.values(LEGACY_QUICK_BAR).some((legacy) => legacy.label === item.label)) {
+      item.label = quickBarOptionsFor(item.kind)[0]?.label || item.label;
+    }
+    renderQuickBarOptions();
+    queueSave("personal", savePersonal);
+  });
+  value.addEventListener("change", () => {
+    item.value = value.value;
+    const spec = quickBarSpec(item.kind, item.value);
+    if (spec?.adminOnly) item.roles = ["admin"];
+    if (!item.label || Object.values(LEGACY_QUICK_BAR).some((legacy) => legacy.label === item.label)) item.label = spec?.label || item.label;
+    renderQuickBarOptions();
+    queueSave("personal", savePersonal);
+  });
+  top.append(label, kind, value, actions);
+
+  const roles = document.createElement("div");
+  roles.className = "quickbar-roles";
+  roles.append(document.createTextNode("可见角色："));
+  const spec = quickBarSpec(item.kind, item.value);
+  for (const [roleValue, roleLabel] of [["admin", "管理员"], ["operator", "操作员"]]) {
+    const roleLabelNode = document.createElement("label");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = roleValue;
+    checkbox.checked = item.roles.includes(roleValue);
+    checkbox.disabled = Boolean(spec?.adminOnly) && roleValue === "operator";
+    checkbox.addEventListener("change", () => {
+      const set = new Set(item.roles);
+      if (checkbox.checked) set.add(roleValue);
+      else set.delete(roleValue);
+      item.roles = [...set];
+      if (!item.roles.length) item.roles = ["admin", "operator"];
+    });
+    roleLabelNode.append(checkbox, document.createTextNode(roleLabel));
+    roles.append(roleLabelNode);
+  }
+  if (spec?.adminOnly) {
+    const note = document.createElement("span");
+    note.className = "admin-hint";
+    note.textContent = "管理员专用";
+    roles.append(note);
+  }
+
+  row.append(top, roles);
+  return row;
 }
 
 function renderQuickBarOptions() {
   const host = $("quickBarOptions");
   if (!host) return;
-  const selected = new Set(normalizeQuickBar(preferences?.quickBar));
   host.replaceChildren();
-  for (const [key, label] of QUICK_BAR_OPTIONS) {
-    const option = document.createElement("label");
-    option.className = "quickbar-option";
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.value = key;
-    input.checked = selected.has(key);
-    option.append(input, document.createTextNode(label));
-    host.append(option);
+  quickBarDraft.forEach((item, index) => host.append(quickBarFormRow(item, index)));
+  if (!quickBarDraft.length) {
+    const empty = document.createElement("div");
+    empty.className = "admin-hint";
+    empty.textContent = "快捷栏为空。点击下方添加。";
+    host.append(empty);
   }
+}
+
+function addQuickBarItem() {
+  const options = quickBarOptionsFor("action");
+  const first = options[0];
+  if (!first) return;
+  quickBarDraft.push({
+    id: `quick_${Date.now()}_${++quickBarDraftSeq}`,
+    kind: "action",
+    value: first.value,
+    label: first.label,
+    roles: ["admin", "operator"],
+  });
+  renderQuickBarOptions();
+  queueSave("personal", savePersonal);
 }
 
 async function api(path, { method = "GET", body } = {}) {
@@ -108,6 +315,7 @@ function fillPreferences(data) {
   if ($("prefAutoAiClaim")) $("prefAutoAiClaim").checked = preferences.autoAiOnClaim === true;
   syncAutoClaimPreference();
   if ($("prefQueueAlert")) $("prefQueueAlert").value = preferences.queueAlertSeconds ?? 120;
+  quickBarDraft = normalizeQuickBar(preferences.quickBar);
   renderQuickBarOptions();
   const notifyButton = $("notifyPermission");
   if (notifyButton) {
@@ -245,7 +453,13 @@ async function savePersonal(version) {
         autoClaimDefault: $("prefAutoClaim").checked,
         autoAiOnClaim: $("prefAutoAiClaim")?.checked === true,
         queueAlertSeconds,
-        quickBar: [...document.querySelectorAll("#quickBarOptions input:checked")].map((input) => input.value),
+        quickBar: quickBarDraft.map((item) => ({
+          id: item.id,
+          kind: item.kind,
+          value: item.value,
+          label: item.label,
+          roles: [...item.roles],
+        })),
       },
     });
     preferences = data.preferences;
@@ -542,6 +756,7 @@ async function init() {
   try {
     await load();
     bindAutoSave("personalForm", "personal", savePersonal);
+    $("quickBarAdd")?.addEventListener("click", addQuickBarItem);
     $("notifyPermission").addEventListener("click", requestPermission);
     $("prefSoundTest")?.addEventListener("click", previewSound);
     $("logout").addEventListener("click", logout);

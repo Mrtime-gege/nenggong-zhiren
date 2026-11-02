@@ -109,6 +109,9 @@ const state = {
   toolDrafts: new Map(),
   aiRuns: new Map(),
   aiCards: new Map(),
+  quickBarInfo: null,
+  quickBarInfoAt: 0,
+  quickBarInfoLoading: false,
   aiSelectedCards: new Map(),
   aiAutoCardsShown: new Map(),
   aiPrompts: new Map(),
@@ -722,6 +725,7 @@ async function loadSession() {
       openSubpage("/console/status", "状态");
     }
     setStatus("ok", `${me.user.username} 已登录`);
+    refreshQuickBarInfo(true);
     clearTimeout(state.pollTimer);
     await pollOnce();
   } catch (error) {
@@ -1947,30 +1951,8 @@ function buildDetail(ticket) {
     if (!hidden) aiPromptInput.focus();
   });
   aiTools.append(aiTrigger, aiPromptTrigger, aiPromptPopover);
-  const quickBar = el("div", "quick-bar");
-  const quickAi = el("button", "btn ghost quickbar-action", "AI 生成");
-  quickAi.type = "button";
-  quickAi.title = "AI 生成 / 再次生成：结果会显示在 AI 子页";
-  quickAi.addEventListener("click", () => runAiTask("reply", detail, state.aiPrompts.get(ticket.id) || ""));
-  const quickAiPrompt = el("button", "btn ghost quickbar-action", "AI 引导");
-  quickAiPrompt.type = "button";
-  quickAiPrompt.title = "打开 AI 子页并编辑生成引导";
-  quickAiPrompt.addEventListener("click", (event) => {
-    event.stopPropagation();
-    if (!detail) return;
-    detail.inspectorCollapsed = false;
-    applyInspectorState(detail);
-    activateInspectorTab(detail, "ai");
-    detail.els.aiPromptTrigger.click();
-  });
-  const quickBarTemplate = el("button", "btn ghost quickbar-action", "快捷回复");
-  quickBarTemplate.type = "button";
-  quickBarTemplate.addEventListener("click", openTemplateModal);
-  const quickBarTransfer = el("button", "btn ghost quickbar-action", "转交");
-  quickBarTransfer.type = "button";
-  quickBarTransfer.addEventListener("click", openTransfer);
-  quickBar.append(quickAi, quickAiPrompt, quickBarTemplate, quickBarTransfer);
-  const aiButtons = { reply: aiTrigger, quick: quickAi };
+  const quickBar = el("div", "quick-bar hidden");
+  const aiButtons = { reply: aiTrigger };
   const aiPanel = el("section", "ai-panel hidden");
   const aiPanelHead = el("div", "ai-panel-head");
   const aiPanelTitle = el("span", "", "AI 建议");
@@ -2066,10 +2048,6 @@ function buildDetail(ticket) {
     aiTools,
     aiTrigger,
     quickBar,
-    quickAi,
-    quickAiPrompt,
-    quickBarTemplate,
-    quickBarTransfer,
     aiButtons,
     aiPromptTrigger,
     aiPromptPopover,
@@ -2490,30 +2468,263 @@ function collapseAiPreview(d = detail) {
   }
 }
 
-const QUICK_BAR_ACTIONS = new Set(["ai", "aiPrompt", "templates", "transfer"]);
-const DEFAULT_QUICK_BAR = ["ai", "aiPrompt"];
+const QUICK_BAR_ACTION_SPECS = {
+  aiGenerate: { label: "AI 生成" },
+  aiPrompt: { label: "AI 引导" },
+  templates: { label: "快捷回复" },
+  transfer: { label: "转交" },
+  routing: { label: "打开路由" },
+  tools: { label: "打开工具" },
+  more: { label: "打开更多" },
+  claim: { label: "认领票据" },
+  next: { label: "下一张票据" },
+  history: { label: "查看历史" },
+  settings: { label: "打开设置" },
+  status: { label: "打开状态页", adminOnly: true },
+  users: { label: "打开用户管理", adminOnly: true },
+  models: { label: "打开模型管理", adminOnly: true },
+  keys: { label: "打开 API 密钥", adminOnly: true },
+  usage: { label: "打开用量", adminOnly: true },
+  audit: { label: "打开审计", adminOnly: true },
+};
+const QUICK_BAR_LINK_SPECS = {
+  "/console/status": { label: "状态页", adminOnly: true },
+  "/console/users": { label: "用户管理", adminOnly: true },
+  "/console/models": { label: "模型管理", adminOnly: true },
+  "/console/keys": { label: "API 密钥", adminOnly: true },
+  "/console/usage": { label: "用量", adminOnly: true },
+  "/console/audit": { label: "审计", adminOnly: true },
+  "/console/history": { label: "历史" },
+  "/console/settings": { label: "设置" },
+};
+const QUICK_BAR_INFO_SPECS = {
+  memory: { label: "内存占用" },
+  uptime: { label: "运行时长" },
+  queue: { label: "队列数量" },
+  aiCards: { label: "AI 结果数" },
+};
+const LEGACY_QUICK_BAR = {
+  ai: { kind: "action", value: "aiGenerate", label: "AI 生成" },
+  aiPrompt: { kind: "action", value: "aiPrompt", label: "AI 引导" },
+  templates: { kind: "action", value: "templates", label: "快捷回复" },
+  transfer: { kind: "action", value: "transfer", label: "转交" },
+};
+const DEFAULT_QUICK_BAR = [
+  { id: "default-ai", kind: "action", value: "aiGenerate", label: "AI 生成", roles: ["admin", "operator"] },
+  { id: "default-ai-prompt", kind: "action", value: "aiPrompt", label: "AI 引导", roles: ["admin", "operator"] },
+];
 
-function quickBarActions() {
+function quickBarSpec(item) {
+  if (item.kind === "action") return { ...(QUICK_BAR_ACTION_SPECS[item.value] || {}), kind: "action" };
+  if (item.kind === "link") return { ...(QUICK_BAR_LINK_SPECS[item.value] || {}), kind: "link" };
+  if (item.kind === "info") return { ...(QUICK_BAR_INFO_SPECS[item.value] || {}), kind: "info" };
+  return null;
+}
+
+function normalizeQuickBarItem(raw, index) {
+  const source = typeof raw === "string" ? LEGACY_QUICK_BAR[raw] : raw;
+  if (!source || typeof source !== "object") return null;
+  const kind = ["action", "link", "info"].includes(source.kind) ? source.kind : "action";
+  const options = kind === "action" ? QUICK_BAR_ACTION_SPECS : kind === "link" ? QUICK_BAR_LINK_SPECS : QUICK_BAR_INFO_SPECS;
+  const value = Object.prototype.hasOwnProperty.call(options, source.value) ? source.value : "";
+  if (!value) return null;
+  const spec = quickBarSpec({ kind, value });
+  let roles = Array.isArray(source.roles) ? source.roles.filter((entry) => entry === "admin" || entry === "operator") : [];
+  roles = [...new Set(roles)];
+  if (!roles.length) roles = ["admin", "operator"];
+  if (spec?.adminOnly) roles = ["admin"];
+  return {
+    id: String(source.id || `quick_${index}`),
+    kind,
+    value,
+    label: String(source.label || "").trim().slice(0, 40) || spec?.label || value,
+    roles,
+  };
+}
+
+function quickBarItems() {
   const raw = state.preferences?.quickBar;
-  if (!Array.isArray(raw)) return [...DEFAULT_QUICK_BAR];
-  return [...new Set(raw.filter((key) => QUICK_BAR_ACTIONS.has(key)))];
+  if (!Array.isArray(raw)) return DEFAULT_QUICK_BAR.map((item) => ({ ...item, roles: [...item.roles] }));
+  return raw.map((item, index) => normalizeQuickBarItem(item, index)).filter(Boolean);
+}
+
+function quickBarItemAllowed(item) {
+  const spec = quickBarSpec(item);
+  if (!spec) return false;
+  if (spec.adminOnly && state.role !== "admin") return false;
+  return item.roles.includes(state.role);
+}
+
+function quickBarAiAttempted(ticket) {
+  const run = state.aiRuns.get(ticket.id);
+  const pending = ticket.aiPending;
+  return aiCardsFor(ticket.id).length > 0 || run?.status === "done" || run?.status === "error" ||
+    (isAutoAiPending(ticket) && ["ready", "error"].includes(pending?.status));
+}
+
+function quickBarAiRunning(ticket) {
+  const run = state.aiRuns.get(ticket.id);
+  const pending = ticket.aiPending;
+  return run?.status === "running" || (isAutoAiPending(ticket) && pending?.status === "running");
+}
+
+function quickBarDisplayLabel(item, ticket) {
+  if (item.kind === "action" && item.value === "aiGenerate" && ["AI 生成", "再次生成"].includes(item.label)) {
+    return quickBarAiAttempted(ticket) ? "再次生成" : "AI 生成";
+  }
+  return item.label;
+}
+
+function quickBarInfoValue(item, ticket) {
+  const info = state.quickBarInfo;
+  if (item.value === "memory") return info?.memoryMb !== undefined ? `${info.memoryMb} MB` : "—";
+  if (item.value === "uptime") return info?.uptimeSec !== undefined ? formatDurationShort(info.uptimeSec) : "—";
+  if (item.value === "queue") {
+    const queued = state.tickets.filter((ticketItem) => ticketItem.state === "queued").length;
+    const active = state.tickets.filter((ticketItem) => ["claimed", "streaming", "finishing"].includes(ticketItem.state)).length;
+    return `${queued} 待 / ${active} 中`;
+  }
+  if (item.value === "aiCards") return String(aiCardsFor(ticket.id).length);
+  return "—";
+}
+
+function formatDurationShort(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  if (total < 60) return `${total}s`;
+  if (total < 3600) return `${Math.floor(total / 60)}m`;
+  if (total < 86_400) return `${Math.floor(total / 3600)}h`;
+  return `${Math.floor(total / 86_400)}d`;
+}
+
+async function refreshQuickBarInfo(force = false) {
+  const now = Date.now();
+  if (!force && now - (state.quickBarInfoAt || 0) < 30_000) return;
+  if (state.quickBarInfoLoading) return;
+  state.quickBarInfoLoading = true;
+  try {
+    const data = await fetch("/op/api/quickbar/info", { headers: { Accept: "application/json" } }).then((response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    });
+    state.quickBarInfo = data;
+    state.quickBarInfoAt = Date.now();
+    if (detail) syncQuickBar(currentTicket(), detail);
+  } catch {
+    /* info is optional */
+  } finally {
+    state.quickBarInfoLoading = false;
+  }
+}
+
+function quickBarDisabled(item, ticket) {
+  if (!ticket || state.busy) return true;
+  const editable = isTicketEditable(ticket);
+  if (item.kind === "info") return false;
+  if (item.kind === "link") return false;
+  if (["routing", "tools", "more", "history", "settings", "status", "users", "models", "keys", "usage", "audit"].includes(item.value)) return false;
+  if (item.value === "aiGenerate" || item.value === "aiPrompt") {
+    return !editable || quickBarAiRunning(ticket) ||
+      !(state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
+  }
+  if (item.value === "templates") return !editable;
+  if (item.value === "transfer") return ticket.state !== "claimed" || !(ticket.claimedBy === state.operator || state.role === "admin");
+  if (item.value === "claim") return ticket.state !== "queued";
+  if (item.value === "next") return state.tickets.length === 0;
+  return false;
+}
+
+function runQuickBarItem(item) {
+  const ticket = currentTicket();
+  if (!ticket || !detail) return;
+  if (item.kind === "info") return;
+  if (item.kind === "link") {
+    openSubpage(item.value, item.label);
+    return;
+  }
+  switch (item.value) {
+    case "aiGenerate":
+      runAiTask("reply", detail, state.aiPrompts.get(ticket.id) || "");
+      break;
+    case "aiPrompt":
+      detail.inspectorCollapsed = false;
+      applyInspectorState(detail);
+      activateInspectorTab(detail, "ai");
+      detail.els.aiPromptTrigger.click();
+      break;
+    case "templates":
+      openTemplateModal();
+      break;
+    case "transfer":
+      openTransfer();
+      break;
+    case "routing":
+      detail.inspectorCollapsed = false;
+      applyInspectorState(detail);
+      activateInspectorTab(detail, "more");
+      requestAnimationFrame(() => detail.els.routingPanel?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+      break;
+    case "tools":
+      detail.inspectorCollapsed = false;
+      applyInspectorState(detail);
+      activateInspectorTab(detail, "tools");
+      break;
+    case "more":
+      detail.inspectorCollapsed = false;
+      applyInspectorState(detail);
+      activateInspectorTab(detail, "more");
+      break;
+    case "claim":
+      doAction("claim");
+      break;
+    case "next":
+      nextTicket();
+      break;
+    case "history":
+      openSubpage(`/console/history?ticket=${encodeURIComponent(ticket.id)}`, "历史");
+      break;
+    case "settings":
+      openSubpage("/console/settings", "设置");
+      break;
+    case "status":
+    case "users":
+    case "models":
+    case "keys":
+    case "usage":
+    case "audit":
+      openSubpage(`/console/${item.value}`, quickBarSpec(item)?.label || item.label);
+      break;
+  }
 }
 
 function syncQuickBar(ticket, d) {
-  if (!d?.els?.quickBar) return;
-  const actions = quickBarActions();
-  const aiAvailable = Boolean(state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
-  const hasAi = aiAvailable && (actions.includes("ai") || actions.includes("aiPrompt"));
-  const extras = actions.filter((key) => key === "templates" || key === "transfer");
-  d.els.quickBar.classList.toggle("hidden", !hasAi && extras.length === 0);
-  d.els.quickAi.classList.toggle("hidden", !aiAvailable || !actions.includes("ai"));
-  d.els.quickAiPrompt.classList.toggle("hidden", !aiAvailable || !actions.includes("aiPrompt"));
-  d.els.quickBarTemplate.classList.toggle("hidden", !actions.includes("templates"));
-  d.els.quickBarTransfer.classList.toggle("hidden", !actions.includes("transfer"));
-  const editable = Boolean(ticket && isTicketEditable(ticket) && !d.els.draft.disabled);
-  d.els.quickBarTemplate.disabled = state.busy || !ticket || !editable;
-  d.els.quickBarTransfer.disabled = state.busy || !ticket || ticket.state !== "claimed" ||
-    !(ticket.claimedBy === state.operator || state.role === "admin");
+  if (!d?.els?.quickBar || !ticket) return;
+  const items = quickBarItems().filter(quickBarItemAllowed);
+  d.els.quickBar.replaceChildren();
+  d.els.quickBar.classList.toggle("hidden", items.length === 0);
+  if (!items.length) return;
+  for (const item of items) {
+    const spec = quickBarSpec(item);
+    if (!spec) continue;
+    if (item.kind === "info") {
+      const chip = el("span", "quickbar-info");
+      chip.append(el("span", "quickbar-info-label", item.label));
+      chip.append(el("strong", "quickbar-info-value", quickBarInfoValue(item, ticket)));
+      chip.title = item.value === "memory" && state.quickBarInfo
+        ? `RSS ${state.quickBarInfo.memoryMb} MB · heap ${state.quickBarInfo.heapUsedMb || 0} MB`
+        : item.label;
+      d.els.quickBar.append(chip);
+      continue;
+    }
+    const button = el("button", "btn ghost quickbar-action", quickBarDisplayLabel(item, ticket));
+    button.type = "button";
+    button.title = item.kind === "link" ? item.label : (spec.label || item.label);
+    button.disabled = quickBarDisabled(item, ticket);
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      runQuickBarItem(item);
+    });
+    d.els.quickBar.append(button);
+  }
 }
 
 function syncAiTabIndicator(ticket) {
@@ -2570,7 +2781,6 @@ function syncAiTools(ticket, d) {
     d.els.aiPromptTrigger.disabled = Boolean(aiRunning) || !editable;
     updateAiPromptTrigger(d);
   }
-  if (d.els.quickAiPrompt) d.els.quickAiPrompt.disabled = Boolean(aiRunning) || !editable;
   syncAiCardActions(ticket, d);
 }
 
@@ -4992,6 +5202,7 @@ function initSubpages() {
         syncQuickBar(ticket, detail);
         syncAiTools(ticket, detail);
       }
+      refreshQuickBarInfo(true);
       return;
     }
     if (event.data?.type === "ngzr-ai-changed") {
@@ -5522,6 +5733,7 @@ function init() {
   });
   window.addEventListener("resize", closeCommandMenu);
   window.addEventListener("resize", () => requestAnimationFrame(reflowContextWidth));
+  setInterval(() => refreshQuickBarInfo(), 30_000);
   window.addEventListener("scroll", closeCommandMenu, true);
   document.addEventListener("click", (event) => {
     if (!event.target.closest?.(".ai-tools")) closeAiMenus();

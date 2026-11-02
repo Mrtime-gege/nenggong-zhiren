@@ -3159,6 +3159,24 @@ async function handleOperator(req, res, url, session) {
     throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
   }
 
+  if (pathname === "/op/api/quickbar/info") {
+    if (req.method !== "GET") {
+      throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    }
+    const memory = process.memoryUsage();
+    const allTickets = [...tickets.values()];
+    return sendJson(res, 200, {
+      ok: true,
+      memoryMb: Math.round(memory.rss / 1024 / 1024),
+      heapUsedMb: Math.round(memory.heapUsed / 1024 / 1024),
+      uptimeSec: Math.round(process.uptime()),
+      queue: {
+        queued: allTickets.filter((ticket) => ticket.state === "queued").length,
+        active: allTickets.filter((ticket) => ["claimed", "streaming", "finishing"].includes(ticket.state)).length,
+      },
+    });
+  }
+
   if (pathname === "/op/api/preferences") {
     if (req.method === "GET") {
       return sendJson(res, 200, { ok: true, preferences: auth.getPreferences(session.username) });

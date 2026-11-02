@@ -1967,3 +1967,90 @@ body[data-page="settings"] .settings-content > .admin-only {
 .quickbar-option input {
   accent-color: var(--accent, #8aa4f8);
 }
+
+/* Custom quick bar editor */
+.quickbar-items {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.quickbar-item {
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.quickbar-item-main {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) 112px minmax(130px, 1.1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.quickbar-label-input,
+.quickbar-kind-select,
+.quickbar-value-select {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.quickbar-item-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.quickbar-mini {
+  height: 27px;
+  min-height: 27px;
+  padding: 0 7px;
+  font-size: 10px;
+}
+
+.quickbar-remove {
+  color: #d99a9a;
+}
+
+.quickbar-roles {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.quickbar-roles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+}
+
+.quickbar-add {
+  height: 29px;
+  min-height: 29px;
+  margin-top: 7px;
+  font-size: 10px;
+}
+
+@media (max-width: 880px) {
+  .quickbar-item-main {
+    grid-template-columns: minmax(100px, 1fr) 105px minmax(120px, 1fr);
+  }
+
+  .quickbar-item-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}

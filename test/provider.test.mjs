@@ -2138,7 +2138,10 @@ test("settings are split into per-user personalization and admin-only functions"
 
   const alicePrefs = await opJson(aliceSession, "/op/api/preferences");
   assert.equal(alicePrefs.preferences.notificationSound, true);
-  assert.deepEqual(alicePrefs.preferences.quickBar, ["ai", "aiPrompt"]);
+  assert.deepEqual(alicePrefs.preferences.quickBar.map((item) => [item.kind, item.value]), [
+    ["action", "aiGenerate"],
+    ["action", "aiPrompt"],
+  ]);
   const updated = await opJson(aliceSession, "/op/api/preferences", {
     method: "PATCH",
     body: {
@@ -2146,14 +2149,23 @@ test("settings are split into per-user personalization and admin-only functions"
       browserNotifications: false,
       queueAlertSeconds: 45,
       autoClaimDefault: true,
-      quickBar: ["templates", "bogus", "ai", "ai"],
+      quickBar: [
+        { id: "q1", kind: "action", value: "templates", label: "模板", roles: ["admin", "operator"] },
+        { id: "q2", kind: "action", value: "aiGenerate", label: "再来一条", roles: ["admin"] },
+        { id: "q3", kind: "info", value: "memory", label: "内存", roles: ["admin", "operator"] },
+        { id: "q4", kind: "link", value: "https://evil.invalid", label: "外链" },
+      ],
     },
   });
   assert.equal(updated.preferences.notificationSound, false);
   assert.equal(updated.preferences.browserNotifications, false);
   assert.equal(updated.preferences.queueAlertSeconds, 45);
   assert.equal(updated.preferences.autoClaimDefault, true);
-  assert.deepEqual(updated.preferences.quickBar, ["templates", "ai"]);
+  assert.deepEqual(updated.preferences.quickBar.map((item) => [item.kind, item.value, item.label, item.roles]), [
+    ["action", "templates", "模板", ["admin", "operator"]],
+    ["action", "aiGenerate", "再来一条", ["admin"]],
+    ["info", "memory", "内存", ["admin", "operator"]],
+  ]);
 
   const aliceAgain = await opJson(aliceSession, "/op/api/preferences");
   assert.equal(aliceAgain.preferences.queueAlertSeconds, 45);
