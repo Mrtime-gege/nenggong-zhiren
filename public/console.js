@@ -1568,13 +1568,18 @@ function buildDetail(ticket) {
   reasoningBox.append(reasoningSummary, reasoningText);
   const sentTools = el("div", "sent-toolcalls hidden");
   threadBody.append(messages, tools, threadOutputHead, reasoningBox, transcript, sentTools);
-  const threadScrollbar = el("div", "thread-scrollbar hidden");
-  threadScrollbar.setAttribute("aria-label", "会话滚动条");
-  threadScrollbar.tabIndex = 0;
-  const scrollbarThumb = el("div", "thread-scrollbar-thumb");
-  threadScrollbar.append(scrollbarThumb);
-  setupThreadScrollbar(threadBody, threadScrollbar, scrollbarThumb);
-  threadPane.append(threadHead, threadBody, threadScrollbar);
+  const threadMinimap = el("div", "thread-minimap hidden");
+  threadMinimap.setAttribute("aria-label", "会话微缩总览");
+  threadMinimap.tabIndex = 0;
+  const minimapClip = el("div", "minimap-clip");
+  const minimapContent = el("div", "minimap-content");
+  const minimapViewport = el("div", "minimap-viewport");
+  const minimapUnloaded = el("button", "minimap-unloaded hidden");
+  minimapUnloaded.type = "button";
+  minimapClip.append(minimapContent);
+  threadMinimap.append(minimapClip, minimapViewport, minimapUnloaded);
+  setupThreadMinimap(threadBody, threadMinimap, minimapClip, minimapContent, minimapViewport, minimapUnloaded);
+  threadPane.append(threadHead, threadBody, threadMinimap);
 
   const composer = el("div", "composer");
   const label = el("label", "composer-title", "回复草稿");
@@ -1812,8 +1817,11 @@ function buildDetail(ticket) {
     threadPane,
     threadBody,
     threadOutputHead,
-    threadScrollbar,
-    scrollbarThumb,
+    threadMinimap,
+    minimapClip,
+    minimapContent,
+    minimapViewport,
+    minimapUnloaded,
     contextSplitter,
     inspector,
     inspectorHead,
@@ -1906,12 +1914,12 @@ function buildDetail(ticket) {
     applyInspectorState(current);
   });
   detail = current;
-  threadBody.addEventListener("scroll", () => { scheduleThreadScrollbarUpdate(current); revealThreadScrollbar(current); }, { passive: true });
+  threadBody.addEventListener("scroll", () => scheduleThreadMinimapUpdate(current), { passive: true });
   if (typeof ResizeObserver !== "undefined") {
-    current.minimapObserver = new ResizeObserver(() => scheduleThreadScrollbarUpdate(current));
+    current.minimapObserver = new ResizeObserver(() => scheduleThreadMinimapUpdate(current));
     current.minimapObserver.observe(threadBody);
   }
-  requestAnimationFrame(() => updateThreadScrollbar(current));
+  requestAnimationFrame(() => updateThreadMinimap(current));
   applyInspectorState(current);
   activateInspectorTab(current, current.inspectorTab);
   return current;
@@ -1974,6 +1982,7 @@ function updateDetail(ticket) {
   renderMessages(ticket, d);
   renderTranscript(ticket, d);
   renderSentToolCalls(ticket, d);
+  renderThreadMinimap(ticket, d);
   renderToolPanel(ticket, d);
   renderTicketExtras(ticket, d);
   updateComposer(ticket, d);
@@ -2686,51 +2695,33 @@ async function openAttachmentPreview(ticket, attachment) {
   else if (preview.truncated) els.attachmentWarning.textContent = "预览已截断，完整内容请下载原文件。";
 }
 
-function setupThreadScrollbar(body, track, thumb) {
+function setupThreadMinimap(body, minimap, clip, content, viewport, unloaded) {
   const scrollToPointer = (event) => {
-    const rect = track.getBoundingClientRect();
-    const thumbHeight = thumb.getBoundingClientRect().height;
-    const usable = Math.max(1, rect.height - thumbHeight);
+    const rect = minimap.getBoundingClientRect();
+    if (!rect.height) return;
+    const ratio = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
     const max = Math.max(0, body.scrollHeight - body.clientHeight);
-    const y = Math.max(0, Math.min(usable, event.clientY - rect.top - thumbHeight / 2));
-    body.scrollTop = (y / usable) * max;
-    revealThreadScrollbar(detail);
+    body.scrollTop = ratio * max;
+    scheduleThreadMinimapUpdate(detail);
   };
-  track.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0) return;
+  minimap.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.target.closest(".minimap-unloaded")) return;
     event.preventDefault();
-    revealThreadScrollbar(detail);
-    const isThumb = event.target === thumb;
-    const startY = event.clientY;
-    const startScroll = body.scrollTop;
-    const rect = track.getBoundingClientRect();
-    const thumbHeight = thumb.getBoundingClientRect().height;
-    const usable = Math.max(1, rect.height - thumbHeight);
-    const max = Math.max(0, body.scrollHeight - body.clientHeight);
-    track.setPointerCapture?.(event.pointerId);
-    track.classList.add("dragging");
-    if (!isThumb) scrollToPointer(event);
-    const move = (moveEvent) => {
-      if (isThumb) {
-        const delta = moveEvent.clientY - startY;
-        body.scrollTop = startScroll + (delta / usable) * max;
-      } else {
-        scrollToPointer(moveEvent);
-      }
-      revealThreadScrollbar(detail);
-    };
+    minimap.setPointerCapture?.(event.pointerId);
+    minimap.classList.add("dragging");
+    scrollToPointer(event);
+    const move = (moveEvent) => scrollToPointer(moveEvent);
     const end = () => {
-      track.classList.remove("dragging");
+      minimap.classList.remove("dragging");
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
-      revealThreadScrollbar(detail);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
     window.addEventListener("pointercancel", end);
   });
-  track.addEventListener("keydown", (event) => {
+  minimap.addEventListener("keydown", (event) => {
     if (!["ArrowDown", "ArrowUp", "PageDown", "PageUp"].includes(event.key)) return;
     event.preventDefault();
     const page = event.key === "PageDown" || event.key === "PageUp";
@@ -2738,50 +2729,120 @@ function setupThreadScrollbar(body, track, thumb) {
       top: (event.key === "ArrowDown" || event.key === "PageDown" ? 1 : -1) * (page ? body.clientHeight * 0.8 : 80),
       behavior: "smooth",
     });
-    revealThreadScrollbar(detail);
+    scheduleThreadMinimapUpdate(detail);
   });
 }
 
-function revealThreadScrollbar(d = detail) {
-  const track = d?.els?.threadScrollbar;
-  if (!track) return;
-  track.classList.add("visible");
-  clearTimeout(d.scrollbarHideTimer);
-  d.scrollbarHideTimer = setTimeout(() => {
-    if (!track.classList.contains("dragging")) track.classList.remove("visible");
-  }, 1000);
-}
-
-function scheduleThreadScrollbarUpdate(d = detail) {
+function scheduleThreadMinimapUpdate(d = detail) {
   if (!d) return;
-  if (d.scrollbarRaf) return;
-  d.scrollbarRaf = requestAnimationFrame(() => {
-    d.scrollbarRaf = 0;
-    updateThreadScrollbar(d);
+  if (d.minimapRaf) return;
+  d.minimapRaf = requestAnimationFrame(() => {
+    d.minimapRaf = 0;
+    updateThreadMinimap(d);
   });
 }
 
-function updateThreadScrollbar(d = detail) {
-  if (!d?.els?.threadBody || !d.els.threadScrollbar || !d.els.scrollbarThumb) return;
+function updateThreadMinimap(d = detail) {
+  if (!d?.els?.threadBody || !d.els.threadMinimap) return;
   const body = d.els.threadBody;
-  const track = d.els.threadScrollbar;
-  const thumb = d.els.scrollbarThumb;
+  const minimap = d.els.threadMinimap;
+  const clip = d.els.minimapClip;
+  const content = d.els.minimapContent;
+  const viewport = d.els.minimapViewport;
   const max = Math.max(0, body.scrollHeight - body.clientHeight);
-  const shouldHide = max < 6;
-  track.classList.toggle("hidden", shouldHide);
+  const shouldHide = max < 8;
+  minimap.classList.toggle("hidden", shouldHide);
   if (shouldHide) return;
-  const trackHeight = track.clientHeight;
-  if (trackHeight < 12) {
-    track.classList.add("hidden");
+  const railHeight = minimap.clientHeight;
+  if (railHeight < 16) {
+    minimap.classList.add("hidden");
     return;
   }
-  const maxThumb = Math.max(8, trackHeight - 2);
-  const thumbHeight = Math.max(Math.min(24, maxThumb), Math.min(maxThumb, Math.round(trackHeight * (body.clientHeight / Math.max(1, body.scrollHeight)))));
-  const maxTop = Math.max(0, trackHeight - thumbHeight - 2);
+  const visibleRatio = Math.max(0.015, Math.min(1, body.clientHeight / Math.max(1, body.scrollHeight)));
+  const maxThumb = Math.max(12, railHeight - 4);
+  const thumbHeight = Math.max(Math.min(24, maxThumb), Math.min(maxThumb, Math.round(railHeight * visibleRatio)));
+  const maxTop = Math.max(0, railHeight - thumbHeight - 2);
   const top = max > 0 ? Math.round((body.scrollTop / max) * maxTop) : 0;
-  thumb.style.height = `${thumbHeight}px`;
-  thumb.style.transform = `translateY(${top + 1}px)`;
-  revealThreadScrollbar(d);
+  viewport.style.height = `${thumbHeight}px`;
+  viewport.style.top = `${1 + top}px`;
+  const contentOverflow = Math.max(0, content.scrollHeight - clip.clientHeight);
+  const contentTop = max > 0 ? Math.round((body.scrollTop / max) * contentOverflow) : 0;
+  content.style.transform = `translateY(${-contentTop}px)`;
+}
+
+function loadMoreThreadHistory(d = detail) {
+  const ticket = currentTicket();
+  if (!ticket || !d) return;
+  const { conversation } = messageBuckets(ticket);
+  const visible = d.els.messages.querySelectorAll('.msg[data-context="0"]').length;
+  if (visible >= conversation.length) return;
+  d.messagesLimit = Math.min(conversation.length, (Number(d.messagesLimit) || 30) + 60);
+  d.msgSignature = "";
+  renderMessages(ticket, d);
+  renderThreadMinimap(ticket, d);
+  requestAnimationFrame(() => {
+    d.els.threadBody.scrollTop = 0;
+    scheduleThreadMinimapUpdate(d);
+  });
+}
+
+function renderThreadMinimap(ticket, d) {
+  if (!d?.els?.minimapContent || !d.els.threadMinimap) return;
+  const rows = [...d.els.messages.querySelectorAll('.msg[data-context="0"]')];
+  const { conversation } = messageBuckets(ticket);
+  const hidden = Math.max(0, conversation.length - rows.length);
+  const minimap = d.els.threadMinimap;
+  const unloaded = d.els.minimapUnloaded;
+  const signature = [
+    conversation.length,
+    ticket.text?.length || 0,
+    ticket.reasoning?.length || 0,
+    ticket.toolCalls?.length || 0,
+    minimap.clientHeight,
+  ].join(":");
+  if (unloaded) {
+    unloaded.classList.toggle("hidden", hidden === 0);
+    unloaded.textContent = hidden ? `更早 ${hidden} 条` : "";
+    unloaded.onpointerdown = (event) => event.stopPropagation();
+    unloaded.onclick = (event) => {
+      event.stopPropagation();
+      loadMoreThreadHistory(d);
+    };
+    minimap.classList.toggle("has-unloaded", hidden > 0);
+  }
+  if (d.minimapSignature === signature) {
+    scheduleThreadMinimapUpdate(d);
+    return;
+  }
+  d.minimapSignature = signature;
+  const fragment = document.createDocumentFragment();
+  const maxLines = 360;
+  const stride = Math.max(1, Math.ceil(conversation.length / maxLines));
+  const sampled = conversation.filter((entry, index) => index % stride === 0 || index === conversation.length - 1);
+  const pushLine = (role, width, tall = false) => {
+    const line = document.createElement("span");
+    line.className = `minimap-line ${role}${tall ? " tall" : ""}`;
+    line.style.width = `${Math.max(14, Math.min(96, width))}%`;
+    fragment.append(line);
+  };
+  for (const entry of sampled) {
+    const role = entry.message.role === "user" ? "user"
+      : entry.message.role === "tool" ? "tool"
+        : entry.message.role === "assistant" ? "assistant" : "system";
+    const text = typeof entry.message.content === "string" ? entry.message.content : "";
+    const width = 18 + Math.min(76, Math.round(text.length / 4));
+    pushLine(role, width, false);
+    if (text.length > 360 && sampled.length < 240) pushLine(role, Math.min(88, width + 8));
+  }
+  const output = ticket.text || "";
+  if (output) {
+    pushLine("output", 46 + Math.min(42, Math.round(output.length / 10)));
+    if (output.length > 180) pushLine("output", 38 + Math.min(48, Math.round(output.length / 18)));
+  }
+  (ticket.toolCalls || []).slice(0, 8).forEach(() => pushLine("tool", 34));
+  if ((ticket.reasoning || "").length) pushLine("reasoning", 54);
+  d.els.minimapContent.replaceChildren(fragment);
+  scheduleThreadMinimapUpdate(d);
 }
 
 function renderMessages(ticket, d) {

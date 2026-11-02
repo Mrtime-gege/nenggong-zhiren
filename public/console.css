@@ -4161,3 +4161,94 @@ body.compact-ui .context-pane .context-body {
     width: 5px;
   }
 }
+
+/* VS Code-style scrolling minimap: the miniature content scrolls with the
+   thread, so very long conversations never have to squeeze every turn into
+   one fixed-height strip. */
+.thread-body {
+  padding-right: 76px;
+}
+
+.thread-minimap {
+  top: 40px;
+  right: 4px;
+  bottom: 14px;
+  width: 60px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(8, 13, 19, 0.64);
+  box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: none;
+  opacity: 0.9;
+}
+
+.thread-minimap:hover,
+.thread-minimap.dragging,
+.thread-minimap:focus-visible {
+  opacity: 1;
+  border-color: var(--line-strong);
+}
+
+.minimap-clip {
+  position: absolute;
+  inset: 7px 5px;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.minimap-content {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: auto;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 2px;
+  overflow: visible;
+  opacity: 0.72;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.thread-minimap.has-unloaded .minimap-content {
+  top: 0;
+  right: 0;
+  bottom: auto;
+  left: 0;
+}
+
+.minimap-line {
+  flex: 0 0 2px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.minimap-viewport {
+  z-index: 2;
+  min-height: 12px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.minimap-unloaded {
+  z-index: 6;
+}
+
+@media (max-width: 780px) {
+  .thread-body {
+    padding-right: 52px;
+  }
+
+  .thread-minimap {
+    right: 1px;
+    width: 42px;
+  }
+
+  .minimap-clip {
+    inset: 6px 4px;
+  }
+}
