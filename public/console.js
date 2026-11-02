@@ -1890,14 +1890,29 @@ function buildDetail(ticket) {
   });
   aiTools.append(aiTrigger, aiPromptTrigger, aiPromptPopover);
   const quickBar = el("div", "quick-bar");
+  const quickAi = el("button", "btn ghost quickbar-action", "AI 生成");
+  quickAi.type = "button";
+  quickAi.title = "AI 生成 / 重新生成：结果会显示在 AI 子页";
+  quickAi.addEventListener("click", () => runAiTask("reply", detail, state.aiPrompts.get(ticket.id) || ""));
+  const quickAiPrompt = el("button", "btn ghost quickbar-action", "AI 引导");
+  quickAiPrompt.type = "button";
+  quickAiPrompt.title = "打开 AI 子页并编辑生成引导";
+  quickAiPrompt.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!detail) return;
+    detail.inspectorCollapsed = false;
+    applyInspectorState(detail);
+    activateInspectorTab(detail, "ai");
+    detail.els.aiPromptTrigger.click();
+  });
   const quickBarTemplate = el("button", "btn ghost quickbar-action", "快捷回复");
   quickBarTemplate.type = "button";
   quickBarTemplate.addEventListener("click", openTemplateModal);
   const quickBarTransfer = el("button", "btn ghost quickbar-action", "转交");
   quickBarTransfer.type = "button";
   quickBarTransfer.addEventListener("click", openTransfer);
-  quickBar.append(aiTools, quickBarTemplate, quickBarTransfer);
-  const aiButtons = { reply: aiTrigger };
+  quickBar.append(quickAi, quickAiPrompt, quickBarTemplate, quickBarTransfer);
+  const aiButtons = { reply: aiTrigger, quick: quickAi };
   const aiPanel = el("section", "ai-panel hidden");
   const aiPanelHead = el("div", "ai-panel-head");
   const aiPanelTitle = el("span", "", "AI 建议");
@@ -1917,8 +1932,8 @@ function buildDetail(ticket) {
   aiClose.type = "button";
   aiPanelActions.append(aiExpand, aiCopy, aiClose);
   aiPanel.append(aiPanelHead, aiPanelBody, aiPanelActions);
-  const aiEmpty = el("div", "ai-empty", "AI 结果会显示在这里。使用回复框上方的快捷栏生成候选回复或工具调用。");
-  aiSection.append(aiPanel, aiEmpty);
+  const aiEmpty = el("div", "ai-empty", "使用上方 AI 控制生成候选回复或工具调用；结果显示在这里。");
+  aiSection.append(aiTools, aiPanel, aiEmpty);
 
   const clearButton = el("button", "btn ghost editor-clear", "清空");
   clearButton.type = "button";
@@ -1980,6 +1995,8 @@ function buildDetail(ticket) {
     aiTools,
     aiTrigger,
     quickBar,
+    quickAi,
+    quickAiPrompt,
     quickBarTemplate,
     quickBarTransfer,
     aiButtons,
@@ -2408,6 +2425,8 @@ function syncQuickBar(ticket, d) {
   const hasAi = aiAvailable && (actions.includes("ai") || actions.includes("aiPrompt"));
   const extras = actions.filter((key) => key === "templates" || key === "transfer");
   d.els.quickBar.classList.toggle("hidden", !hasAi && extras.length === 0);
+  d.els.quickAi.classList.toggle("hidden", !aiAvailable || !actions.includes("ai"));
+  d.els.quickAiPrompt.classList.toggle("hidden", !aiAvailable || !actions.includes("aiPrompt"));
   d.els.quickBarTemplate.classList.toggle("hidden", !actions.includes("templates"));
   d.els.quickBarTransfer.classList.toggle("hidden", !actions.includes("transfer"));
   const editable = Boolean(ticket && isTicketEditable(ticket) && !d.els.draft.disabled);
@@ -2418,13 +2437,11 @@ function syncQuickBar(ticket, d) {
 
 function syncAiTools(ticket, d) {
   const available = Boolean(state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
-  const actions = quickBarActions();
-  const hasAiQuick = actions.includes("ai") || actions.includes("aiPrompt");
-  d.els.aiTools.classList.toggle("hidden", !available || !hasAiQuick);
+  d.els.aiTools.classList.toggle("hidden", !available);
   d.els.aiEmpty.classList.toggle("hidden", !available);
   if (!available) return;
-  d.els.aiTrigger.classList.toggle("hidden", !actions.includes("ai"));
-  d.els.aiPromptTrigger.classList.toggle("hidden", !actions.includes("aiPrompt"));
+  d.els.aiTrigger.classList.remove("hidden");
+  d.els.aiPromptTrigger.classList.remove("hidden");
   const editable = isTicketEditable(ticket) && !d.els.draft.disabled;
   const run = state.aiRuns.get(ticket.id);
   const pending = ticket.aiPending;
@@ -2440,6 +2457,7 @@ function syncAiTools(ticket, d) {
     d.els.aiPromptTrigger.disabled = Boolean(aiRunning) || !editable;
     updateAiPromptTrigger(d);
   }
+  if (d.els.quickAiPrompt) d.els.quickAiPrompt.disabled = Boolean(aiRunning) || !editable;
 }
 
 function updateAiPromptTrigger(d = detail) {

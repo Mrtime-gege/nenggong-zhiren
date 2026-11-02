@@ -4669,3 +4669,23 @@ body.compact-ui .context-pane .context-body {
 .ai-panel.hidden + .ai-empty:not(.hidden) {
   display: block;
 }
+
+/* AI controls live in the AI tab; the quick bar only mirrors shortcuts. */
+.context-pane .ai-tools {
+  position: relative;
+  margin-bottom: 8px;
+  min-height: 24px;
+}
+
+.context-pane .ai-prompt-popover {
+  position: static;
+  width: auto;
+  margin-top: 7px;
+}
+
+.context-pane .ai-tools .ai-menu-trigger,
+.context-pane .ai-tools .ai-prompt-trigger {
+  height: 26px;
+  min-height: 26px;
+  font-size: 10px;
+}
