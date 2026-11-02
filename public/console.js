@@ -1472,6 +1472,53 @@ function setupEditorSplitter(splitter, wrap, composer) {
   });
 }
 
+function setupContextSplitter(splitter, workspace, inspector) {
+  const storageKey = "ngzr.contextWidth";
+  const clamp = (width) => {
+    const total = workspace.getBoundingClientRect().width || 1200;
+    return Math.max(260, Math.min(Math.max(280, total - 340), Math.round(width)));
+  };
+  let initial = 360;
+  try {
+    const saved = Number(localStorage.getItem(storageKey));
+    if (Number.isFinite(saved) && saved >= 260) initial = saved;
+  } catch { /* optional */ }
+  workspace.style.setProperty("--context-width", `${clamp(initial)}px`);
+  const apply = (width, persist = false) => {
+    const next = clamp(width);
+    workspace.style.setProperty("--context-width", `${next}px`);
+    if (persist) {
+      try { localStorage.setItem(storageKey, String(next)); } catch { /* optional */ }
+    }
+  };
+  splitter.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = inspector.getBoundingClientRect().width;
+    splitter.setPointerCapture?.(event.pointerId);
+    splitter.classList.add("dragging");
+    const move = (moveEvent) => apply(startWidth - (moveEvent.clientX - startX));
+    const end = () => {
+      splitter.classList.remove("dragging");
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      try { localStorage.setItem(storageKey, String(Math.round(inspector.getBoundingClientRect().width))); } catch { /* optional */ }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  });
+  splitter.addEventListener("dblclick", () => apply(360, true));
+  splitter.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const current = inspector.getBoundingClientRect().width;
+    apply(current + (event.key === "ArrowLeft" ? 20 : -20), true);
+  });
+}
+
 function buildDetail(ticket) {
   clearDetailTimers(detail);
   els.detail.replaceChildren();
@@ -1519,7 +1566,9 @@ function buildDetail(ticket) {
   reasoningBox.append(reasoningSummary, reasoningText);
   const sentTools = el("div", "sent-toolcalls hidden");
   threadBody.append(messages, tools, threadOutputHead, reasoningBox, transcript, sentTools);
-  threadPane.append(threadHead, threadBody);
+  const turnRail = el("div", "turn-rail");
+  turnRail.setAttribute("aria-label", "会话轮次导航");
+  threadPane.append(threadHead, threadBody, turnRail);
 
   const composer = el("div", "composer");
   const label = el("label", "composer-title", "回复草稿");
@@ -1698,8 +1747,14 @@ function buildDetail(ticket) {
   wrap.style.setProperty("--editor-height", `${editorHeight}px`);
   setupEditorSplitter(editorSplitter, wrap, composer);
 
+  const contextSplitter = el("div", "context-width-splitter");
+  contextSplitter.tabIndex = 0;
+  contextSplitter.setAttribute("role", "separator");
+  contextSplitter.setAttribute("aria-orientation", "vertical");
+  contextSplitter.title = "拖动调整会话与上下文宽度，双击恢复默认";
   const workspace = el("div", "workspace conversation-workspace");
-  workspace.append(threadPane, inspector);
+  workspace.append(threadPane, contextSplitter, inspector);
+  setupContextSplitter(contextSplitter, workspace, inspector);
   wrap.append(head, workspace, editorSplitter, composer);
   els.detail.append(wrap);
 
@@ -1751,6 +1806,8 @@ function buildDetail(ticket) {
     threadPane,
     threadBody,
     threadOutputHead,
+    turnRail,
+    contextSplitter,
     inspector,
     inspectorHead,
     inspectorTabs,
@@ -1842,6 +1899,7 @@ function buildDetail(ticket) {
     applyInspectorState(current);
   });
   detail = current;
+  threadBody.addEventListener("scroll", () => updateTurnRailActive(current), { passive: true });
   applyInspectorState(current);
   activateInspectorTab(current, current.inspectorTab);
   return current;
@@ -1904,6 +1962,7 @@ function updateDetail(ticket) {
   renderMessages(ticket, d);
   renderTranscript(ticket, d);
   renderSentToolCalls(ticket, d);
+  renderTurnRail(ticket, d);
   renderToolPanel(ticket, d);
   renderTicketExtras(ticket, d);
   updateComposer(ticket, d);
@@ -2433,6 +2492,9 @@ function renderMeta(ticket, container) {
 
 function renderMessageRow(ticket, message, index, isContext) {
   const row = el("div", `msg ${message.role || ""}${isContext ? " context-msg" : ""}`);
+  row.dataset.messageIndex = String(index);
+  row.dataset.messageRole = message.role || "unknown";
+  row.dataset.context = isContext ? "1" : "0";
   const content = message.content || (message.tool_calls?.length ? "(tool call)" : "(empty)");
   if (message.role === "tool" && /^(error|Error)[:\s]/.test(content)) {
     row.classList.add("msg-error");
@@ -2611,6 +2673,90 @@ async function openAttachmentPreview(ticket, attachment) {
   els.attachmentBody.append(pre);
   if (!preview.text) els.attachmentWarning.textContent = (data.warnings || []).join(" ") || "没有可显示的文本预览，请下载原文件。";
   else if (preview.truncated) els.attachmentWarning.textContent = "预览已截断，完整内容请下载原文件。";
+}
+
+function turnMarkLabel(index) {
+  return `第 ${index + 1} 轮`;
+}
+
+function updateTurnRailActive(d = detail) {
+  if (!d?.els?.turnRail || d.turnRailMode !== "messages") return;
+  const body = d.els.threadBody;
+  const marks = [...d.els.turnRail.querySelectorAll(".turn-mark")];
+  if (!marks.length) return;
+  const bodyTop = body.getBoundingClientRect().top;
+  let active = 0;
+  marks.forEach((mark, index) => {
+    const target = body.querySelector(`.msg[data-message-index="${mark.dataset.messageIndex}"][data-context="0"]`);
+    if (!target) return;
+    if (target.getBoundingClientRect().top <= bodyTop + 18) active = index;
+  });
+  marks.forEach((mark, index) => {
+    mark.classList.toggle("is-active", index === active);
+    mark.setAttribute("aria-current", index === active ? "true" : "false");
+  });
+}
+
+function renderTurnRail(ticket, d) {
+  const rail = d?.els?.turnRail;
+  if (!rail) return;
+  const related = ticket.sessionId
+    ? state.tickets.filter((item) => item.sessionId === ticket.sessionId).sort((a, b) => a.createdAt - b.createdAt)
+    : [];
+  const messageRows = [...d.els.messages.querySelectorAll('.msg[data-message-role="user"][data-context="0"]')];
+  // Prefer message-level turns for long conversations; session tickets are
+  // only a fallback when the current ticket contains a single user message.
+  const useSessions = related.length > 1 && messageRows.length <= 1;
+  const total = useSessions ? related.length : messageRows.length;
+  const signature = `${useSessions ? "session" : "message"}:${total}:${ticket.id}:${useSessions ? related.map((item) => item.id).join(",") : ""}`;
+  if (d.turnRailSignature === signature) {
+    updateTurnRailActive(d);
+    return;
+  }
+  d.turnRailSignature = signature;
+  d.turnRailMode = useSessions ? "sessions" : "messages";
+  rail.replaceChildren();
+  rail.classList.toggle("hidden", total === 0);
+  rail.classList.toggle("turn-rail-sessions", useSessions);
+  rail.classList.toggle("turn-rail-dense", total > 40);
+  if (!total) return;
+  for (let index = 0; index < total; index += 1) {
+    const mark = el("button", "turn-mark");
+    mark.type = "button";
+    mark.dataset.index = String(index);
+    const top = total === 1 ? 50 : (index / (total - 1)) * 100;
+    mark.style.top = `${top}%`;
+    if (useSessions) {
+      const item = related[index];
+      const isCurrent = item.id === ticket.id;
+      mark.dataset.ticketId = item.id;
+      mark.classList.toggle("is-active", isCurrent);
+      mark.classList.toggle("is-loaded", true);
+      mark.title = `${turnMarkLabel(index)} · ${STATE_LABELS[item.state] || item.state}${isCurrent ? " · 当前" : ""}`;
+      mark.setAttribute("aria-label", isCurrent ? `${turnMarkLabel(index)}，当前轮次` : `跳转到${turnMarkLabel(index)}`);
+      mark.setAttribute("aria-current", isCurrent ? "true" : "false");
+      mark.addEventListener("click", () => {
+        state.selectedId = item.id;
+        rememberSelectedTicket(item.id);
+        if (window.matchMedia("(max-width: 780px)").matches) setMobileView("detail");
+        render();
+      });
+    } else {
+      const row = messageRows[index];
+      const messageIndex = row?.dataset.messageIndex;
+      mark.dataset.messageIndex = messageIndex || "";
+      mark.title = `${turnMarkLabel(index)} · 用户消息`;
+      mark.setAttribute("aria-label", `跳转到${turnMarkLabel(index)}的用户消息`);
+      mark.addEventListener("click", () => {
+        if (!row) return;
+        const body = d.els.threadBody;
+        const targetTop = row.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop - 12;
+        body.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
+      });
+    }
+    rail.append(mark);
+  }
+  updateTurnRailActive(d);
 }
 
 function renderMessages(ticket, d) {

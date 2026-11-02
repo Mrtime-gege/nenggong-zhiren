@@ -3636,3 +3636,152 @@ body {
     height: var(--editor-height, 230px);
   }
 }
+
+/* Conversation turn rail and resizable context width. */
+.thread-pane {
+  position: relative;
+}
+
+.thread-head {
+  padding-right: 22px;
+}
+
+.thread-body {
+  padding-right: 24px;
+}
+
+.turn-rail {
+  position: absolute;
+  top: 40px;
+  right: 2px;
+  bottom: 14px;
+  z-index: 4;
+  width: 13px;
+  pointer-events: none;
+}
+
+.turn-rail.hidden {
+  display: none;
+}
+
+.turn-mark {
+  position: absolute;
+  right: 2px;
+  width: 9px;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: var(--line-strong);
+  opacity: 0.68;
+  transform: translateY(-50%);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.turn-mark:hover,
+.turn-mark:focus-visible {
+  width: 12px;
+  background: var(--text-dim);
+  opacity: 1;
+  outline: none;
+}
+
+.turn-mark.is-active {
+  width: 13px;
+  background: var(--accent);
+  opacity: 1;
+  box-shadow: 0 0 0 2px rgba(138, 164, 248, 0.13);
+}
+
+.turn-mark.is-loaded {
+  opacity: 0.8;
+}
+
+.turn-rail-sessions .turn-mark {
+  height: 9px;
+}
+
+.context-width-splitter {
+  flex: 0 0 7px;
+  width: 7px;
+  border-radius: 4px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.context-width-splitter::after {
+  content: "";
+  display: block;
+  width: 3px;
+  height: 38px;
+  margin: 50% auto 0;
+  border-radius: 999px;
+  background: var(--line-strong);
+  transform: translateY(-50%);
+  transition: background 0.15s ease;
+}
+
+.context-width-splitter:hover::after,
+.context-width-splitter.dragging::after {
+  background: var(--accent);
+}
+
+.context-width-splitter:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.context-pane {
+  flex: 0 0 var(--context-width, 360px);
+  width: var(--context-width, 360px);
+}
+
+.workspace.conversation-workspace.inspector-collapsed .context-width-splitter {
+  display: none;
+}
+
+@media (max-width: 780px) {
+  .turn-rail {
+    top: 38px;
+    right: 0;
+    bottom: 8px;
+    width: 11px;
+  }
+
+  .turn-mark {
+    width: 7px;
+    height: 6px;
+  }
+
+  .turn-mark.is-active {
+    width: 10px;
+  }
+
+  .context-width-splitter {
+    display: none;
+  }
+
+  .thread-body {
+    padding-right: 18px;
+  }
+}
+
+.turn-rail-dense .turn-mark {
+  height: 2px;
+  width: 8px;
+  border-radius: 1px;
+  opacity: 0.55;
+}
+
+.turn-rail-dense .turn-mark:hover,
+.turn-rail-dense .turn-mark:focus-visible {
+  width: 12px;
+  opacity: 1;
+}
+
+.turn-rail-dense .turn-mark.is-active {
+  width: 13px;
+  height: 3px;
+  opacity: 1;
+}
