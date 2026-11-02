@@ -4083,3 +4083,81 @@ body.compact-ui .context-pane .context-body {
     overflow: hidden;
   }
 }
+
+/* Floating, VS Code-style conversation scrollbar. It overlays the thread
+   instead of consuming a fixed strip, and its thumb height is proportional
+   to the visible part of an arbitrarily long conversation. */
+.thread-body {
+  padding-right: 24px;
+}
+
+.thread-scrollbar {
+  position: absolute;
+  top: 40px;
+  right: 5px;
+  bottom: 14px;
+  z-index: 6;
+  width: 10px;
+  border-radius: 5px;
+  opacity: 0;
+  pointer-events: none;
+  touch-action: none;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.thread-pane:hover .thread-scrollbar,
+.thread-scrollbar.visible,
+.thread-scrollbar.dragging,
+.thread-scrollbar:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.thread-scrollbar:hover,
+.thread-scrollbar.dragging {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.thread-scrollbar.hidden {
+  display: none;
+}
+
+.thread-scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  left: 2px;
+  width: 6px;
+  min-height: 24px;
+  border-radius: 4px;
+  background: rgba(160, 176, 196, 0.38);
+  cursor: grab;
+  transition: width 0.12s ease, background 0.12s ease, opacity 0.12s ease;
+}
+
+.thread-scrollbar-thumb:hover {
+  width: 8px;
+  left: 1px;
+  background: rgba(180, 194, 214, 0.58);
+}
+
+.thread-scrollbar.dragging .thread-scrollbar-thumb {
+  width: 8px;
+  left: 1px;
+  cursor: grabbing;
+  background: var(--accent);
+}
+
+@media (max-width: 780px) {
+  .thread-body {
+    padding-right: 18px;
+  }
+
+  .thread-scrollbar {
+    right: 2px;
+    width: 8px;
+  }
+
+  .thread-scrollbar-thumb {
+    width: 5px;
+  }
+}
