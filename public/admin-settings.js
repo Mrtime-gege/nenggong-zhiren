@@ -7,7 +7,7 @@ let latest = null;
 let preferences = null;
 let autoClaimAvailable = false;
 const QUICK_BAR_OPTIONS = [
-  ["ai", "AI 生成 / 重新生成"],
+  ["ai", "AI 生成 / 再次生成"],
   ["aiPrompt", "AI 引导"],
   ["templates", "快捷回复"],
   ["transfer", "转交"],

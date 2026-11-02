@@ -1890,7 +1890,7 @@ function buildDetail(ticket) {
   aiTrigger.addEventListener("click", () => runAiTask("reply", detail, state.aiPrompts.get(ticket.id) || ""));
   const aiPromptTrigger = el("button", "btn ghost ai-prompt-trigger", "AI 引导");
   aiPromptTrigger.type = "button";
-  aiPromptTrigger.title = "给本次/重新生成附加一段方向提示";
+  aiPromptTrigger.title = "给本次/再次生成附加一段方向提示";
   aiPromptTrigger.setAttribute("aria-expanded", "false");
   const aiPromptPopover = el("div", "ai-prompt-popover hidden");
   const aiPromptLabel = el("label", "ai-prompt-label", "生成引导（可选）");
@@ -1940,7 +1940,7 @@ function buildDetail(ticket) {
   const quickBar = el("div", "quick-bar");
   const quickAi = el("button", "btn ghost quickbar-action", "AI 生成");
   quickAi.type = "button";
-  quickAi.title = "AI 生成 / 重新生成：结果会显示在 AI 子页";
+  quickAi.title = "AI 生成 / 再次生成：结果会显示在 AI 子页";
   quickAi.addEventListener("click", () => runAiTask("reply", detail, state.aiPrompts.get(ticket.id) || ""));
   const quickAiPrompt = el("button", "btn ghost quickbar-action", "AI 引导");
   quickAiPrompt.type = "button";
@@ -2524,7 +2524,7 @@ function syncAiTools(ticket, d) {
     (auto && ["ready", "error"].includes(pending?.status));
   for (const button of Object.values(d.els.aiButtons)) {
     button.disabled = Boolean(aiRunning) || !editable;
-    button.textContent = aiRunning ? "AI 生成中…" : aiAttempted ? "重新生成" : "AI 生成";
+    button.textContent = aiRunning ? "AI 生成中…" : aiAttempted ? "再次生成" : "AI 生成";
   }
   if (d.els.aiPromptTrigger) {
     d.els.aiPromptTrigger.disabled = Boolean(aiRunning) || !editable;
@@ -2541,7 +2541,7 @@ function updateAiPromptTrigger(d = detail) {
   d.els.aiPromptTrigger.textContent = hasPrompt ? "AI 引导 ·" : "AI 引导";
   d.els.aiPromptTrigger.title = hasPrompt
     ? `本次生成会附加引导：${state.aiPrompts.get(d.id).slice(0, 120)}`
-    : "给本次/重新生成附加一段方向提示";
+    : "给本次/再次生成附加一段方向提示";
 }
 
 function aiShowPanel(ticket, d, title, text, { insertable = true, selection = null, applyLabel = "", onApply = null } = {}) {
@@ -2634,7 +2634,7 @@ function showAiLoading(d, startedAt = Date.now()) {
 function fillReplyAndTools(ticket, d, reply) {
   const current = currentTicket();
   if (!current || current.id !== ticket.id || !isTicketEditable(current)) {
-    throw new Error("票据状态已变化，无法填入；请重新生成。");
+    throw new Error("票据状态已变化，无法填入；请再次生成。");
   }
   setDraft(ticket.id, reply.text || "");
   d.els.draft.value = reply.text || "";
