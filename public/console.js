@@ -2581,7 +2581,8 @@ function quickBarAiRunning(ticket) {
 }
 
 function quickBarDisplayLabel(item, ticket) {
-  if (item.kind === "action" && item.value === "aiGenerate" && ["AI 生成", "再次生成"].includes(item.label)) {
+  if (item.kind === "action" && item.value === "aiGenerate" && ["AI 生成", "再次生成", "AI 生成中…"].includes(item.label)) {
+    if (quickBarAiRunning(ticket)) return "AI 生成中…";
     return quickBarAiAttempted(ticket) ? "再次生成" : "AI 生成";
   }
   return item.label;
@@ -2736,6 +2737,8 @@ function syncQuickBar(ticket, d) {
   const signature = JSON.stringify(entries.map((entry) => [
     entry.kind,
     entry.item.id,
+    entry.item.value,
+    entry.item.kind,
     entry.label,
     entry.value || "",
     entry.disabled ? 1 : 0,
@@ -5639,6 +5642,7 @@ function openCommandPalette() {
   commandPaletteIndex = 0;
   renderCommandPalette();
   palette.root.classList.remove("hidden");
+  palette.input.focus();
   requestAnimationFrame(() => palette.input.focus());
 }
 

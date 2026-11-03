@@ -2173,6 +2173,14 @@ test("settings are split into per-user personalization and admin-only functions"
   const bobPrefs = await opJson(bobSession, "/op/api/preferences");
   assert.equal(bobPrefs.preferences.queueAlertSeconds, 120);
   assert.equal(bobPrefs.preferences.notificationSound, true);
+  assert.deepEqual(bobPrefs.preferences.quickBar.map((item) => item.value), ["aiGenerate", "aiPrompt"]);
+  const quickInfo = await opJson(aliceSession, "/op/api/quickbar/info");
+  assert.equal(quickInfo.ok, true);
+  assert.equal(Number.isInteger(quickInfo.memoryMb), true);
+  assert.equal(Number.isInteger(quickInfo.uptimeSec), true);
+  assert.equal(typeof quickInfo.queue?.queued, "number");
+  const quickInfoAnonymous = await fetch(`${BASE}/op/api/quickbar/info`);
+  assert.equal(quickInfoAnonymous.status, 401);
 
   const operatorSettings = await op(aliceSession, "/op/api/settings");
   assert.equal(operatorSettings.status, 403);
