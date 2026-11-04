@@ -1874,7 +1874,8 @@ function buildDetail(ticket) {
   const moreHistory = el("button", "btn ghost", "查看历史");
   moreHistory.type = "button";
   moreHistory.addEventListener("click", () => openSubpage(`/console/history?ticket=${encodeURIComponent(ticket.id)}`, "历史"));
-  moreActions.append(moreRefresh, moreCopyId, moreCopyReply, moreHistory);
+  moreActions.append(moreRefresh, moreCopyId, moreCopyReply);
+  if (state.role === "admin") moreActions.append(moreHistory);
   const quickTemplate = el("button", "btn ghost", "快捷回复");
   quickTemplate.type = "button";
   quickTemplate.addEventListener("click", openTemplateModal);
@@ -2495,7 +2496,7 @@ const QUICK_BAR_ACTION_SPECS = {
   more: { label: "打开更多" },
   claim: { label: "认领票据" },
   next: { label: "下一张票据" },
-  history: { label: "查看历史" },
+  history: { label: "查看历史", adminOnly: true },
   settings: { label: "打开设置" },
   status: { label: "打开状态页", adminOnly: true },
   users: { label: "打开用户管理", adminOnly: true },
@@ -2511,7 +2512,7 @@ const QUICK_BAR_LINK_SPECS = {
   "/console/keys": { label: "API 密钥", adminOnly: true },
   "/console/usage": { label: "用量", adminOnly: true },
   "/console/audit": { label: "审计", adminOnly: true },
-  "/console/history": { label: "历史" },
+  "/console/history": { label: "历史", adminOnly: true },
   "/console/settings": { label: "设置" },
 };
 const QUICK_BAR_INFO_SPECS = {

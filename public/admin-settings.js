@@ -21,7 +21,7 @@ const QUICK_ACTIONS = [
   { value: "more", label: "打开更多" },
   { value: "claim", label: "认领票据" },
   { value: "next", label: "下一张票据" },
-  { value: "history", label: "查看历史" },
+  { value: "history", label: "查看历史", adminOnly: true },
   { value: "settings", label: "打开设置" },
   { value: "status", label: "打开状态页", adminOnly: true },
   { value: "users", label: "打开用户管理", adminOnly: true },
@@ -37,7 +37,7 @@ const QUICK_LINKS = [
   { value: "/console/keys", label: "API 密钥", adminOnly: true },
   { value: "/console/usage", label: "用量", adminOnly: true },
   { value: "/console/audit", label: "审计", adminOnly: true },
-  { value: "/console/history", label: "历史" },
+  { value: "/console/history", label: "历史", adminOnly: true },
   { value: "/console/settings", label: "设置" },
 ];
 const QUICK_INFOS = [
