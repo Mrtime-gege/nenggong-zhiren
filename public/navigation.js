@@ -12,6 +12,7 @@
 (function () {
   const pages = [
     { key: "status", label: "状态", href: "/console/status", adminOnly: true },
+    { key: "environment", label: "环境", href: "/console/environment", adminOnly: true },
     { key: "workbench", label: "坐席", href: "/console" },
     { key: "guide", label: "教程", href: "/console/guide" },
     { key: "users", label: "用户管理", href: "/console/users", adminOnly: true },

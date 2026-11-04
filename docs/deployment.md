@@ -63,32 +63,45 @@ Restart-Service iphlpsvc
 
 ## 可选媒体 worker
 
-基础的上传、文字预览和图片预览不需要额外依赖。以下能力都是可选的，默认关闭；开启前
-先确认服务账号能执行对应的 `python3` 模块。
+基础的上传、文字预览和图片预览不需要额外依赖。以下能力都是可选的，且**只探测
+`config.jsonc` 中明确配置的路径**，不扫描项目树或主机目录：
+
+```jsonc
+"workers": {
+  "python": "python3",
+  "imageWorker": "scripts/normalize-image.py",
+  "pdfWorker": "scripts/render-pdf-page.py",
+  "probeTimeoutMs": 2500
+}
+```
+
+两个路径都可以改成外部绝对路径，或留空禁用。修改后重启服务，在管理员
+`/console/environment` 页面查看探测结果和实际可用功能。
 
 ### 图片重编码
 
-默认配置为 `attachments.reencodeImages: false`。需要 Python 3 与 Pillow 时才开启：
+需要 Python 3 与 Pillow：
 
 ```bash
 python3 -c "import PIL"
 ```
 
-没有 Pillow 时上传仍可用，但图片不会被重新编码。
+缺少 worker、Python 或 Pillow 时，上传仍可用，但图片不会被重新编码，服务端会记录跳过原因。
+发布包默认不包含 Python worker 脚本；需要该能力时请从源码目录复制脚本或配置外部路径。
 
 ### PDF 页图
 
-默认配置为 `attachments.pdfPagePreview: false`。需要可选的 `pypdfium2` 时才开启：
+需要可选的 `pypdfium2`：
 
 ```bash
 python3 -m pip install --user pypdfium2
 ```
 
-生产账号必须能执行同一个 `python3` 并导入该包。systemd 的 `ProtectHome=true` 可能阻止
+生产账号必须能执行配置的 `python3` 并导入该包。systemd 的 `ProtectHome=true` 可能阻止
 用户级 site-packages；此时建议创建专用 venv，并在 unit 中设置 `PATH`/`PYTHONPATH`，
 或安装到可读的系统位置。
 
-没有 `pypdfium2` 时，PDF 上传、文字抽取和下载仍可用，页图接口会返回
+没有 `pypdfium2` 时，PDF 上传、文字抽取和下载仍可用，页图接口返回
 `503 pdf_preview_unavailable`，前端回退为文字预览。
 
 ### SQLite
@@ -314,9 +327,9 @@ journalctl -u nenggong-zhiren -f
 
 - 备份 `users.json`（密码哈希/角色/MFA 状态，按敏感文件处理）；
 - 备份 `api-keys.json`（密钥哈希、配额、过期时间）；
-- 备份 `state.json`、`usage.json`、`settings.json`、`audit.log`；
+- 备份 `state.db`（活动票据、认领、SSE 日志和幂等记录）、`history.db`（历史索引）、`usage.json`、`settings.json`、`models.json`、`templates.json`、`audit.log`；
 - 备份 `attachments/`（原件和元数据；按敏感数据保护，权限 0700/0600）；
-- `state.json` 现在也包含活动票据、认领状态和 SSE 日志；重启后活动队列会恢复，调用方可凭 `Idempotency-Key` 重连；
+- SQLite 可用时 `state.json` 只是旧版迁移来源；重启后活动队列从 `state.db` 恢复，调用方可凭 `Idempotency-Key` 重连；
 - 登录会话、CSRF token 和限速计数仍在内存，重启后需重新登录；
 - 恢复账号/密钥文件后重启，或让用户文件热重载生效（会清空受影响账号的会话）。
 

@@ -363,6 +363,23 @@ test("login page and protected routes", async () => {
   assert.equal(modelsResponse.status, 401);
 });
 
+test("environment page and capability probe are served to admins", async () => {
+  const page = await fetch(`${BASE}/console/environment`, {
+    headers: { Cookie: adminSession.cookie },
+    redirect: "manual",
+  });
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /环境检查/);
+  const js = await fetch(`${BASE}/admin-environment.js`);
+  assert.equal(js.status, 200);
+  assert.match(js.headers.get("content-type"), /javascript/);
+  const probe = await opJson(adminSession, "/op/api/environment");
+  assert.equal(probe.ok, true);
+  assert.equal(typeof probe.features.imageNormalization, "boolean");
+  assert.equal(typeof probe.features.pdfPagePreview, "boolean");
+  assert.equal(typeof probe.runtime.sqlite, "boolean");
+});
+
 test("only embedded console pages allow same-origin framing", async () => {
   const embedded = await fetch(`${BASE}/console/users?embed=1`, { redirect: "manual" });
   assert.equal(embedded.status, 302);

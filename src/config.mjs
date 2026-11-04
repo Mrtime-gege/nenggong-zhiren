@@ -263,6 +263,21 @@ export function loadConfig(file = CONFIG_FILE) {
     }
   }
 
+  const workersRaw = raw.workers ?? {};
+  if (!workersRaw || typeof workersRaw !== "object" || Array.isArray(workersRaw)) {
+    throw new ConfigError("workers must be an object.");
+  }
+  const workerPython = stringAt(workersRaw, "python", "workers.python", "python3");
+  const imageWorkerValue = stringAt(workersRaw, "imageWorker", "workers.imageWorker", "scripts/normalize-image.py", { allowEmpty: true });
+  const pdfWorkerValue = stringAt(workersRaw, "pdfWorker", "workers.pdfWorker", "scripts/render-pdf-page.py", { allowEmpty: true });
+  const imageWorker = imageWorkerValue ? resolvePath(imageWorkerValue) : "";
+  const pdfWorker = pdfWorkerValue ? resolvePath(pdfWorkerValue) : "";
+  const workerProbeTimeoutMs = integerAt(workersRaw, "probeTimeoutMs", "workers.probeTimeoutMs", {
+    fallback: 2500,
+    min: 250,
+    max: 30_000,
+  });
+
   const tlsEnabled = booleanAt(tls, "enabled", "tls.enabled", false);
   const certFile = resolvePath(stringAt(tls, "certFile", "tls.certFile", "", { allowEmpty: true }));
   const keyFile = resolvePath(stringAt(tls, "keyFile", "tls.keyFile", "", { allowEmpty: true }));
@@ -354,6 +369,7 @@ export function loadConfig(file = CONFIG_FILE) {
       catalog: Object.freeze(catalog.map((model) => Object.freeze(model))),
     }),
     tls: Object.freeze({ enabled: tlsEnabled, certFile, keyFile }),
+    workers: Object.freeze({ python: workerPython, imageWorker, pdfWorker, probeTimeoutMs: workerProbeTimeoutMs }),
     logging: Object.freeze({ content: booleanAt(logging, "content", "logging.content", false) }),
     attachments: Object.freeze({
       enabled: booleanAt(attachments, "enabled", "attachments.enabled", true),

@@ -1,8 +1,8 @@
 # 架构
 
-## 0.6.0 分层
+## 0.6.1 分层
 
-- **配置层**：`src/config.mjs` 只读取根目录 `config.jsonc`；不读取环境变量，也不接受运行参数。
+- **配置层**：`src/config.mjs` 只读取根目录 `config.jsonc`；不读取环境变量，也不接受运行参数。可选的 `workers` 段只声明 Python worker 路径。
 - **数据层**：`src/data/models.mjs` 维护运行时模型注册表；`src/data/api-keys.mjs` 管理调用密钥、配额和模型范围；`src/data/usage.mjs` 保存分钟/日/月用量和每日历史；`src/data/state.mjs` 保存完成请求和幂等快照；`src/data/settings.mjs` 保存设置页覆盖值；`src/data/audit.mjs` 追加审计事件；`src/auth.mjs` 负责账号、模型权限、会话、MFA 和登录限速；`src/totp.mjs` 提供 TOTP。
 - **协议层**：`src/protocol/common.mjs` 把不同接口的消息统一成 `{role, content, parts}`，新增消息类型只需增加 part 归一化/序列化逻辑；`openai.mjs` 和 `anthropic.mjs` 只负责各自协议。
 - **业务层**：`server.mjs` 维护等待列表、接单、流式发送、票据动作授权和操作接口，不直接理解两种协议的原始字段。
@@ -39,6 +39,8 @@
 - `public/navigation.js`：顶部页面清单。
 - `public/settings.html`、`usage.html`、`audit.html`、`status.html`：管理页面。
 - `scripts/user.mjs`：账号 CLI。
+- `src/environment.mjs`：管理员环境页的受限能力探测，只检查配置路径和已知 Python 模块。
+- `public/environment.html`、`admin-environment.js`：环境检查页。
 
 ## 请求生命周期
 
@@ -63,7 +65,8 @@ queued ──claim──► claimed ──chunk/finish──► streaming ──
   └── queue timeout / cancel ──► failed
 ```
 
-- 票据写操作只允许当前认领人；管理员可以取消或转交，但不会绕过认领人直接编辑。
+- 票据正文、认领、发送、完成等写操作只允许当前认领人；管理员可以取消或转交，但不会绕过认领人直接编辑正文。
+- 内部备注和标签/优先级按协作接口开放给对该模型有可见性的回复员；它们不进入调用方响应。
 - `content_filter` 是 `finish_reason`，不是 ticket 状态。
 - `claimed` 可以一直不发送文本；`streaming` 表示至少推送过一个 SSE 数据块（或已开始流）。
 - 客户端断开时，服务端会取消或丢弃票据，避免继续占用回复员。
@@ -88,18 +91,23 @@ queued ──claim──► claimed ──chunk/finish──► streaming ──
 - 回复员会话是人的凭据，带 CSRF、Cookie、空闲超时和登录限速。
 - 两者不共用，避免“拿到调用密钥就能冒充回复员”或反过来。
 
+## 人工确认与个人偏好
+
+- AI 生成只产生 `aiPending` 或浏览器内存中的结果卡片，不会自动填入草稿、工具或调用方响应；回复员必须显式点击「填入」或「追加」。
+- 自动 AI 只负责预生成，仍走同一配额和取消/超时边界。
+- 快捷栏是每账号的偏好设置，最多 15 项；服务端按角色过滤管理员专用动作/链接，前端只负责显示。
+
 ## 持久化边界
+
 
 当前写入本地文件的数据：
 
 - `users.json`：账号哈希、角色、MFA 状态；
 - `api-keys.json`：调用密钥哈希、名称、配额和过期时间；
-- `state.json`：活动/已完成票据、SSE 日志、认领状态和幂等记录快照；
-- `state.json` / `state.json.journal`：旧版状态快照和 journal；SQLite 可用时作为首次迁移来源；
-- `state.db`：票据、活动状态、附件元数据和幂等记录的 SQLite 状态库；没有 `node:sqlite` 时自动回退旧 JSON/journal；
+- `state.db`：当前票据、活动状态、SSE 日志、认领状态和幂等记录的 SQLite 状态库；没有 `node:sqlite` 时回退旧 JSON/journal；
+- `state.json` / `state.json.journal`：旧版状态快照和 journal；SQLite 可用时只作为首次迁移来源；
 - `history.db`：已完成票据的 SQLite/FTS5 索引；历史页和 CSV 导出优先走索引，Node 不支持 `node:sqlite` 时回退到内存筛选；
-- `scripts/normalize-image.py`：可选的独立 PIL worker；上传的栅格图片在临时目录中重编码，限制 CPU/内存并剥离 EXIF；
-- `scripts/render-pdf-page.py`：可选的 `pypdfium2` worker；按需把 PDF 单页渲染成 PNG，限制页数、尺寸、CPU、内存和并发；
+- 外部 Python worker（默认参考 `scripts/normalize-image.py` 和 `scripts/render-pdf-page.py`）：由 `config.jsonc → workers` 指定绝对/相对路径；仅检测配置路径，发布包默认不携带脚本；图片 worker 负责临时重编码并剥离 EXIF，PDF worker 负责按需渲染单页；
 - `usage.json`：分钟/日/月计数和每日历史；
 - `settings.json`：设置页覆盖值；
 - `audit.log`：登录、账号、密钥、设置和票据事件；

@@ -46,6 +46,7 @@ import {
   appendAnthropicToolCalls,
 } from "./src/protocol/stream.mjs";
 import { validateJsonSchema, formatSchemaErrors } from "./src/schema.mjs";
+import { probeEnvironment } from "./src/environment.mjs";
 
 const PUBLIC_DIR = path.join(ROOT, "public");
 const VERSION = "0.6.1";
@@ -88,6 +89,7 @@ const config = Object.freeze({
   tlsEnabled: PUBLIC_CONFIG.tls.enabled,
   tlsCert: PUBLIC_CONFIG.tls.certFile,
   tlsKey: PUBLIC_CONFIG.tls.keyFile,
+  workers: PUBLIC_CONFIG.workers,
   trustedHosts: PUBLIC_CONFIG.server.trustedHosts,
   trustedProxies: PUBLIC_CONFIG.server.trustedProxies,
   corsOrigins: PUBLIC_CONFIG.server.corsOrigins,
@@ -2586,10 +2588,11 @@ async function handleFileUpload(req, res) {
     throw new ApiError(400, "A filename is required (X-Filename header or multipart filename).", "invalid_request_error", "missing_filename");
   }
   const ownerHash = createHash("sha256").update(caller.key).digest("hex");
-  if (config.attachments.reencodeImages !== false && attachments.looksLikeImage(content)) {
+  if (config.workers.imageWorker && existsSync(config.workers.imageWorker) &&
+      config.attachments.reencodeImages !== false && attachments.looksLikeImage(content)) {
     try {
       const normalized = await normalizeImageBuffer(content, {
-        script: path.join(ROOT, "scripts", "normalize-image.py"),
+        script: config.workers.imageWorker,
         maxBytes: config.attachments.maxBytes,
       });
       const stem = filename.replace(/\.[^.]+$/, "") || "image";
@@ -3674,6 +3677,11 @@ async function handleOperator(req, res, url, session) {
     });
   }
 
+  if (pathname === "/op/api/environment" && req.method === "GET") {
+    requireAdmin(session);
+    return sendJson(res, 200, await probeEnvironment(config.workers));
+  }
+
   if (pathname === "/op/api/stats" && req.method === "GET") {
     return sendJson(res, 200, { ok: true, stats: publicStats() });
   }
@@ -4392,6 +4400,7 @@ const PUBLIC_FILES = new Map([
   ["/admin-usage.js", { file: "admin-usage.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-audit.js", { file: "admin-audit.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-status.js", { file: "admin-status.js", type: "text/javascript; charset=utf-8" }],
+  ["/admin-environment.js", { file: "admin-environment.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-history.js", { file: "admin-history.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-users.js", { file: "admin-users.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-keys.js", { file: "admin-keys.js", type: "text/javascript; charset=utf-8" }],
@@ -4725,6 +4734,13 @@ async function route(req, res) {
         return;
       }
       return serveConsole(req, res);
+    }
+
+    if (pathname === "/console/environment" || pathname === "/console/environment/") {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      }
+      return serveAdminPage(req, res, "environment.html");
     }
 
     if (pathname === "/console/users" || pathname === "/console/users/") {

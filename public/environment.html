@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#070b10" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>能工智人 · 环境检查</title>
+    <link rel="stylesheet" href="/console.css" />
+    <link rel="stylesheet" href="/admin.css" />
+    <link rel="stylesheet" href="/theme.css" />
+  </head>
+  <body data-page="environment">
+    <header class="topbar">
+      <div class="brand"><span class="brand-icon-wrap"><img class="brand-icon" src="/icon.svg" alt="" /><span class="status-dot ok"></span></span><span class="brand-name">能工智人</span><span class="brand-sub">管理后台</span></div>
+      <nav id="topnav" class="topnav" aria-label="主导航"></nav>
+      <div class="conn"><span id="userLabel" class="user-label">正在加载…</span><button id="logout" class="btn ghost" type="button">退出</button><span id="status" class="conn-status">连接中…</span></div>
+    </header>
+
+    <main class="admin-main">
+      <div class="admin-head">
+        <div>
+          <h1>环境检查</h1>
+          <p>只检查 <code>config.jsonc</code> 中明确配置的 Python、图片 worker 和 PDF worker；不会扫描其他目录。</p>
+        </div>
+        <button id="refresh" class="btn" type="button">重新探测</button>
+      </div>
+
+      <section class="admin-card">
+        <div class="admin-card-title">运行时 <span class="admin-hint">只读</span></div>
+        <div id="runtimeGrid" class="runtime-grid"></div>
+      </section>
+
+      <section class="admin-card">
+        <div class="admin-card-title">可选 worker <span class="admin-hint">路径来自 config.jsonc → workers</span></div>
+        <p class="admin-card-desc">脚本存在且 Python 依赖可用时才启用对应功能；不可用不会影响主服务启动。修改路径后重启服务。</p>
+        <div id="workerGrid" class="runtime-grid"></div>
+      </section>
+
+      <section class="admin-card">
+        <div class="admin-card-title">功能可用性</div>
+        <div id="featureList" class="vault-list"></div>
+      </section>
+
+      <section class="admin-card">
+        <div class="admin-card-title">如何配置</div>
+        <pre id="configHint" class="config-snippet"></pre>
+      </section>
+    </main>
+
+    <script src="/navigation.js"></script>
+    <script src="/admin-environment.js"></script>
+  </body>
+</html>

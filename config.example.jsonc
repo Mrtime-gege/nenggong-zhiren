@@ -189,6 +189,19 @@
     "keyFile": ""
   },
 
+  "workers": {
+    // 可选的 Python 媒体 worker。只检查下面明确配置的路径，
+    // 不做全盘搜索；留空即禁用对应能力。
+    // 默认值指向项目内的 scripts/ 目录。发布包默认不包含这两个脚本；
+    // 缺少脚本时会自动跳过图片重编码，PDF 页图预览显示不可用。
+    // 也可以改成外部绝对路径，或在环境页查看实际探测结果。
+    "python": "python3",
+    "imageWorker": "scripts/normalize-image.py",
+    "pdfWorker": "scripts/render-pdf-page.py",
+    // 探测子进程的最长等待时间，单位毫秒。
+    "probeTimeoutMs": 2500
+  },
+
   "attachments": {
     // 只允许文本/CSV/JSON、PNG/JPEG/GIF/WebP 和 PDF。
     "enabled": true,

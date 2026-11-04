@@ -41,7 +41,7 @@ npm start
 启动成功时终端会显示：
 
 ```text
-能工智人 (nenggong-zhiren) v0.6.0 listening on 0.0.0.0:7355
+能工智人 (nenggong-zhiren) v0.6.1 listening on 0.0.0.0:7355
   login       http://127.0.0.1:7355/login
   console     http://127.0.0.1:7355/console
   LAN         http://<LAN-IP>:7355/login
@@ -64,6 +64,7 @@ npm start
 保存密码后登录。顶部导航是统一主页面，坐席和各管理功能都作为子页面切换：
 
 - `/console/status`：管理员登录后的默认页面，显示信号核心仪表盘、请求流、运行配置、存储和操作信号；
+- `/console/environment`：管理员环境检查页，显示 Node/SQLite、Python、图片 worker 和 PDF worker 的可用性；只检查 `config.jsonc` 中明确配置的路径；
 - `/console/users`：添加回复员/管理员、改角色、重置密码，并限制每个回复员可回复的模型；
 - `/console/models`：添加/删除对外模型名；删除前检查调用密钥、回复员权限和未结束票据；
 - `/console/keys`：生成、编辑、轮换调用密钥，可指定自定义密钥，并设置永不过期或具体到期时间、允许的模型（只能从模型页选择，可多选）、分钟/日/月请求配额和并发上限；
@@ -80,7 +81,27 @@ npm start
 - 鼠标移入会话时右侧淡入 VS Code 风格微缩总览覆盖层，移出后快速淡出，不占用消息宽度；短会话微缩内容整体适配，长会话保持可滚动，宽视口滑块直接覆盖在微缩图上，底部可一键「回到最新」；
 - 按 `Ctrl/Cmd+K` 可调整微缩布局、滑块显示和语义聚合；聚焦微缩条后可用方向键、PageUp/PageDown、Home/End 导航；会话与上下文之间的分隔条可调整宽度；
 - 桌面按 `Ctrl/Cmd+K` 打开命令面板；票据标题行「收起队列」释放横向空间，命令面板可切换紧凑密度。
-- 设置页按左侧分类切换到右侧子页面：个性化、运行参数、功能开关、AI 辅助、安全和系统信息；个性化中的「快捷栏按钮」只影响当前账号。
+- 设置页按左侧分类切换到右侧子页面：个性化、运行参数、功能开关、AI 辅助、安全和系统信息；个性化中的「快捷栏」只影响当前账号。
+
+### 可选媒体 worker
+
+图片重编码和 PDF 页图预览不是主流程依赖。服务只检查 `config.jsonc` 的 `workers` 段中明确配置的路径，不会扫描目录：
+
+```jsonc
+"workers": {
+  "python": "python3",
+  "imageWorker": "scripts/normalize-image.py",
+  "pdfWorker": "scripts/render-pdf-page.py",
+  "probeTimeoutMs": 2500
+}
+```
+
+- 图片 worker 需要 Python 3 + Pillow；缺失时跳过重编码，上传仍可用；
+- PDF worker 需要 `pypdfium2`；缺失时 PDF 上传、文字预览和下载仍可用，页图预览不可用；
+- 两个路径都可以改成外部绝对路径或留空禁用；
+- 修改后重启服务，然后在管理员「环境」页查看探测结果。
+
+发布包默认不包含这两个 Python 脚本；如果要从其他目录使用，手动配置绝对路径即可。
 
 ### 坐席页布局
 
@@ -284,7 +305,7 @@ ss -ltnp | grep 7355
 
 - DSH 的 `HUMAN_PROVIDER_KEY` 必须等于网页里生成的某个调用密钥；
 - `baseURL` 必须是 `http://127.0.0.1:7355/v1`（包含 `/v1`）；
-- 改完 DSH 配置后刷新模型选择器；详见 [DSH 集成](../integrations/dsh/README.md)。
+- 改完 DSH 配置后刷新模型选择器；DSH 侧使用标准 OpenAI 兼容配置即可，不会随项目发布单独的集成示例。
 
 ### 权限错误 / 无法写入 users.json
 
