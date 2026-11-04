@@ -432,12 +432,12 @@ test("wrong password and unknown user return the same generic error", async () =
   const wrong = await login(ADMIN, "definitely-wrong-password");
   assert.equal(wrong.status, 401);
   const wrongBody = await wrong.text();
-  assert.match(wrongBody, /用户名或密码错误/);
+  assert.match(wrongBody, /用户名、密码或动态验证码不正确/);
 
   const unknown = await login("no-such-user", "definitely-wrong-password");
   assert.equal(unknown.status, 401);
   const unknownBody = await unknown.text();
-  assert.match(unknownBody, /用户名或密码错误/);
+  assert.match(unknownBody, /用户名、密码或动态验证码不正确/);
   assert.doesNotMatch(unknownBody, /不存在/);
 });
 
@@ -2154,6 +2154,7 @@ test("settings are split into per-user personalization and admin-only functions"
         { id: "q2", kind: "action", value: "aiGenerate", label: "再来一条" },
         { id: "q3", kind: "info", value: "memory", label: "内存" },
         { id: "q4", kind: "link", value: "https://evil.invalid", label: "外链" },
+        { id: "q5", kind: "action", value: "users", label: "管理员用户" },
       ],
     },
   });
@@ -2167,6 +2168,22 @@ test("settings are split into per-user personalization and admin-only functions"
     ["info", "memory", "内存"],
   ]);
   assert.equal(Object.hasOwn(updated.preferences.quickBar[0], "roles"), false);
+  assert.equal(updated.preferences.quickBar.some((item) => item.value === "users"), false);
+
+  const capped = await opJson(aliceSession, "/op/api/preferences", {
+    method: "PATCH",
+    body: {
+      quickBar: Array.from({ length: 20 }, (_, index) => ({
+        id: `cap-${index}`,
+        kind: "info",
+        value: "memory",
+        label: `内存 ${index}`,
+      })),
+    },
+  });
+  assert.equal(capped.preferences.quickBar.length, 15);
+  assert.equal(capped.preferences.quickBar[0].id, "cap-0");
+  assert.equal(capped.preferences.quickBar[14].id, "cap-14");
 
   const aliceAgain = await opJson(aliceSession, "/op/api/preferences");
   assert.equal(aliceAgain.preferences.queueAlertSeconds, 45);

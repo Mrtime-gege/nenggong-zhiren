@@ -52,6 +52,7 @@ const LEGACY_QUICK_BAR = {
   templates: { kind: "action", value: "templates", label: "快捷回复" },
   transfer: { kind: "action", value: "transfer", label: "转交" },
 };
+const MAX_QUICK_BAR_ITEMS = 15;
 const DEFAULT_QUICK_BAR = [
   { id: "default-ai", kind: "action", value: "aiGenerate", label: "AI 生成" },
   { id: "default-ai-prompt", kind: "action", value: "aiPrompt", label: "AI 引导" },
@@ -89,7 +90,7 @@ function normalizeQuickItem(raw, index) {
 
 function normalizeQuickBar(value) {
   if (!Array.isArray(value)) return DEFAULT_QUICK_BAR.map((item) => ({ ...item }));
-  return value.map((item, index) => normalizeQuickItem(item, index)).filter(Boolean);
+  return value.map((item, index) => normalizeQuickItem(item, index)).filter(Boolean).slice(0, MAX_QUICK_BAR_ITEMS);
 }
 
 function quickBarFormRow(item, index) {
@@ -185,6 +186,12 @@ function quickBarFormRow(item, index) {
 function renderQuickBarOptions() {
   const host = $("quickBarOptions");
   if (!host) return;
+  const add = $("quickBarAdd");
+  if (add) {
+    add.disabled = quickBarDraft.length >= MAX_QUICK_BAR_ITEMS;
+    add.title = add.disabled ? `最多 ${MAX_QUICK_BAR_ITEMS} 项` : "添加快捷项";
+    add.textContent = add.disabled ? `已达上限 ${MAX_QUICK_BAR_ITEMS} 项` : "＋ 添加快捷项";
+  }
   host.replaceChildren();
   quickBarDraft.forEach((item, index) => host.append(quickBarFormRow(item, index)));
   if (!quickBarDraft.length) {
@@ -196,6 +203,10 @@ function renderQuickBarOptions() {
 }
 
 function addQuickBarItem() {
+  if (quickBarDraft.length >= MAX_QUICK_BAR_ITEMS) {
+    showSettingsToast(`快捷栏最多 ${MAX_QUICK_BAR_ITEMS} 项。`, true);
+    return;
+  }
   const options = quickBarOptionsFor("action");
   const first = options[0];
   if (!first) return;

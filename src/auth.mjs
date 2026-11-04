@@ -27,6 +27,11 @@ const QUICK_BAR_LINKS = new Set([
   "/console/usage", "/console/history", "/console/audit", "/console/settings",
 ]);
 const QUICK_BAR_INFO = new Set(["memory", "uptime", "queue", "aiCards"]);
+const ADMIN_ONLY_QUICK_BAR_ACTIONS = new Set(["status", "users", "models", "keys", "usage", "audit", "history"]);
+const ADMIN_ONLY_QUICK_BAR_LINKS = new Set([
+  "/console/status", "/console/users", "/console/models", "/console/keys",
+  "/console/usage", "/console/audit", "/console/history",
+]);
 const LEGACY_QUICK_BAR = {
   ai: { kind: "action", value: "aiGenerate", label: "AI 生成" },
   aiPrompt: { kind: "action", value: "aiPrompt", label: "AI 引导" },
@@ -45,21 +50,33 @@ const DEFAULT_PREFERENCES = Object.freeze({
   queueAlertSeconds: 120,
   quickBar: DEFAULT_QUICK_BAR,
 });
+const MAX_QUICK_BAR_ITEMS = 15;
 
-function cloneQuickBarFallback(fallback) {
-  return (Array.isArray(fallback) ? fallback : DEFAULT_QUICK_BAR).map((item) => ({
-    id: item.id,
-    kind: item.kind,
-    value: item.value,
-    label: item.label,
-  }));
+function quickBarValueAllowedForRole(kind, value, role) {
+  if (role === "admin") return true;
+  if (kind === "action") return !ADMIN_ONLY_QUICK_BAR_ACTIONS.has(value);
+  if (kind === "link") return !ADMIN_ONLY_QUICK_BAR_LINKS.has(value);
+  return true;
 }
 
-function normalizeQuickBar(raw, fallback) {
-  if (!Array.isArray(raw)) return cloneQuickBarFallback(fallback);
+function cloneQuickBarFallback(fallback, role = "admin") {
+  return (Array.isArray(fallback) ? fallback : DEFAULT_QUICK_BAR)
+    .filter((item) => quickBarValueAllowedForRole(item.kind, item.value, role))
+    .slice(0, MAX_QUICK_BAR_ITEMS)
+    .map((item) => ({
+      id: item.id,
+      kind: item.kind,
+      value: item.value,
+      label: item.label,
+    }));
+}
+
+function normalizeQuickBar(raw, fallback, role = "admin") {
+  if (!Array.isArray(raw)) return cloneQuickBarFallback(fallback, role);
   const result = [];
   const usedIds = new Set();
-  for (let index = 0; index < raw.length; index += 1) {
+  const nextSuffix = new Map();
+  for (let index = 0; index < raw.length && result.length < MAX_QUICK_BAR_ITEMS; index += 1) {
     const source = raw[index];
     const item = typeof source === "string" ? LEGACY_QUICK_BAR[source] : source;
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
@@ -69,12 +86,15 @@ function normalizeQuickBar(raw, fallback) {
     if (kind === "action" && !QUICK_BAR_ACTIONS.has(value)) continue;
     if (kind === "link" && !QUICK_BAR_LINKS.has(value)) continue;
     if (kind === "info" && !QUICK_BAR_INFO.has(value)) continue;
+    if (!quickBarValueAllowedForRole(kind, value, role)) continue;
     const label = String(item.label || "").trim().slice(0, 40) || value;
     let id = String(item.id || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64) || `quick_${index}`;
     if (usedIds.has(id)) {
-      let suffix = 2;
-      while (usedIds.has(`${id}_${suffix}`)) suffix += 1;
-      id = `${id}_${suffix}`;
+      const base = id;
+      let suffix = Math.max(2, Number(nextSuffix.get(base)) || 2);
+      while (usedIds.has(`${base}_${suffix}`)) suffix += 1;
+      nextSuffix.set(base, suffix + 1);
+      id = `${base}_${suffix}`;
     }
     usedIds.add(id);
     result.push({ id, kind, value, label });
@@ -82,7 +102,7 @@ function normalizeQuickBar(raw, fallback) {
   return result;
 }
 
-function normalizePreferences(raw, fallback = DEFAULT_PREFERENCES) {
+function normalizePreferences(raw, fallback = DEFAULT_PREFERENCES, role = "admin") {
   const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   const bool = (key) => (typeof source[key] === "boolean" ? source[key] : fallback[key]);
   const queueAlertSeconds = Number(source.queueAlertSeconds ?? fallback.queueAlertSeconds);
@@ -95,7 +115,7 @@ function normalizePreferences(raw, fallback = DEFAULT_PREFERENCES) {
       Number.isInteger(queueAlertSeconds) && queueAlertSeconds >= 10 && queueAlertSeconds <= 86_400
         ? queueAlertSeconds
         : fallback.queueAlertSeconds,
-    quickBar: normalizeQuickBar(source.quickBar, fallback.quickBar),
+    quickBar: normalizeQuickBar(source.quickBar, fallback.quickBar, role),
   };
 }
 
@@ -292,7 +312,7 @@ export class AuthService {
         createdAt: Number(raw.createdAt) || this.now(),
         allowedModels: normalizeAllowedModels(raw.allowedModels || []),
         features: normalizeUserFeatures(raw.features),
-        preferences: normalizePreferences(raw.preferences),
+        preferences: normalizePreferences(raw.preferences, DEFAULT_PREFERENCES, raw.role),
         totpSecret: typeof raw.totpSecret === "string" ? raw.totpSecret : "",
         mfaEnabled: raw.mfaEnabled === true && typeof raw.totpSecret === "string" && raw.totpSecret.length > 0,
       });
@@ -311,7 +331,7 @@ export class AuthService {
         createdAt: user.createdAt,
         allowedModels: user.allowedModels || [],
         features: normalizeUserFeatures(user.features),
-        preferences: normalizePreferences(user.preferences),
+        preferences: normalizePreferences(user.preferences, DEFAULT_PREFERENCES, user.role),
         totpSecret: user.totpSecret || undefined,
         mfaEnabled: user.mfaEnabled === true,
       })),
@@ -429,7 +449,7 @@ export class AuthService {
   getPreferences(username) {
     const user = this.users.get(normalizeUsername(username));
     if (!user) throw new AuthError("用户不存在。", "user_not_found", 404);
-    return normalizePreferences(user.preferences);
+    return normalizePreferences(user.preferences, DEFAULT_PREFERENCES, user.role);
   }
 
   setPreferences(username, patch) {
@@ -439,10 +459,14 @@ export class AuthService {
     if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
       throw new AuthError("个性化设置必须是对象。", "invalid_preferences");
     }
-    user.preferences = normalizePreferences({ ...normalizePreferences(user.preferences), ...patch });
+    user.preferences = normalizePreferences(
+      { ...normalizePreferences(user.preferences, DEFAULT_PREFERENCES, user.role), ...patch },
+      DEFAULT_PREFERENCES,
+      user.role,
+    );
     this.users.set(normalized, user);
     this.persistUsers();
-    return normalizePreferences(user.preferences);
+    return normalizePreferences(user.preferences, DEFAULT_PREFERENCES, user.role);
   }
 
   setUserFeatures(username, features) {
@@ -474,7 +498,7 @@ export class AuthService {
       createdAt: user.createdAt,
       allowedModels: [...(user.allowedModels || [])],
       features: normalizeUserFeatures(user.features),
-      preferences: normalizePreferences(user.preferences),
+      preferences: normalizePreferences(user.preferences, DEFAULT_PREFERENCES, user.role),
       mfaEnabled: user.mfaEnabled === true,
     };
   }

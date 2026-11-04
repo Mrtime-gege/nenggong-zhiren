@@ -2527,6 +2527,7 @@ const LEGACY_QUICK_BAR = {
   templates: { kind: "action", value: "templates", label: "快捷回复" },
   transfer: { kind: "action", value: "transfer", label: "转交" },
 };
+const MAX_QUICK_BAR_ITEMS = 15;
 const DEFAULT_QUICK_BAR = [
   { id: "default-ai", kind: "action", value: "aiGenerate", label: "AI 生成" },
   { id: "default-ai-prompt", kind: "action", value: "aiPrompt", label: "AI 引导" },
@@ -2558,7 +2559,7 @@ function normalizeQuickBarItem(raw, index) {
 function quickBarItems() {
   const raw = state.preferences?.quickBar;
   if (!Array.isArray(raw)) return DEFAULT_QUICK_BAR.map((item) => ({ ...item }));
-  return raw.map((item, index) => normalizeQuickBarItem(item, index)).filter(Boolean);
+  return raw.map((item, index) => normalizeQuickBarItem(item, index)).filter(Boolean).slice(0, MAX_QUICK_BAR_ITEMS);
 }
 
 function quickBarItemAllowed(item) {

@@ -228,6 +228,13 @@ export async function relayReply({ settings, apiKey, ticket, instruction = "" } 
     : typeof message.reasoning === "string"
       ? message.reasoning
       : "";
+  const maxOutputChars = Math.max(128, Math.min(16_000, Number(settings.maxOutputChars) || 12_000));
+  if (content.length > maxOutputChars) {
+    throw new AiAssistError("AI 输出超过长度上限。", "ai_too_large", 502);
+  }
+  if (reasoning.length > maxOutputChars) {
+    throw new AiAssistError("AI 思考内容超过长度上限。", "ai_too_large", 502);
+  }
   const toolCalls = [];
   for (const call of Array.isArray(message.tool_calls) ? message.tool_calls : []) {
     const name = String(call?.function?.name || "").trim();

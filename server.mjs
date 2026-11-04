@@ -445,7 +445,7 @@ function originAllowed(origin) {
     if (url.protocol !== "http:" && url.protocol !== "https:") return false;
     if (hostAllowed(url.host)) return true;
     const defaultPort = url.protocol === "https:" ? "443" : "80";
-    return hostAllowed(`${url.hostname}:${url.port || defaultPort}`) || hostAllowed(url.hostname);
+    return hostAllowed(url.port ? `${url.hostname}:${url.port}` : `${url.hostname}:${defaultPort}`);
   } catch {
     return false;
   }
@@ -1385,6 +1385,24 @@ function startAiRelayForTicket(ticket, source, actor = "system") {
     if (auth.getPreferences(actor).autoAiOnClaim !== true) return;
   }
   if (ticket.aiPending?.status === "ready") return;
+  const usageActor = source === "auto_receive" ? "__auto_receive__" : actor;
+  const usageLimits = source === "auto_claim"
+    ? live.aiAssist
+    : { dailyRequestsTotal: live.aiAssist.dailyRequestsTotal };
+  try {
+    aiUsage.checkRequest(usageActor, usageLimits);
+    aiUsage.addRequest(usageActor);
+  } catch (error) {
+    ticket.aiPending = {
+      status: "error",
+      source,
+      actor,
+      error: String(error.message || "AI 辅助今日额度已用完。").slice(0, 500),
+      createdAt: Date.now(),
+    };
+    persistRuntime();
+    return;
+  }
   ticket.aiPending = { status: "running", source, actor, createdAt: Date.now() };
   persistRuntime();
   setImmediate(async () => {
@@ -1408,6 +1426,7 @@ function startAiRelayForTicket(ticket, source, actor = "system") {
         usage: result.usage || null,
         createdAt: Date.now(),
       };
+      aiUsage.addTokens(usageActor, (result.usage?.inputTokens || 0) + (result.usage?.outputTokens || 0));
       persistRuntime();
     } catch (error) {
       ticket.aiPending = { status: "error", source, actor, error: String(error.message || "AI 求助失败").slice(0, 500), createdAt: Date.now() };
@@ -1489,6 +1508,14 @@ function createTicket({ request, caller, releaseSlot, session }) {
     speedMs: MODELS.get(request.model)?.speedMs ?? live.queue.streamDelayMs,
     releaseSlot,
   };
+}
+
+function decodePathParam(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new ApiError(400, "Malformed URL encoding.", "invalid_request_error", "invalid_url");
+  }
 }
 
 function requireTicket(id) {
@@ -2627,7 +2654,7 @@ function handleFileApi(req, res, url) {
   let record;
   let blob;
   try {
-    record = attachments.getOwned(decodeURIComponent(match[1]), ownerHash);
+    record = attachments.getOwned(decodePathParam(match[1]), ownerHash);
     if (match[2]) blob = attachments.readBlob(record.id);
   } catch (error) {
     throw attachmentError(error);
@@ -2662,7 +2689,7 @@ function handleModels(req, res, url) {
   const allowed = caller.allowedModels?.length ? new Set(caller.allowedModels) : null;
   const prefix = "/v1/models/";
   if (url.pathname.startsWith(prefix)) {
-    const id = decodeURIComponent(url.pathname.slice(prefix.length));
+    const id = decodePathParam(url.pathname.slice(prefix.length));
     const model = MODELS.get(id);
     if (!model || (allowed && !allowed.has(id))) {
       throw new ApiError(404, `The model '${id}' does not exist.`, "invalid_request_error", "model_not_found", "model");
@@ -2964,8 +2991,8 @@ async function handleOperator(req, res, url, session) {
   const attachmentMatch = /^\/op\/api\/tickets\/([^/]+)\/attachments\/([^/]+)\/(meta|preview|raw|image|pdf-page)$/.exec(pathname);
   if (attachmentMatch) {
     if (req.method !== "GET") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
-    const ticketId = decodeURIComponent(attachmentMatch[1]);
-    const fileId = decodeURIComponent(attachmentMatch[2]);
+    const ticketId = decodePathParam(attachmentMatch[1]);
+    const fileId = decodePathParam(attachmentMatch[2]);
     const mode = attachmentMatch[3];
     const ticket = requireTicket(ticketId);
     if (!canSeeModel(session, ticket.model)) {
@@ -3182,13 +3209,13 @@ async function handleOperator(req, res, url, session) {
   const templateUseMatch = /^\/op\/api\/templates\/([^/]+)\/use$/.exec(pathname);
   if (templateUseMatch) {
     if (req.method !== "POST") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
-    const record = templates.markUsed(decodeURIComponent(templateUseMatch[1]), session);
+    const record = templates.markUsed(decodePathParam(templateUseMatch[1]), session);
     return sendJson(res, 200, { ok: true, template: record });
   }
 
   const templateMatch = /^\/op\/api\/templates\/([^/]+)$/.exec(pathname);
   if (templateMatch) {
-    const templateId = decodeURIComponent(templateMatch[1]);
+    const templateId = decodePathParam(templateMatch[1]);
     if (req.method === "PATCH") {
       const record = templates.update(templateId, {
         username: session.username,
@@ -3407,8 +3434,7 @@ async function handleOperator(req, res, url, session) {
     const result = pathname.endsWith(".csv") ? historyRows(url, { all: true }) : historyRows(url);
     if (pathname.endsWith(".csv")) {
       const header = ["finished_at", "id", "session_id", "session_turn", "model", "state", "finish_reason", "caller", "operator", "prompt_tokens", "completion_tokens", "preview"];
-      const escapeCsv = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
-      const lines = [header.join(","), ...result.items.map((row) => [
+      const rows = result.items.map((row) => [
         new Date(row.finishedAt || row.createdAt).toISOString(),
         row.id,
         row.sessionId || "",
@@ -3421,14 +3447,8 @@ async function handleOperator(req, res, url, session) {
         row.promptTokens,
         row.completionTokens,
         row.preview,
-      ].map(escapeCsv).join(","))];
-      res.writeHead(200, {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": 'attachment; filename="nenggong-zhiren-history.csv"',
-        "Cache-Control": "no-store",
-      });
-      res.end(`\uFEFF${lines.join("\n")}\n`);
-      return;
+      ]);
+      return sendCsv(res, "nenggong-zhiren-history.csv", [header, ...rows]);
     }
     return sendJson(res, 200, { ok: true, ...result });
   }
@@ -3467,7 +3487,7 @@ async function handleOperator(req, res, url, session) {
     if (req.method !== "POST") {
       throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
     }
-    const keyId = decodeURIComponent(rotateMatch[1]);
+    const keyId = decodePathParam(rotateMatch[1]);
     const rotated = apiKeys.rotate(keyId);
     audit.append({ actor: session.username, action: "key.rotate", target: keyId, ip: clientIp(req) });
     log(`[admin] api key rotated id=${keyId} by=${session.username}`);
@@ -3482,7 +3502,7 @@ async function handleOperator(req, res, url, session) {
   const keyMatch = /^\/op\/api\/keys\/([^/]+)$/.exec(pathname);
   if (keyMatch) {
     requireAdmin(session);
-    const keyId = decodeURIComponent(keyMatch[1]);
+    const keyId = decodePathParam(keyMatch[1]);
     if (req.method === "PATCH") {
       const record = apiKeys.update(keyId, {
         name: body.name,
@@ -3536,7 +3556,7 @@ async function handleOperator(req, res, url, session) {
   const modelMatch = /^\/op\/api\/models\/([^/]+)$/.exec(pathname);
   if (modelMatch) {
     requireAdmin(session);
-    const modelId = decodeURIComponent(modelMatch[1]);
+    const modelId = decodePathParam(modelMatch[1]);
     if (req.method === "PATCH") {
       const record = modelStore.update(modelId, {
         name: body.name,
@@ -3597,7 +3617,7 @@ async function handleOperator(req, res, url, session) {
   const userMatch = /^\/op\/api\/users\/([^/]+)$/.exec(pathname);
   if (userMatch) {
     requireAdmin(session);
-    const target = decodeURIComponent(userMatch[1]);
+    const target = decodePathParam(userMatch[1]);
     if (req.method === "PATCH") {
       let user;
       if (body.password !== undefined) {
@@ -3674,8 +3694,17 @@ async function handleOperator(req, res, url, session) {
       ticket.createdAt,
       ticket.claimedAt,
       ticket.finishedAt,
+      ticket.sessionTurn || 1,
+      ticket.sessionStartedAt || 0,
+      ticket.sessionLastAt || 0,
+      ticket.clientGone ? 1 : 0,
       ticket.text?.length || 0,
       ticket.text?.slice(-24) || "",
+      ticket.reasoning?.length || 0,
+      ticket.reasoning?.slice(-24) || "",
+      ticket.refusal || "",
+      ticket.finishReason || "",
+      ticket.autoAiAt || 0,
       ticket.messages?.length || 0,
       ticket.tools?.length || 0,
       ticket.toolCalls?.length || 0,
@@ -3687,6 +3716,7 @@ async function handleOperator(req, res, url, session) {
       ticket.aiPending?.createdAt || 0,
       ticket.aiPending?.content?.length || 0,
       ticket.aiPending?.toolCalls?.length || 0,
+      ticket.aiPending?.error || "",
       ticket.sseLog?.length || 0,
       ticket.anthLog?.length || 0,
     ]);
@@ -3721,7 +3751,7 @@ async function handleOperator(req, res, url, session) {
   if (relayMatch) {
     if (req.method !== "POST") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
     if (!live.aiAssist.enabled) throw new ApiError(403, "AI 辅助未启用。", "invalid_request_error", "ai_disabled");
-    const relayTicket = requireTicket(decodeURIComponent(relayMatch[1]));
+    const relayTicket = requireTicket(decodePathParam(relayMatch[1]));
     if (!canSeeModel(session, relayTicket.model)) throw new ApiError(404, "Ticket not found.", "invalid_request_error", "ticket_not_found");
     const relayUser = auth.getUser(operator);
     if (!userAllowsFeature(relayUser, "aiAssist")) throw new ApiError(403, "当前账号没有 AI 辅助权限。", "invalid_request_error", "feature_disabled");
@@ -3772,7 +3802,7 @@ async function handleOperator(req, res, url, session) {
   if (aiMatch) {
     if (req.method !== "POST") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
     if (!live.aiAssist.enabled) throw new ApiError(403, "AI 辅助未启用。", "invalid_request_error", "ai_disabled");
-    const aiTicket = requireTicket(decodeURIComponent(aiMatch[1]));
+    const aiTicket = requireTicket(decodePathParam(aiMatch[1]));
     if (!canSeeModel(session, aiTicket.model)) {
       throw new ApiError(404, "Ticket not found.", "invalid_request_error", "ticket_not_found");
     }
@@ -3898,7 +3928,7 @@ async function handleOperator(req, res, url, session) {
 
   const notesMatch = /^\/op\/api\/tickets\/([^/]+)\/notes$/.exec(pathname);
   if (notesMatch) {
-    const noteTicket = requireTicket(decodeURIComponent(notesMatch[1]));
+    const noteTicket = requireTicket(decodePathParam(notesMatch[1]));
     if (!canSeeModel(session, noteTicket.model)) {
       throw new ApiError(404, "Ticket not found.", "invalid_request_error", "ticket_not_found");
     }
@@ -3933,7 +3963,7 @@ async function handleOperator(req, res, url, session) {
     if (req.method !== "PATCH") {
       throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
     }
-    const metaTicket = requireTicket(decodeURIComponent(metaMatch[1]));
+    const metaTicket = requireTicket(decodePathParam(metaMatch[1]));
     if (!canSeeModel(session, metaTicket.model)) {
       throw new ApiError(404, "Ticket not found.", "invalid_request_error", "ticket_not_found");
     }
@@ -3960,7 +3990,7 @@ async function handleOperator(req, res, url, session) {
     throw new ApiError(404, "Operator route not found.", "invalid_request_error", "not_found");
   }
 
-  const ticket = requireTicket(decodeURIComponent(match[1]));
+  const ticket = requireTicket(decodePathParam(match[1]));
   const action = match[2];
   if (!canSeeModel(session, ticket.model)) {
     throw new ApiError(404, "Ticket not found.", "invalid_request_error", "ticket_not_found");
@@ -4501,7 +4531,7 @@ async function handleLogin(req, res, url) {
     log(`[login-failed] ip=${ip} username=${usernameForLimit || "-"}`);
     return serveLoginPage(res, {
       status: 401,
-      error: "用户名或密码错误。",
+      error: "用户名、密码或动态验证码不正确。",
       next: safeNextPath(form.next, "/console"),
     });
   }
@@ -4511,7 +4541,7 @@ async function handleLogin(req, res, url) {
     audit.append({ actor: user.username, action: "login.mfa_failure", ip });
     return serveLoginPage(res, {
       status: 401,
-      error: "动态验证码不正确。",
+      error: "用户名、密码或动态验证码不正确。",
       next: safeNextPath(form.next, "/console"),
     });
   }
