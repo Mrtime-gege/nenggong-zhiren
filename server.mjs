@@ -3033,6 +3033,9 @@ async function handleOperator(req, res, url, session) {
       if (!Number.isInteger(page) || page < 1 || page > 200) {
         throw new ApiError(400, "page must be an integer from 1 to 200.", "invalid_request_error", "invalid_page");
       }
+      if (!config.workers.pdfWorker || !existsSync(config.workers.pdfWorker)) {
+        throw new ApiError(503, "PDF 页图预览未配置或 worker 不存在。", "server_error", "pdf_preview_unavailable");
+      }
       if (pdfRenderActive >= 2) {
         throw new ApiError(503, "PDF 页图预览当前繁忙，请稍后重试。", "server_error", "pdf_preview_busy");
       }
@@ -3040,7 +3043,7 @@ async function handleOperator(req, res, url, session) {
       let rendered;
       try {
         rendered = await renderPdfPageBuffer(attachments.readBlob(fileId).buffer, page, {
-          script: path.join(ROOT, "scripts", "render-pdf-page.py"),
+          script: config.workers.pdfWorker,
         });
       } catch (error) {
         throw new ApiError(503, "PDF 页图预览不可用，请下载原文件或查看文字预览。", "server_error", "pdf_preview_unavailable");
