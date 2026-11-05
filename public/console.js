@@ -5157,6 +5157,7 @@ async function takeoverTicket() {
   try {
     await api(`/op/api/tickets/${encodeURIComponent(ticket.id)}/takeover`, { method: "POST", body: {} });
     toast(`已接管 ${shortId(ticket.id)}，原接待人 @${ticket.claimedBy || "-"}`);
+    await loadTicketDetail(ticket.id);
     await pollOnce();
   } catch (error) {
     toast(error.message);
