@@ -507,6 +507,12 @@ async function saveFeatures(version) {
     }
     latest.settings = data.settings;
     window.NGZRNAV?.render(role, data.settings.features);
+    try {
+      window.parent?.postMessage(
+        { type: "ngzr-features-changed", features: data.settings.features },
+        location.origin,
+      );
+    } catch { /* optional */ }
     flashSaved("功能设置已修改并生效");
   } catch (error) {
     if (!isCurrentSave("features", version)) return;

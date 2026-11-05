@@ -57,6 +57,18 @@
               <button id="password-toggle" class="password-toggle" type="button" aria-label="显示密码">显示</button>
             </div>
           </label>
+          <label class="field">
+            <span>动态验证码 <small>启用 MFA 时填写</small></span>
+            <input
+              id="totp"
+              name="totp"
+              type="text"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxlength="6"
+              placeholder="6 位验证码，未启用可留空"
+            />
+          </label>
           <button id="login-submit" type="submit">登录控制台</button>
         </form>
 

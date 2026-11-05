@@ -5283,6 +5283,11 @@ function initSubpages() {
       refreshQuickBarInfo(true);
       return;
     }
+    if (event.data?.type === "ngzr-features-changed") {
+      state.features = event.data.features || state.features;
+      window.NGZRNAV?.render(state.role, state.features);
+      return;
+    }
     if (event.data?.type === "ngzr-ai-changed") {
       api("/auth/me").then((me) => {
         state.aiAssist = me.aiAssist || state.aiAssist;

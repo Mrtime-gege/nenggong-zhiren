@@ -351,6 +351,7 @@ test("login page and protected routes", async () => {
   assert.match(page.headers.get("content-security-policy"), /frame-ancestors 'none'/);
   assert.equal(page.headers.get("x-frame-options"), "DENY");
   assert.match(page.headers.get("x-request-id"), /^req_/);
+  assert.match(await page.text(), /name="totp"/);
 
   const consoleResponse = await fetch(`${BASE}/console`, { redirect: "manual" });
   assert.equal(consoleResponse.status, 302);
@@ -3210,3 +3211,5 @@ test("brand icon and web manifest assets are served", async () => {
   assert.match(html, /rel="manifest" href="\/manifest\.webmanifest"/);
   assert.match(html, /class="login-mark" src="\/icon\.svg"/);
 });
+
+
