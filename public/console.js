@@ -1216,7 +1216,7 @@ function render() {
   notifyAutoAiState(ticket);
   updateDetail(ticket);
   applyPendingAiHelp(ticket);
-  if (!Array.isArray(ticket.messages)) loadTicketDetail(ticket.id);
+  if (!Array.isArray(ticket.messages) || !Array.isArray(ticket.notes)) loadTicketDetail(ticket.id);
   else if (ticket.aiPending?.status === "ready" && !Object.hasOwn(ticket.aiPending, "content")) {
     // compact list carries only aiPending status; fetch the full proposal once
     // so a result that arrived after claim can still be auto-filled.
@@ -2426,6 +2426,8 @@ function renderTicketExtras(ticket, d) {
   routing.append(routeHead, routeBody);
 
   const notes = d.els.notesPanel;
+  const previousNote = notes.querySelector(".internal-note-input");
+  const noteDraft = d.noteDirty && previousNote ? previousNote.value : "";
   notes.replaceChildren();
   const noteHead = el("div", "ticket-extra-head");
   noteHead.append(el("span", "", "内部备注"));
@@ -2445,6 +2447,7 @@ function renderTicketExtras(ticket, d) {
   noteInput.rows = 2;
   noteInput.maxLength = 2000;
   noteInput.placeholder = "记一条只给回复员看的备注…";
+  noteInput.value = noteDraft;
   noteInput.addEventListener("input", () => { d.noteDirty = true; });
   const noteSave = el("button", "btn", "添加备注");
   noteSave.type = "button";
@@ -2460,7 +2463,9 @@ function renderTicketExtras(ticket, d) {
         body: { text },
       });
       d.noteDirty = false;
+      noteInput.value = "";
       d.extrasSignature = "";
+      await loadTicketDetail(ticket.id);
       await pollOnce();
     } catch (error) {
       noteError.textContent = error.message;
