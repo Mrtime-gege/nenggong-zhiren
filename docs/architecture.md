@@ -1,6 +1,6 @@
 # 架构
 
-## 0.6.2 分层
+## 0.6.3 分层
 
 - **配置层**：`src/config.mjs` 只读取根目录 `config.jsonc`；不读取环境变量，也不接受运行参数。可选的 `workers` 段只声明 Python worker 路径。
 - **数据层**：`src/data/models.mjs` 维护运行时模型注册表；`src/data/api-keys.mjs` 管理调用密钥、配额和模型范围；`src/data/usage.mjs` 保存分钟/日/月用量和每日历史；`src/data/state.mjs` 保存完成请求和幂等快照；`src/data/settings.mjs` 保存设置页覆盖值；`src/data/audit.mjs` 追加审计事件；`src/auth.mjs` 负责账号、模型权限、会话、MFA 和登录限速；`src/totp.mjs` 提供 TOTP。

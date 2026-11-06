@@ -1,4 +1,4 @@
-# 能工智人发布白名单（0.6.2）
+# 能工智人发布白名单（0.6.3）
 #
 # 规则：
 # 1. 只有本文件列出的文件可以进入发布包。
@@ -7,7 +7,7 @@
 #    scripts/normalize-image.py、scripts/render-pdf-page.py。
 # 4. 本文件、scripts/build-release.mjs、.gitignore、docs/archive/ 不属于发布内容。
 #
-# 运行：node scripts/build-release.mjs --out /tmp/nenggong-zhiren-0.6.2.tar.gz
+# 运行：node scripts/build-release.mjs --out /tmp/nenggong-zhiren-0.6.3.tar.gz
 
 server.mjs
 package.json
