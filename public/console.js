@@ -115,8 +115,6 @@ const state = {
   aiSelectedCards: new Map(),
   aiAutoCardsShown: new Map(),
   aiPrompts: new Map(),
-  aiDoubleLimits: new Map(),
-  aiDetailsOpen: new Map(),
   autoQueueSeen: null,
   autoClaimSeen: null,
   autoAttempted: new Set(),
@@ -1309,9 +1307,14 @@ function applyPendingAiHelp(ticket) {
     finishReason: pending.finishReason || "",
     usage: pending.usage || null,
     createdAt: pending.createdAt,
+    limits: aiLimitsFor(ticket.id),
+    doubleLimits: false,
+    startedAt: pending.createdAt,
+    elapsedMs: Math.max(0, Date.now() - pending.createdAt),
+    inputSummary: aiInputSummary(ticket),
+    instruction: "",
   });
   updateComposer(ticket, detail);
-  renderAiDetails(ticket, detail);
   toast("AI 结果已加入 AI 子页，请选择后填入或追加");
 }
 
@@ -1967,27 +1970,7 @@ function buildDetail(ticket) {
   aiTools.append(aiTrigger, aiPromptTrigger, aiPromptPopover);
   const aiLimitBar = el("div", "ai-limit-bar hidden");
   const aiLimitSummary = el("span", "ai-limit-summary", "");
-  const aiDoubleLabel = el("label", "ai-double-toggle");
-  const aiDoubleInput = el("input", "ai-double-input");
-  aiDoubleInput.type = "checkbox";
-  aiDoubleInput.setAttribute("aria-label", "本次 AI 生成使用双倍限制");
-  aiDoubleLabel.append(aiDoubleInput, el("span", "", "限制翻倍 ×2"));
-  const aiDetailsToggle = el("button", "btn ghost ai-details-toggle", "详情");
-  aiDetailsToggle.type = "button";
-  aiDetailsToggle.setAttribute("aria-expanded", "false");
-  aiLimitBar.append(aiLimitSummary, aiDoubleLabel, aiDetailsToggle);
-  const aiDetailsBox = el("div", "ai-details-box hidden");
-  aiDoubleInput.addEventListener("change", () => {
-    state.aiDoubleLimits.set(ticket.id, aiDoubleInput.checked);
-    syncAiLimits(ticket, detail);
-  });
-  aiDetailsToggle.addEventListener("click", () => {
-    const open = !Boolean(state.aiDetailsOpen.get(ticket.id));
-    state.aiDetailsOpen.set(ticket.id, open);
-    aiDetailsToggle.setAttribute("aria-expanded", open ? "true" : "false");
-    aiDetailsToggle.textContent = open ? "收起详情" : "详情";
-    renderAiDetails(ticket, detail);
-  });
+  aiLimitBar.append(aiLimitSummary);
   const quickBar = el("div", "quick-bar hidden");
   const aiButtons = { reply: aiTrigger };
   const aiPanel = el("section", "ai-panel hidden");
@@ -2026,7 +2009,7 @@ function buildDetail(ticket) {
   const aiCardList = el("div", "ai-card-list hidden");
   const aiStatus = el("div", "ai-compact-status hidden");
   const aiEmpty = el("div", "ai-empty", "还没有 AI 结果。使用上方「AI 生成」创建结果卡片。");
-  aiSection.append(aiCardToolbar, aiLimitBar, aiDetailsBox, aiCardList, aiStatus, aiPanel, aiEmpty);
+  aiSection.append(aiCardToolbar, aiLimitBar, aiCardList, aiStatus, aiPanel, aiEmpty);
 
   const clearButton = el("button", "btn ghost editor-clear", "清空");
   clearButton.type = "button";
@@ -2144,9 +2127,6 @@ function buildDetail(ticket) {
     aiSection,
     aiLimitBar,
     aiLimitSummary,
-    aiDoubleInput,
-    aiDetailsToggle,
-    aiDetailsBox,
     notesSection,
     moreActions,
     moreRefresh,
@@ -2858,9 +2838,9 @@ function aiSeconds(value) {
   return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)}s`;
 }
 
-function aiLimitsFor(ticketId) {
+function aiLimitsFor(ticketId, doubleLimits = false) {
   const configured = state.aiAssist?.limits || {};
-  const multiplier = state.aiDoubleLimits.get(ticketId) ? 2 : 1;
+  const multiplier = doubleLimits ? 2 : 1;
   return {
     multiplier,
     maxOutputChars: Math.min(256_000, Math.max(128, Number(configured.maxOutputChars) || 32_000) * multiplier),
@@ -2873,72 +2853,13 @@ function aiLimitText(limits) {
   return `输出 ≤ ${aiLimitNumber(limits.maxOutputChars)} 字 · 首包 ${aiSeconds(limits.firstOutputTimeoutMs)} · 首包后 ${aiSeconds(limits.workTimeoutMs)}`;
 }
 
-function renderAiDetails(ticket, d) {
-  if (!d?.els?.aiDetailsBox) return;
-  const open = Boolean(state.aiDetailsOpen.get(ticket.id));
-  d.els.aiDetailsToggle.textContent = open ? "收起详情" : "详情";
-  d.els.aiDetailsToggle.setAttribute("aria-expanded", open ? "true" : "false");
-  d.els.aiDetailsBox.classList.toggle("hidden", !open);
-  if (!open) return;
-  const run = state.aiRuns.get(ticket.id);
-  const pending = ticket.aiPending && isAutoAiPending(ticket) ? ticket.aiPending : null;
-  const limits = run?.limits || aiLimitsFor(ticket.id);
-  const rows = [];
-  const add = (label, value) => rows.push(aiLiveRow(label, value));
-  let status = "还没有 AI 生成记录";
-  let startedAt = run?.startedAt || pending?.createdAt || 0;
-  let elapsed = "—";
-  if (run?.status === "running") {
-    status = "生成中";
-    elapsed = `${((Date.now() - Number(run.startedAt || Date.now())) / 1000).toFixed(1)} 秒`;
-  } else if (run?.status === "error") {
-    status = "生成失败";
-    elapsed = run.elapsedMs ? `${(run.elapsedMs / 1000).toFixed(1)} 秒` : "—";
-  } else if (run?.status === "done") {
-    status = "已完成";
-    elapsed = run.elapsedMs ? `${(run.elapsedMs / 1000).toFixed(1)} 秒` : "—";
-  } else if (pending?.status === "running") {
-    status = "自动生成中";
-    elapsed = `${((Date.now() - Number(pending.createdAt || Date.now())) / 1000).toFixed(1)} 秒`;
-  } else if (pending?.status === "ready") {
-    status = "自动结果已就绪";
-  }
-  add("状态", status);
-  add("触发", run?.task === "reply" ? "回复建议" : run ? "AI 辅助" : "—");
-  if (startedAt) add("开始时间", new Date(startedAt).toLocaleString("zh-CN", { hour12: false }));
-  add("已用时", elapsed);
-  add("限制", `${aiLimitText(limits)}${limits.multiplier === 2 ? " · 已翻倍" : ""}`);
-  if (ticket.messages) add("输入", aiInputSummary(ticket));
-  if (run?.contentChars !== undefined) add("正文", `${aiLimitNumber(run.contentChars)} 字符`);
-  if (run?.reasoningChars) add("思考", `${aiLimitNumber(run.reasoningChars)} 字符`);
-  if (run?.toolCalls !== undefined) add("工具调用", String(run.toolCalls));
-  if (run?.finishReason) add("结束原因", run.finishReason);
-  if (run?.usage) {
-    const usage = run.usage;
-    add("Token", `输入 ${aiLimitNumber(usage.inputTokens)} / 输出 ${aiLimitNumber(usage.outputTokens)}`);
-  }
-  if (run?.error) add("错误", run.error);
-  const head = el("div", "ai-details-head");
-  head.append(el("span", "", "AI 生成详情"), el("span", "ai-details-hint", "只读状态，不会自动发送"));
-  const grid = el("div", "ai-live-grid");
-  grid.append(...rows);
-  d.els.aiDetailsBox.replaceChildren(head, grid);
-}
-
 function syncAiLimits(ticket, d) {
   if (!d?.els?.aiLimitBar) return;
   const available = Boolean(state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
   d.els.aiLimitBar.classList.toggle("hidden", !available);
-  if (!available) {
-    d.els.aiDetailsBox.classList.add("hidden");
-    return;
-  }
+  if (!available) return;
   const limits = aiLimitsFor(ticket.id);
-  d.els.aiLimitSummary.textContent = aiLimitText(limits);
-  d.els.aiDoubleInput.checked = limits.multiplier === 2;
-  const run = state.aiRuns.get(ticket.id);
-  d.els.aiDoubleInput.disabled = run?.status === "running";
-  renderAiDetails(ticket, d);
+  d.els.aiLimitSummary.textContent = `默认限制：${aiLimitText(limits)}`;
 }
 
 function syncAiTools(ticket, d) {
@@ -3248,7 +3169,22 @@ function cardSourceLabel(source) {
   return source ? String(source) : "AI 结果";
 }
 
-function addAiCard(ticket, d, { reasoning = "", content = "", toolCalls = [], source = "manual", finishReason = "", usage = null, createdAt = Date.now() } = {}) {
+function addAiCard(ticket, d, {
+  reasoning = "",
+  content = "",
+  toolCalls = [],
+  source = "manual",
+  finishReason = "",
+  usage = null,
+  createdAt = Date.now(),
+  limits = null,
+  doubleLimits = false,
+  startedAt = 0,
+  finishedAt = 0,
+  elapsedMs = 0,
+  inputSummary = "",
+  instruction = "",
+} = {}) {
   const cards = aiCardsFor(ticket.id);
   const card = {
     id: `ai_${Date.now()}_${++aiCardSequence}`,
@@ -3259,6 +3195,14 @@ function addAiCard(ticket, d, { reasoning = "", content = "", toolCalls = [], so
     finishReason,
     usage,
     createdAt,
+    limits,
+    doubleLimits: doubleLimits === true,
+    startedAt,
+    finishedAt,
+    elapsedMs,
+    inputSummary,
+    instruction,
+    detailsOpen: false,
   };
   cards.push(card);
   state.aiSelectedCards.set(ticket.id, card.id);
@@ -3313,6 +3257,26 @@ function toolCallArgsText(call) {
   } catch {
     return String(call.arguments ?? "");
   }
+}
+
+function renderAiCardDetails(card, box) {
+  if (!box) return;
+  const limits = card.limits || aiLimitsFor(null, card.doubleLimits);
+  const rows = [];
+  const add = (label, value) => rows.push(aiLiveRow(label, value));
+  add("状态", "已完成");
+  add("限制", `${aiLimitText(limits)}${card.doubleLimits ? " · 本次已翻倍" : ""}`);
+  if (card.startedAt) add("开始时间", new Date(card.startedAt).toLocaleString("zh-CN", { hour12: false }));
+  if (card.elapsedMs) add("已用时", `${(card.elapsedMs / 1000).toFixed(1)} 秒`);
+  if (card.inputSummary) add("输入", card.inputSummary);
+  add("正文", `${aiLimitNumber(String(card.content || "").length)} 字符`);
+  add("思考", `${aiLimitNumber(String(card.reasoning || "").length)} 字符`);
+  add("工具调用", String(card.toolCalls.length));
+  if (card.finishReason) add("结束原因", card.finishReason);
+  if (card.usage) add("Token", `输入 ${aiLimitNumber(card.usage.inputTokens)} / 输出 ${aiLimitNumber(card.usage.outputTokens)}`);
+  const grid = el("div", "ai-live-grid");
+  grid.append(...rows);
+  box.replaceChildren(grid);
 }
 
 function renderAiCards(ticket, d, force = false) {
@@ -3391,6 +3355,36 @@ function renderAiCards(ticket, d, force = false) {
       toolsBlock.append(el("div", "ai-card-empty-line", "（无工具调用）"));
     }
     node.append(toolsBlock);
+
+    const footer = el("div", "ai-card-footer");
+    const limitBadge = el("span", `ai-card-limit${card.doubleLimits ? " is-double" : ""}`, card.doubleLimits ? "限制 ×2" : "标准限制");
+    const detailsButton = el("button", "btn ghost ai-card-details", "详情");
+    detailsButton.type = "button";
+    detailsButton.setAttribute("aria-expanded", card.detailsOpen ? "true" : "false");
+    const detailsBox = el("div", "ai-card-details-box hidden");
+    if (card.detailsOpen) {
+      detailsBox.classList.remove("hidden");
+      renderAiCardDetails(card, detailsBox);
+    }
+    detailsButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      card.detailsOpen = !card.detailsOpen;
+      detailsButton.setAttribute("aria-expanded", card.detailsOpen ? "true" : "false");
+      detailsButton.textContent = card.detailsOpen ? "收起详情" : "详情";
+      detailsBox.classList.toggle("hidden", !card.detailsOpen);
+      if (card.detailsOpen) renderAiCardDetails(card, detailsBox);
+    });
+    const doubleButton = el("button", "btn ghost ai-card-double", card.doubleLimits ? "再次双倍生成" : "翻倍重生成");
+    doubleButton.type = "button";
+    doubleButton.title = "用同一提示和双倍限制再生成一张 AI 卡片";
+    doubleButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (!isTicketEditable(ticket) || state.busy) return;
+      state.aiSelectedCards.set(ticket.id, card.id);
+      runAiTask("reply", d, card.instruction || state.aiPrompts.get(ticket.id) || "", { doubleLimits: true });
+    });
+    footer.append(limitBadge, detailsButton, doubleButton);
+    node.append(footer, detailsBox);
     list.append(node);
   });
 
@@ -3451,7 +3445,7 @@ function stripAiToolAnnotations(value) {
     .trim();
 }
 
-async function runAiTask(task, d, instruction = "") {
+async function runAiTask(task, d, instruction = "", options = {}) {
   const ticket = currentTicket();
   if (!ticket || !d || d.id !== ticket.id || task !== "reply") return;
   if (state.aiRuns.get(ticket.id)?.status === "running") return;
@@ -3462,8 +3456,8 @@ async function runAiTask(task, d, instruction = "") {
   d.inspectorCollapsed = false;
   applyInspectorState(d);
   activateInspectorTab(d, "ai");
-  const doubleLimits = Boolean(state.aiDoubleLimits.get(ticket.id));
-  const limits = aiLimitsFor(ticket.id);
+  const doubleLimits = options.doubleLimits === true;
+  const limits = aiLimitsFor(ticket.id, doubleLimits);
   const run = {
     status: "running",
     task: "reply",
@@ -3502,6 +3496,13 @@ async function runAiTask(task, d, instruction = "") {
       source: "manual",
       finishReason: result.finishReason || "",
       usage: result.usage || null,
+      limits: result.limits || run.limits,
+      doubleLimits,
+      startedAt: run.startedAt,
+      finishedAt: run.finishedAt,
+      elapsedMs: run.elapsedMs,
+      inputSummary: aiInputSummary(ticket),
+      instruction: run.instruction,
     });
     updateComposer(ticket, d);
     toast("AI 结果已加入 AI 子页，请选择后填入或追加");
@@ -3514,7 +3515,6 @@ async function runAiTask(task, d, instruction = "") {
     renderAiRun(ticket, d, run);
   } finally {
     syncAiTools(ticket, d);
-    renderAiDetails(ticket, d);
   }
 }
 

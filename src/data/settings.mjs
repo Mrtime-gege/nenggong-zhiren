@@ -63,7 +63,21 @@ export class SettingsStore {
       if (parsed?.version !== VERSION || !parsed.values || typeof parsed.values !== "object") {
         throw new Error(`设置文件格式不正确: ${this.file}`);
       }
+      const legacyAi = !parsed.values?.aiAssist || parsed.values.aiAssist.firstOutputTimeoutMs === undefined;
       this.values = this.merge(parsed.values);
+      if (legacyAi) {
+        // 0.6.3 introduced adaptive first-output/work waits and an 8x output
+        // allowance. Migrate persisted 0.6.x settings once instead of keeping
+        // the old single 20s timeout and 16k maximum.
+        const oldOutput = Number(parsed.values?.aiAssist?.maxOutputChars);
+        this.values.aiAssist.firstOutputTimeoutMs = 30_000;
+        this.values.aiAssist.timeoutMs = 180_000;
+        this.values.aiAssist.maxOutputChars = Math.min(
+          128_000,
+          Math.max(4_000, Number.isFinite(oldOutput) ? oldOutput * 8 : 32_000),
+        );
+        this.persist();
+      }
     } else {
       this.persist();
     }

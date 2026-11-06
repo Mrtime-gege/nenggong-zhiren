@@ -4690,6 +4690,47 @@ body.compact-ui .context-pane .context-body {
   font-size: 10px;
 }
 
+/* Per-generation card details and limits. */
+.ai-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(138, 164, 248, 0.12);
+}
+
+.ai-card-limit {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.ai-card-limit.is-double {
+  color: var(--accent-strong);
+}
+
+.ai-card-details,
+.ai-card-double {
+  height: 24px;
+  min-height: 24px;
+  padding: 0 8px;
+  font-size: 9px;
+}
+
+.ai-card-details-box {
+  margin-top: 6px;
+  padding: 7px;
+  border: 1px solid rgba(138, 164, 248, 0.16);
+  border-radius: 6px;
+  background: rgba(7, 12, 24, 0.28);
+}
+
+.ai-card-details-box.hidden {
+  display: none;
+}
+
 /* AI result cards: multiple generations, one selected at a time. */
 .ai-card-toolbar {
   display: flex;
