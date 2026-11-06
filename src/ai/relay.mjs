@@ -162,10 +162,158 @@ function endpointUrl(endpoint) {
   return url.toString();
 }
 
-export async function relayReply({ settings, apiKey, ticket, instruction = "" } = {}) {
+function resolveAiLimits(settings, doubleLimits = false) {
+  const multiplier = doubleLimits === true ? 2 : 1;
+  const maxOutputChars = Math.min(
+    256_000,
+    Math.max(128, Number(settings.maxOutputChars) || 32_000) * multiplier,
+  );
+  const firstOutputTimeoutMs = Math.min(
+    240_000,
+    Math.max(50, Number(settings.firstOutputTimeoutMs) || 30_000) * multiplier,
+  );
+  const workTimeoutMs = Math.min(
+    600_000,
+    Math.max(50, Number(settings.timeoutMs) || 180_000) * multiplier,
+  );
+  return { multiplier, maxOutputChars, firstOutputTimeoutMs, workTimeoutMs };
+}
+
+function resultFromMessage(settings, message, finishReason, usage, limits) {
+  const content = sanitizeToolAnnotations(typeof message?.content === "string" ? message.content : "");
+  const reasoning = typeof message?.reasoning_content === "string"
+    ? message.reasoning_content
+    : typeof message?.reasoning === "string"
+      ? message.reasoning
+      : "";
+  if (content.length > limits.maxOutputChars) {
+    throw new AiAssistError("AI 输出超过长度上限。", "ai_too_large", 502);
+  }
+  if (reasoning.length > limits.maxOutputChars) {
+    throw new AiAssistError("AI 思考内容超过长度上限。", "ai_too_large", 502);
+  }
+  const toolCalls = [];
+  for (const call of Array.isArray(message?.tool_calls) ? message.tool_calls : []) {
+    const name = String(call?.function?.name || "").trim();
+    if (!name) continue;
+    const raw = typeof call.function?.arguments === "string" ? call.function.arguments : JSON.stringify(call.function?.arguments ?? {});
+    let parsed = null;
+    try { parsed = JSON.parse(raw || "{}"); } catch { parsed = null; }
+    toolCalls.push({
+      id: String(call.id || "").slice(0, 128),
+      name,
+      arguments: raw,
+      parsedArguments: parsed,
+      validJson: parsed !== null && typeof parsed === "object" && !Array.isArray(parsed),
+    });
+  }
+  return {
+    content,
+    reasoning,
+    toolCalls,
+    finishReason: finishReason || "stop",
+    model: settings.model,
+    provider: "openai-compatible",
+    limits,
+    usage: {
+      inputTokens: Math.max(0, Number(usage?.prompt_tokens) || 0),
+      outputTokens: Math.max(0, Number(usage?.completion_tokens) || 0),
+    },
+  };
+}
+
+function streamAccumulator() {
+  const state = {
+    content: "",
+    reasoning: "",
+    finishReason: "stop",
+    usage: null,
+    toolCalls: new Map(),
+  };
+  function apply(chunk) {
+    if (!chunk || typeof chunk !== "object") return false;
+    if (chunk.usage && typeof chunk.usage === "object") state.usage = chunk.usage;
+    const choice = Array.isArray(chunk.choices) ? chunk.choices[0] : null;
+    if (!choice) return false;
+    const delta = choice.delta || choice.message || {};
+    let output = false;
+    if (typeof delta.content === "string" && delta.content) {
+      state.content += delta.content;
+      output = true;
+    }
+    for (const key of ["reasoning_content", "reasoning"]) {
+      if (typeof delta[key] === "string" && delta[key]) {
+        state.reasoning += delta[key];
+        output = true;
+      }
+    }
+    if (Array.isArray(delta.tool_calls)) {
+      for (const call of delta.tool_calls) {
+        const index = Number.isInteger(call?.index) ? call.index : 0;
+        const slot = state.toolCalls.get(index) || { id: "", function: { name: "", arguments: "" } };
+        if (call.id) slot.id = String(call.id);
+        if (call.function?.name) slot.function.name += String(call.function.name);
+        if (call.function?.arguments) slot.function.arguments += String(call.function.arguments);
+        state.toolCalls.set(index, slot);
+        output = true;
+      }
+    }
+    if (choice.finish_reason) state.finishReason = String(choice.finish_reason);
+    return output;
+  }
+  return {
+    state,
+    apply,
+    asMessage() {
+      return {
+        content: state.content,
+        reasoning_content: state.reasoning,
+        tool_calls: [...state.toolCalls.values()],
+      };
+    },
+    asUsage() {
+      return state.usage;
+    },
+  };
+}
+
+function applySsePayload(accumulator, payload, onOutput) {
+  if (!payload || payload === "[DONE]") return;
+  let chunk;
+  try { chunk = JSON.parse(payload); } catch { return; }
+  const output = accumulator.apply(chunk);
+  if (output) onOutput();
+}
+
+async function readSse(reader, accumulator, onOutput) {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    buffer = buffer.replace(/\r\n/g, "\n");
+    let split;
+    while ((split = buffer.indexOf("\n\n")) !== -1) {
+      const raw = buffer.slice(0, split);
+      buffer = buffer.slice(split + 2);
+      for (const line of raw.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        applySsePayload(accumulator, line.slice(5).trim(), onOutput);
+      }
+    }
+  }
+  buffer += decoder.decode();
+  for (const line of buffer.split("\n")) {
+    if (line.startsWith("data:")) applySsePayload(accumulator, line.slice(5).trim(), onOutput);
+  }
+}
+
+export async function relayReply({ settings, apiKey, ticket, instruction = "", doubleLimits = false } = {}) {
   if (!settings?.endpoint || !settings?.model) throw new AiAssistError("AI 辅助尚未配置 endpoint/model。", "ai_not_configured", 503);
   if (!apiKey) throw new AiAssistError("AI 辅助尚未配置 API Key。", "ai_not_configured", 503);
   const body = buildBody(ticket, settings);
+  body.stream = true;
   const operatorInstruction = String(instruction || "").trim().slice(0, 500);
   if (operatorInstruction) {
     const guidancePrompt = [
@@ -190,11 +338,24 @@ export async function relayReply({ settings, apiKey, ticket, instruction = "" } 
     }
   }
   const maxInputChars = Math.max(1_000, Math.min(50_000, Number(settings.maxInputChars) || 12_000));
-  const configuredTimeout = Math.max(50, Number(settings.timeoutMs) || 20_000);
-  const timeoutMs = Math.max(configuredTimeout, maxInputChars > 20_000 ? 60_000 : configuredTimeout);
+  const limits = resolveAiLimits(settings, doubleLimits);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let data;
+  let abortKind = "";
+  let timer = null;
+  const arm = (kind, ms) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      abortKind = kind;
+      controller.abort();
+    }, ms);
+  };
+  arm("first", limits.firstOutputTimeoutMs);
+  let sawOutput = false;
+  const markOutput = () => {
+    if (sawOutput) return;
+    sawOutput = true;
+    arm("work", limits.workTimeoutMs);
+  };
   try {
     const response = await fetch(endpointUrl(settings.endpoint), {
       method: "POST",
@@ -207,59 +368,40 @@ export async function relayReply({ settings, apiKey, ticket, instruction = "" } 
       try { detail = (await response.text()).slice(0, 300); } catch { /* optional */ }
       throw new AiAssistError(`AI 上游返回 ${response.status}${detail ? `：${detail}` : ""}`, "ai_provider_error", response.status === 429 ? 429 : 502, response.status === 429 ? 5_000 : 0);
     }
-    try {
-      data = await response.json();
-    } catch (error) {
-      if (error.name === "AbortError") throw new AiAssistError(`AI 生成超时（已等待 ${Math.round(timeoutMs / 1000)} 秒，输入上限约 ${maxInputChars} 字符）。`, "ai_timeout", 504);
-      throw new AiAssistError("AI 上游返回了非 JSON 响应。", "ai_invalid_output", 502);
+    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+    if (!response.body || contentType.includes("application/json")) {
+      const data = await response.json();
+      const choice = data?.choices?.[0] || {};
+      return resultFromMessage(settings, choice.message || {}, choice.finish_reason, data?.usage, limits);
     }
+    const accumulator = streamAccumulator();
+    if (contentType.includes("text/event-stream") || contentType.includes("application/x-ndjson")) {
+      await readSse(response.body.getReader(), accumulator, markOutput);
+    } else {
+      const text = await response.text();
+      try {
+        const data = JSON.parse(text);
+        const choice = data?.choices?.[0] || {};
+        return resultFromMessage(settings, choice.message || {}, choice.finish_reason, data?.usage, limits);
+      } catch {
+        for (const raw of text.split(/\r?\n/)) {
+          if (raw.startsWith("data:")) applySsePayload(accumulator, raw.slice(5).trim(), markOutput);
+        }
+      }
+    }
+    const streamed = accumulator.state;
+    return resultFromMessage(settings, accumulator.asMessage(), streamed.finishReason, accumulator.asUsage(), limits);
   } catch (error) {
     if (error instanceof AiAssistError) throw error;
-    if (error.name === "AbortError") throw new AiAssistError(`AI 生成超时（已等待 ${Math.round(timeoutMs / 1000)} 秒，输入上限约 ${maxInputChars} 字符）。`, "ai_timeout", 504);
+    if (error?.name === "AbortError") {
+      const seconds = abortKind === "work"
+        ? Math.round(limits.workTimeoutMs / 1000)
+        : Math.round(limits.firstOutputTimeoutMs / 1000);
+      const label = abortKind === "work" ? "首包后工作等待超时" : "首包无输出等待超时";
+      throw new AiAssistError(`AI 生成超时（${label}，${seconds} 秒；输入上限约 ${maxInputChars} 字符）。`, "ai_timeout", 504);
+    }
     throw new AiAssistError(`AI 上游不可达：${error.message}`, "ai_provider_error", 502);
   } finally {
     clearTimeout(timer);
   }
-  const choice = data?.choices?.[0] || {};
-  const message = choice.message || {};
-  const content = sanitizeToolAnnotations(typeof message.content === "string" ? message.content : "");
-  const reasoning = typeof message.reasoning_content === "string"
-    ? message.reasoning_content
-    : typeof message.reasoning === "string"
-      ? message.reasoning
-      : "";
-  const maxOutputChars = Math.max(128, Math.min(16_000, Number(settings.maxOutputChars) || 12_000));
-  if (content.length > maxOutputChars) {
-    throw new AiAssistError("AI 输出超过长度上限。", "ai_too_large", 502);
-  }
-  if (reasoning.length > maxOutputChars) {
-    throw new AiAssistError("AI 思考内容超过长度上限。", "ai_too_large", 502);
-  }
-  const toolCalls = [];
-  for (const call of Array.isArray(message.tool_calls) ? message.tool_calls : []) {
-    const name = String(call?.function?.name || "").trim();
-    if (!name) continue;
-    const raw = typeof call.function?.arguments === "string" ? call.function.arguments : JSON.stringify(call.function?.arguments ?? {});
-    let parsed = null;
-    try { parsed = JSON.parse(raw || "{}"); } catch { parsed = null; }
-    toolCalls.push({
-      id: String(call.id || "").slice(0, 128),
-      name,
-      arguments: raw,
-      parsedArguments: parsed,
-      validJson: parsed !== null && typeof parsed === "object" && !Array.isArray(parsed),
-    });
-  }
-  return {
-    content,
-    reasoning,
-    toolCalls,
-    finishReason: choice.finish_reason || "stop",
-    model: settings.model,
-    provider: "openai-compatible",
-    usage: {
-      inputTokens: Math.max(0, Number(data?.usage?.prompt_tokens) || 0),
-      outputTokens: Math.max(0, Number(data?.usage?.completion_tokens) || 0),
-    },
-  };
 }

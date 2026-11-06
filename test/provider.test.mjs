@@ -3136,13 +3136,106 @@ test("AI relay timeout covers a delayed response body", async () => {
     const started = Date.now();
     await assert.rejects(
       relayReply({
-        settings: { endpoint: `http://127.0.0.1:${mock.address().port}/v1`, model: "mock", timeoutMs: 100 },
+        settings: { endpoint: `http://127.0.0.1:${mock.address().port}/v1`, model: "mock", timeoutMs: 5_000, firstOutputTimeoutMs: 100 },
         apiKey: "sk",
         ticket: { id: "timeout-ticket", messages: [{ role: "user", content: "x" }], tools: [] },
       }),
       (error) => error.code === "ai_timeout",
     );
     assert.ok(Date.now() - started < 450, "relay should abort before the delayed body arrives");
+  } finally {
+    await new Promise((resolve) => mock.close(resolve));
+  }
+});
+
+test("AI relay streams, extends the wait after first output, and enforces a 30s-style first-output timeout", async () => {
+  const { relayReply } = await import("../src/ai/relay.mjs");
+  const mock = http.createServer((req, res) => {
+    req.resume();
+    res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
+    res.write(`data: ${JSON.stringify({ choices: [{ delta: { role: "assistant" } }] })}\n\n`);
+    setTimeout(() => {
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "流式" } }] })}\n\n`);
+      setTimeout(() => {
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "结果" }, finish_reason: "stop" }] })}\n\n`);
+        res.end("data: [DONE]\n\n");
+      }, 120);
+    }, 60);
+  });
+  await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
+  try {
+    const result = await relayReply({
+      settings: {
+        endpoint: `http://127.0.0.1:${mock.address().port}/v1`,
+        model: "stream-mock",
+        firstOutputTimeoutMs: 500,
+        timeoutMs: 1200,
+      },
+      apiKey: "sk",
+      ticket: { id: "stream-ticket", messages: [{ role: "user", content: "stream" }], tools: [] },
+    });
+    assert.equal(result.content, "流式结果");
+    assert.equal(result.finishReason, "stop");
+  } finally {
+    await new Promise((resolve) => mock.close(resolve));
+  }
+});
+
+test("AI relay work timeout starts after output and double limits apply", async () => {
+  const { relayReply } = await import("../src/ai/relay.mjs");
+  const content = "x".repeat(200);
+  const mock = http.createServer((req, res) => {
+    req.resume();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }] }));
+  });
+  await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
+  try {
+    const base = {
+      endpoint: `http://127.0.0.1:${mock.address().port}/v1`,
+      model: "limit-mock",
+      firstOutputTimeoutMs: 500,
+      timeoutMs: 1000,
+      maxOutputChars: 10,
+    };
+    const ticket = { id: "limit-ticket", messages: [{ role: "user", content: "limit" }], tools: [] };
+    await assert.rejects(
+      relayReply({ settings: base, apiKey: "sk", ticket }),
+      (error) => error.code === "ai_too_large",
+    );
+    const doubled = await relayReply({ settings: base, apiKey: "sk", ticket, doubleLimits: true });
+    assert.equal(doubled.content, content);
+    assert.equal(doubled.limits.multiplier, 2);
+    assert.equal(doubled.limits.maxOutputChars, 256);
+  } finally {
+    await new Promise((resolve) => mock.close(resolve));
+  }
+});
+
+test("AI relay aborts on the work timeout after any output", async () => {
+  const { relayReply } = await import("../src/ai/relay.mjs");
+  const mock = http.createServer((req, res) => {
+    req.resume();
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "已开始" } }] })}\n\n`);
+  });
+  await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
+  try {
+    const started = Date.now();
+    await assert.rejects(
+      relayReply({
+        settings: {
+          endpoint: `http://127.0.0.1:${mock.address().port}/v1`,
+          model: "work-timeout-mock",
+          firstOutputTimeoutMs: 500,
+          timeoutMs: 120,
+        },
+        apiKey: "sk",
+        ticket: { id: "work-timeout-ticket", messages: [{ role: "user", content: "x" }], tools: [] },
+      }),
+      (error) => error.code === "ai_timeout" && /首包后/.test(error.message),
+    );
+    assert.ok(Date.now() - started < 700);
   } finally {
     await new Promise((resolve) => mock.close(resolve));
   }

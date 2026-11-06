@@ -115,6 +115,8 @@ const state = {
   aiSelectedCards: new Map(),
   aiAutoCardsShown: new Map(),
   aiPrompts: new Map(),
+  aiDoubleLimits: new Map(),
+  aiDetailsOpen: new Map(),
   autoQueueSeen: null,
   autoClaimSeen: null,
   autoAttempted: new Set(),
@@ -1265,7 +1267,10 @@ function applyPendingAiHelp(ticket) {
       relay: true,
       error: pending.error || "自动 AI 辅助失败。",
       startedAt: pending.createdAt,
+      finishedAt: Date.now(),
+      limits: aiLimitsFor(ticket.id),
     };
+    run.elapsedMs = Math.max(0, run.finishedAt - run.startedAt);
     state.aiRuns.set(ticket.id, run);
     renderAiRun(ticket, detail, run);
     return;
@@ -1287,6 +1292,13 @@ function applyPendingAiHelp(ticket) {
     relay: true,
     startedAt: pending.createdAt,
     autoPendingAt: pending.createdAt,
+    finishedAt: Date.now(),
+    limits: aiLimitsFor(ticket.id),
+    contentChars: String(pending.content || "").length,
+    reasoningChars: String(pending.reasoning || "").length,
+    toolCalls: Array.isArray(pending.toolCalls) ? pending.toolCalls.length : 0,
+    finishReason: pending.finishReason || "",
+    usage: pending.usage || null,
   });
   detail.els.aiPanel.classList.add("hidden");
   addAiCard(ticket, detail, {
@@ -1299,6 +1311,7 @@ function applyPendingAiHelp(ticket) {
     createdAt: pending.createdAt,
   });
   updateComposer(ticket, detail);
+  renderAiDetails(ticket, detail);
   toast("AI 结果已加入 AI 子页，请选择后填入或追加");
 }
 
@@ -1952,6 +1965,29 @@ function buildDetail(ticket) {
     if (!hidden) aiPromptInput.focus();
   });
   aiTools.append(aiTrigger, aiPromptTrigger, aiPromptPopover);
+  const aiLimitBar = el("div", "ai-limit-bar hidden");
+  const aiLimitSummary = el("span", "ai-limit-summary", "");
+  const aiDoubleLabel = el("label", "ai-double-toggle");
+  const aiDoubleInput = el("input", "ai-double-input");
+  aiDoubleInput.type = "checkbox";
+  aiDoubleInput.setAttribute("aria-label", "本次 AI 生成使用双倍限制");
+  aiDoubleLabel.append(aiDoubleInput, el("span", "", "限制翻倍 ×2"));
+  const aiDetailsToggle = el("button", "btn ghost ai-details-toggle", "详情");
+  aiDetailsToggle.type = "button";
+  aiDetailsToggle.setAttribute("aria-expanded", "false");
+  aiLimitBar.append(aiLimitSummary, aiDoubleLabel, aiDetailsToggle);
+  const aiDetailsBox = el("div", "ai-details-box hidden");
+  aiDoubleInput.addEventListener("change", () => {
+    state.aiDoubleLimits.set(ticket.id, aiDoubleInput.checked);
+    syncAiLimits(ticket, detail);
+  });
+  aiDetailsToggle.addEventListener("click", () => {
+    const open = !Boolean(state.aiDetailsOpen.get(ticket.id));
+    state.aiDetailsOpen.set(ticket.id, open);
+    aiDetailsToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    aiDetailsToggle.textContent = open ? "收起详情" : "详情";
+    renderAiDetails(ticket, detail);
+  });
   const quickBar = el("div", "quick-bar hidden");
   const aiButtons = { reply: aiTrigger };
   const aiPanel = el("section", "ai-panel hidden");
@@ -1990,7 +2026,7 @@ function buildDetail(ticket) {
   const aiCardList = el("div", "ai-card-list hidden");
   const aiStatus = el("div", "ai-compact-status hidden");
   const aiEmpty = el("div", "ai-empty", "还没有 AI 结果。使用上方「AI 生成」创建结果卡片。");
-  aiSection.append(aiCardToolbar, aiCardList, aiStatus, aiPanel, aiEmpty);
+  aiSection.append(aiCardToolbar, aiLimitBar, aiDetailsBox, aiCardList, aiStatus, aiPanel, aiEmpty);
 
   const clearButton = el("button", "btn ghost editor-clear", "清空");
   clearButton.type = "button";
@@ -2106,6 +2142,11 @@ function buildDetail(ticket) {
     sentTextCopy,
     toolsSection,
     aiSection,
+    aiLimitBar,
+    aiLimitSummary,
+    aiDoubleInput,
+    aiDetailsToggle,
+    aiDetailsBox,
     notesSection,
     moreActions,
     moreRefresh,
@@ -2807,11 +2848,105 @@ function syncAiTabIndicator(ticket) {
         : "AI 辅助";
 }
 
+
+function aiLimitNumber(value) {
+  return Number(value || 0).toLocaleString("zh-CN");
+}
+
+function aiSeconds(value) {
+  const seconds = Math.max(0, Number(value) || 0) / 1000;
+  return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)}s`;
+}
+
+function aiLimitsFor(ticketId) {
+  const configured = state.aiAssist?.limits || {};
+  const multiplier = state.aiDoubleLimits.get(ticketId) ? 2 : 1;
+  return {
+    multiplier,
+    maxOutputChars: Math.min(256_000, Math.max(128, Number(configured.maxOutputChars) || 32_000) * multiplier),
+    firstOutputTimeoutMs: Math.min(240_000, Math.max(1_000, Number(configured.firstOutputTimeoutMs) || 30_000) * multiplier),
+    workTimeoutMs: Math.min(600_000, Math.max(3_000, Number(configured.timeoutMs) || 180_000) * multiplier),
+  };
+}
+
+function aiLimitText(limits) {
+  return `输出 ≤ ${aiLimitNumber(limits.maxOutputChars)} 字 · 首包 ${aiSeconds(limits.firstOutputTimeoutMs)} · 首包后 ${aiSeconds(limits.workTimeoutMs)}`;
+}
+
+function renderAiDetails(ticket, d) {
+  if (!d?.els?.aiDetailsBox) return;
+  const open = Boolean(state.aiDetailsOpen.get(ticket.id));
+  d.els.aiDetailsToggle.textContent = open ? "收起详情" : "详情";
+  d.els.aiDetailsToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  d.els.aiDetailsBox.classList.toggle("hidden", !open);
+  if (!open) return;
+  const run = state.aiRuns.get(ticket.id);
+  const pending = ticket.aiPending && isAutoAiPending(ticket) ? ticket.aiPending : null;
+  const limits = run?.limits || aiLimitsFor(ticket.id);
+  const rows = [];
+  const add = (label, value) => rows.push(aiLiveRow(label, value));
+  let status = "还没有 AI 生成记录";
+  let startedAt = run?.startedAt || pending?.createdAt || 0;
+  let elapsed = "—";
+  if (run?.status === "running") {
+    status = "生成中";
+    elapsed = `${((Date.now() - Number(run.startedAt || Date.now())) / 1000).toFixed(1)} 秒`;
+  } else if (run?.status === "error") {
+    status = "生成失败";
+    elapsed = run.elapsedMs ? `${(run.elapsedMs / 1000).toFixed(1)} 秒` : "—";
+  } else if (run?.status === "done") {
+    status = "已完成";
+    elapsed = run.elapsedMs ? `${(run.elapsedMs / 1000).toFixed(1)} 秒` : "—";
+  } else if (pending?.status === "running") {
+    status = "自动生成中";
+    elapsed = `${((Date.now() - Number(pending.createdAt || Date.now())) / 1000).toFixed(1)} 秒`;
+  } else if (pending?.status === "ready") {
+    status = "自动结果已就绪";
+  }
+  add("状态", status);
+  add("触发", run?.task === "reply" ? "回复建议" : run ? "AI 辅助" : "—");
+  if (startedAt) add("开始时间", new Date(startedAt).toLocaleString("zh-CN", { hour12: false }));
+  add("已用时", elapsed);
+  add("限制", `${aiLimitText(limits)}${limits.multiplier === 2 ? " · 已翻倍" : ""}`);
+  if (ticket.messages) add("输入", aiInputSummary(ticket));
+  if (run?.contentChars !== undefined) add("正文", `${aiLimitNumber(run.contentChars)} 字符`);
+  if (run?.reasoningChars) add("思考", `${aiLimitNumber(run.reasoningChars)} 字符`);
+  if (run?.toolCalls !== undefined) add("工具调用", String(run.toolCalls));
+  if (run?.finishReason) add("结束原因", run.finishReason);
+  if (run?.usage) {
+    const usage = run.usage;
+    add("Token", `输入 ${aiLimitNumber(usage.inputTokens)} / 输出 ${aiLimitNumber(usage.outputTokens)}`);
+  }
+  if (run?.error) add("错误", run.error);
+  const head = el("div", "ai-details-head");
+  head.append(el("span", "", "AI 生成详情"), el("span", "ai-details-hint", "只读状态，不会自动发送"));
+  const grid = el("div", "ai-live-grid");
+  grid.append(...rows);
+  d.els.aiDetailsBox.replaceChildren(head, grid);
+}
+
+function syncAiLimits(ticket, d) {
+  if (!d?.els?.aiLimitBar) return;
+  const available = Boolean(state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
+  d.els.aiLimitBar.classList.toggle("hidden", !available);
+  if (!available) {
+    d.els.aiDetailsBox.classList.add("hidden");
+    return;
+  }
+  const limits = aiLimitsFor(ticket.id);
+  d.els.aiLimitSummary.textContent = aiLimitText(limits);
+  d.els.aiDoubleInput.checked = limits.multiplier === 2;
+  const run = state.aiRuns.get(ticket.id);
+  d.els.aiDoubleInput.disabled = run?.status === "running";
+  renderAiDetails(ticket, d);
+}
+
 function syncAiTools(ticket, d) {
   syncAiTabIndicator(ticket);
   const available = Boolean(state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
   d.els.aiTools.classList.toggle("hidden", !available);
   d.els.aiCardToolbar.classList.toggle("hidden", !available);
+  syncAiLimits(ticket, d);
   if (!available) {
     d.els.aiEmpty.classList.add("hidden");
     d.els.aiStatus.classList.add("hidden");
@@ -2836,6 +2971,7 @@ function syncAiTools(ticket, d) {
     updateAiPromptTrigger(d);
   }
   syncAiCardActions(ticket, d);
+  syncAiLimits(ticket, d);
   syncQuickBar(ticket, d);
 }
 
@@ -2934,6 +3070,7 @@ function renderAiLiveStatus(d, run = {}) {
   if (!live) return;
   const ticket = currentTicket();
   const instruction = String(run.instruction || state.aiPrompts.get(ticket?.id) || "").trim();
+  const limits = run.limits || aiLimitsFor(ticket?.id);
   const phase = el("div", "ai-live-phase");
   const pulse = el("span", "ai-live-pulse");
   pulse.setAttribute("aria-hidden", "true");
@@ -2943,7 +3080,8 @@ function renderAiLiveStatus(d, run = {}) {
   grid.append(aiLiveRow("任务", run.task === "reply" ? "回复建议" : "AI 辅助"));
   if (ticket?.model) grid.append(aiLiveRow("票据模型", ticket.model));
   if (ticket) grid.append(aiLiveRow("输入", aiInputSummary(ticket)));
-  if (ticket?.maxTokens) grid.append(aiLiveRow("输出限制", `max_tokens ${ticket.maxTokens}`));
+  grid.append(aiLiveRow("限制", `${aiLimitText(limits)}${limits.multiplier === 2 ? " · 已翻倍" : ""}`));
+  if (ticket?.maxTokens) grid.append(aiLiveRow("调用方上限", `max_tokens ${ticket.maxTokens}`));
   if (instruction) grid.append(aiLiveRow("生成引导", instruction.slice(0, 140)));
   grid.append(aiLiveRow("开始时间", new Date(d.aiLoadingStartedAt).toLocaleTimeString("zh-CN", { hour12: false })));
   const elapsedValue = aiLiveRow("已用时", "0.0 秒");
@@ -3324,12 +3462,16 @@ async function runAiTask(task, d, instruction = "") {
   d.inspectorCollapsed = false;
   applyInspectorState(d);
   activateInspectorTab(d, "ai");
+  const doubleLimits = Boolean(state.aiDoubleLimits.get(ticket.id));
+  const limits = aiLimitsFor(ticket.id);
   const run = {
     status: "running",
     task: "reply",
     relay: true,
     startedAt: Date.now(),
     instruction: String(instruction || "").trim(),
+    doubleLimits,
+    limits,
   };
   state.aiRuns.set(ticket.id, run);
   d.aiRunDismissed = false;
@@ -3338,9 +3480,17 @@ async function runAiTask(task, d, instruction = "") {
   try {
     const result = await api(`/op/api/tickets/${encodeURIComponent(ticket.id)}/ai/relay`, {
       method: "POST",
-      body: instruction ? { instruction } : {},
+      body: instruction ? { instruction, doubleLimits } : { doubleLimits },
     });
     run.status = "done";
+    run.finishedAt = Date.now();
+    run.elapsedMs = run.finishedAt - run.startedAt;
+    run.contentChars = String(result.content || "").length;
+    run.reasoningChars = String(result.reasoning || "").length;
+    run.toolCalls = Array.isArray(result.toolCalls) ? result.toolCalls.length : 0;
+    run.finishReason = result.finishReason || "";
+    run.usage = result.usage || null;
+    run.limits = result.limits || run.limits;
     state.aiRuns.set(ticket.id, run);
     d.aiRunDismissed = false;
     clearAiLoadingTimer(d);
@@ -3358,10 +3508,13 @@ async function runAiTask(task, d, instruction = "") {
   } catch (error) {
     run.status = "error";
     run.error = error.message;
+    run.finishedAt = Date.now();
+    run.elapsedMs = run.finishedAt - run.startedAt;
     clearAiLoadingTimer(d);
     renderAiRun(ticket, d, run);
   } finally {
     syncAiTools(ticket, d);
+    renderAiDetails(ticket, d);
   }
 }
 

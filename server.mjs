@@ -124,9 +124,10 @@ const settingsStore = new SettingsStore({
       enabled: false,
       endpoint: "",
       model: "",
-      timeoutMs: 20_000,
+      timeoutMs: 180_000,
+      firstOutputTimeoutMs: 30_000,
       maxInputChars: 12_000,
-      maxOutputChars: 4_000,
+      maxOutputChars: 32_000,
       dailyRequestsPerOperator: 100,
       dailyTokensPerOperator: 200_000,
       dailyRequestsTotal: 1_000,
@@ -3786,15 +3787,16 @@ async function handleOperator(req, res, url, session) {
     aiUsage.addRequest(operator);
     const relayStarted = Date.now();
     const instruction = String(body.instruction || "").trim().slice(0, 500);
+    const doubleLimits = body.doubleLimits === true;
     try {
-      const result = await relayReply({ settings: live.aiAssist, apiKey: secrets.get("aiApiKey"), ticket: relayTicket, instruction });
-      aiUsage.addTokens(operator, result.usage.inputTokens + result.usage.outputTokens);
+      const result = await relayReply({ settings: live.aiAssist, apiKey: secrets.get("aiApiKey"), ticket: relayTicket, instruction, doubleLimits });
+          aiUsage.addTokens(operator, result.usage.inputTokens + result.usage.outputTokens);
       audit.append({
         actor: operator,
         action: "ai.relay",
         target: relayTicket.id,
         ip: clientIp(req),
-        detail: JSON.stringify({ model: result.model, toolCalls: result.toolCalls.length, finishReason: result.finishReason, latencyMs: Date.now() - relayStarted }).slice(0, 480),
+        detail: JSON.stringify({ model: result.model, toolCalls: result.toolCalls.length, finishReason: result.finishReason, doubleLimits, latencyMs: Date.now() - relayStarted }).slice(0, 480),
       });
       return sendJson(res, 200, { ok: true, ...result });
     } catch (error) {
@@ -4606,6 +4608,9 @@ async function handleMe(req, res) {
       limits: {
         dailyRequestsPerOperator: live.aiAssist.dailyRequestsPerOperator,
         dailyTokensPerOperator: live.aiAssist.dailyTokensPerOperator,
+        firstOutputTimeoutMs: live.aiAssist.firstOutputTimeoutMs,
+        timeoutMs: live.aiAssist.timeoutMs,
+        maxOutputChars: live.aiAssist.maxOutputChars,
       },
     },
     config: {
