@@ -1,0 +1,66 @@
+name: Publish v0.6.2 release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'chore: publish v0.6.2 release')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v4
+        with:
+          ref: v0.6.2
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build whitelist release
+        run: |
+          node scripts/build-release.mjs --out /tmp/nenggong-zhiren-0.6.2.tar.gz
+          (cd /tmp && sha256sum nenggong-zhiren-0.6.2.tar.gz > nenggong-zhiren-0.6.2.tar.gz.sha256)
+
+      - name: Create release notes
+        run: |
+          cat > /tmp/notes.md <<'NOTES'
+          ## 能工智人 0.6.2
+
+          本版本补齐 AI 状态显示、登录可用性和工作台细节修复。
+
+          ### 主要变化
+
+          - AI 子页在生成期间显示详细状态：请求阶段、动态已用时、任务类型、票据模型、输入消息数/字符数、`max_tokens`、生成引导和开始时间；结果返回后显示 AI 卡片，仍不会自动填入或发送。
+          - 修复 AI 状态面板未挂载到 AI 子页 DOM 的问题。
+          - 修复启用 MFA 后 Web 登录页没有动态验证码输入框的问题。
+          - 修复功能开关保存后顶栏导航不即时刷新的问题。
+          - 修复 PDF worker 未遵守 `config.workers.pdfWorker` 的问题。
+          - 修复内部备注提交后不显示、轮询刷新时丢失未保存备注草稿的问题。
+          - 修复管理员接管后票据详情未立即刷新的问题。
+
+          ### 发布包
+
+          - `nenggong-zhiren-0.6.2.tar.gz`：白名单发布包，82 个文件。
+          - `nenggong-zhiren-0.6.2.tar.gz.sha256`：SHA-256 校验文件。
+
+          自动化测试：74 / 74 通过。
+          NOTES
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v0.6.2 \
+            --verify-tag \
+            --title "能工智人 0.6.2" \
+            --notes-file /tmp/notes.md \
+            /tmp/nenggong-zhiren-0.6.2.tar.gz \
+            /tmp/nenggong-zhiren-0.6.2.tar.gz.sha256
