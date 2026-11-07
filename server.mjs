@@ -4401,8 +4401,16 @@ async function serveStatic(req, res, entry, extraHeaders = {}) {
   }
   try {
     const body = await readFile(path.join(PUBLIC_DIR, entry.file));
+    const etag = `"s-${createHash("sha1").update(body).digest("base64url").slice(0, 20)}"`;
+    const cacheControl = "public, max-age=300, must-revalidate";
+    if (String(req.headers["if-none-match"] || "") === etag) {
+      res.writeHead(304, { ETag: etag, "Cache-Control": cacheControl });
+      res.end();
+      return;
+    }
     sendRaw(res, 200, entry.type, req.method === "HEAD" ? "" : body, {
-      "Cache-Control": "no-store",
+      "Cache-Control": cacheControl,
+      ETag: etag,
       "X-Content-Type-Options": "nosniff",
       ...extraHeaders,
     });

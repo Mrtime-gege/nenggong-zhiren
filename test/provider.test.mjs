@@ -3205,6 +3205,15 @@ test("brand icon and web manifest assets are served", async () => {
   assert.match(html, /rel="apple-touch-icon"/);
   assert.match(html, /rel="manifest" href="\/manifest\.webmanifest"/);
   assert.match(html, /class="login-mark" src="\/icon\.svg"/);
+
+  const asset = await fetch(`${BASE}/console.js`);
+  assert.equal(asset.status, 200);
+  assert.match(asset.headers.get("cache-control"), /max-age=/);
+  const etag = asset.headers.get("etag");
+  assert.match(etag, /^"s-[A-Za-z0-9_-]{20}"$/);
+  const revalidated = await fetch(`${BASE}/console.js`, { headers: { "If-None-Match": etag } });
+  assert.equal(revalidated.status, 304);
+  assert.equal(revalidated.headers.get("etag"), etag);
 });
 
 

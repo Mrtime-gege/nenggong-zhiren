@@ -66,6 +66,7 @@ curl http://127.0.0.1:7355/v1/chat/completions \
 | 环境检查 | 管理员页只探测配置中指定的 Python worker 路径，不扫描其他目录 |
 | 管理员接管 | 可接管回复员已认领、尚未流式发送的票据 |
 | 可观测性 | 状态页、Prometheus `/metrics`、历史、审计、CSV |
+| 页面性能 | 静态资源 ETag 缓存；管理 Hub 空闲预载二级页面 |
 
 接口字段、流式事件、工具和错误格式见 [协议兼容性](docs/protocol.md) 与 [OpenAPI](docs/openapi.json)。
 

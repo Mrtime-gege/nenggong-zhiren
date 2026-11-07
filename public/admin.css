@@ -2138,6 +2138,12 @@ body[data-page="settings"] .settings-content > .admin-only {
   box-shadow: inset 0 -2px 0 var(--accent-strong);
 }
 
+.hub-frame-stack {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 640px;
+}
+
 .hub-frame {
   flex: 1 1 auto;
   width: 100%;
@@ -2145,6 +2151,10 @@ body[data-page="settings"] .settings-content > .admin-only {
   border: 1px solid var(--line);
   border-radius: 9px;
   background: transparent;
+}
+
+.hub-frame[hidden] {
+  display: none;
 }
 
 .topnav-help {
@@ -2164,6 +2174,7 @@ body[data-page="settings"] .settings-content > .admin-only {
   .hub-secondary { align-items: flex-start; flex-wrap: wrap; gap: 5px; }
   .hub-tabs { width: auto; max-width: 100%; overflow-x: auto; flex-wrap: nowrap; }
   .hub-tab { flex: 0 0 auto; }
+  .hub-frame-stack { min-height: 70vh; }
   .hub-frame { min-height: 70vh; }
 }
 

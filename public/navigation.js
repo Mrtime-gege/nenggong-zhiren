@@ -121,17 +121,8 @@
     return spec.tabs.find((tab) => tab.key === requested) || spec.tabs[0];
   }
 
-  function setHubTab(spec, key, button, frame) {
-    const tab = spec.tabs.find((item) => item.key === key) || spec.tabs[0];
-    for (const item of document.querySelectorAll(".hub-tab")) {
-      const active = item.dataset.tab === tab.key;
-      item.classList.toggle("active", active);
-      item.setAttribute("aria-selected", active ? "true" : "false");
-    }
-    const url = new URL(location.href);
-    url.searchParams.set("tab", tab.key);
-    history.replaceState({}, "", url);
-    frame.src = `${tab.href}${tab.href.includes("?") ? "&" : "?"}embed=1`;
+  function frameUrl(tab) {
+    return `${tab.href}${tab.href.includes("?") ? "&" : "?"}embed=1`;
   }
 
   function initHub(features = {}) {
@@ -147,10 +138,48 @@
     if (!spec.tabs.length) return;
     const title = document.getElementById("hubTitle");
     if (title) title.textContent = spec.title;
-    const frame = document.getElementById("hubFrame");
+    const host = document.getElementById("hubFrames");
     const tabbar = document.getElementById("hubTabs");
-    if (!frame || !tabbar) return;
+    const initialFrame = document.getElementById("hubFrame");
+    if (!host || !tabbar || !initialFrame) return;
+    const frames = new Map();
     const initial = selectedTab(spec);
+
+    function ensureFrame(tab, { preload = false } = {}) {
+      let frame = frames.get(tab.key);
+      if (frame) return frame;
+      if (!frames.size) {
+        frame = initialFrame;
+        frame.title = tab.label;
+      } else {
+        frame = document.createElement("iframe");
+        frame.className = "hub-frame";
+        frame.title = tab.label;
+        frame.hidden = true;
+        host.append(frame);
+      }
+      frame.dataset.hubTab = tab.key;
+      frame.addEventListener("load", () => installEmbedStyle(frame));
+      frames.set(tab.key, frame);
+      frame.src = frameUrl(tab);
+      if (preload) frame.hidden = true;
+      return frame;
+    }
+
+    function activate(tab) {
+      for (const item of document.querySelectorAll(".hub-tab")) {
+        const active = item.dataset.tab === tab.key;
+        item.classList.toggle("active", active);
+        item.setAttribute("aria-selected", active ? "true" : "false");
+      }
+      for (const frame of frames.values()) frame.hidden = true;
+      const frame = ensureFrame(tab);
+      frame.hidden = false;
+      const url = new URL(location.href);
+      url.searchParams.set("tab", tab.key);
+      history.replaceState({}, "", url);
+    }
+
     tabbar.replaceChildren();
     for (const tab of spec.tabs) {
       const button = document.createElement("button");
@@ -159,21 +188,23 @@
       button.dataset.tab = tab.key;
       button.textContent = tab.label;
       button.setAttribute("aria-selected", "false");
-      button.addEventListener("click", () => {
-        const url = new URL(location.href);
-        url.searchParams.set("tab", tab.key);
-        history.replaceState({}, "", url);
-        for (const item of tabbar.querySelectorAll(".hub-tab")) {
-          const active = item === button;
-          item.classList.toggle("active", active);
-          item.setAttribute("aria-selected", active ? "true" : "false");
-        }
-        frame.src = `${tab.href}${tab.href.includes("?") ? "&" : "?"}embed=1`;
-      });
+      button.addEventListener("click", () => activate(tab));
       tabbar.append(button);
     }
-    frame.addEventListener("load", () => installEmbedStyle(frame));
-    setHubTab(spec, initial.key, null, frame);
+
+    activate(initial);
+    // Preload the other tabs after the first screen settles. Hidden same-origin
+    // iframes are reused on click, so switching tabs does not re-download or
+    // re-run the admin page boot sequence.
+    const preload = () => {
+      const pending = spec.tabs.filter((tab) => tab.key !== initial.key && !frames.has(tab.key));
+      const next = pending.shift();
+      if (!next) return;
+      ensureFrame(next, { preload: true });
+      if (pending.length) setTimeout(preload, 350);
+    };
+    if (typeof requestIdleCallback === "function") requestIdleCallback(preload, { timeout: 1500 });
+    else setTimeout(preload, 500);
   }
 
   async function bootHub() {
