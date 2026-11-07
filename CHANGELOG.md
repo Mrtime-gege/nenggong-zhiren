@@ -17,6 +17,7 @@
 - 开始模块拆分：抽出 `src/ai/cards.mjs`、`src/text.mjs`、`src/http/public-assets.mjs`、`src/http/pages.mjs`、前端 `public/console-utils.js`、`public/console-ai-cards.js` 和 `public/console-queue.js`，减少 `server.mjs` / `console.js` 的职责。
 - 静态资源增加服务端 mtime/ETag 缓存；发布脚本增加运行时相对导入闭包检查，避免新增模块漏进发布包。
 - 测试拆分为 `test/provider.test.mjs` 与 `test/ai-relay.test.mjs`；旧 `/ai/suggest` 记录 0.7.0 移除窗口。
+- 发布前浏览器回归清单写入架构文档，覆盖导航、AI 卡片、刷新/重启和 pageerror。
 - 自动化测试 77 / 77 通过。
 
 ## 0.6.2 — 2026-11-07
