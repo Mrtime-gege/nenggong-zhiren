@@ -2080,8 +2080,8 @@ body[data-page="settings"] .settings-content > .admin-only {
 .hub-heading {
   display: flex;
   align-items: flex-end;
-  justify-content: space-between;
-  gap: 14px;
+  justify-content: flex-start;
+  gap: 18px;
   flex-wrap: wrap;
   margin-bottom: 0;
 }
@@ -2093,18 +2093,19 @@ body[data-page="settings"] .settings-content > .admin-only {
 }
 
 .hub-secondary {
-  display: flex;
-  align-items: stretch;
-  gap: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
-  border-bottom: 1px solid var(--line);
+  flex: 0 1 auto;
+  padding-bottom: 2px;
 }
 
 .hub-tabs-kicker {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
-  padding-bottom: 8px;
+  padding: 0;
   color: var(--muted);
   font-size: 9px;
   letter-spacing: 0.1px;
@@ -2114,7 +2115,7 @@ body[data-page="settings"] .settings-content > .admin-only {
 .hub-tabs {
   display: flex;
   align-items: stretch;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
   flex-wrap: wrap;
   padding: 0;
@@ -2170,10 +2171,10 @@ body[data-page="settings"] .settings-content > .admin-only {
 
 @media (max-width: 760px) {
   .hub-main { min-height: calc(100vh - 86px); }
-  .hub-heading { align-items: flex-start; flex-direction: column; }
-  .hub-secondary { align-items: flex-start; flex-direction: column; gap: 0; }
-  .hub-tabs-kicker { padding: 0 0 4px; }
-  .hub-tabs { width: 100%; overflow-x: auto; flex-wrap: nowrap; }
+  .hub-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .hub-secondary { align-items: flex-start; flex-wrap: wrap; gap: 5px; }
+  .hub-tabs-kicker { padding: 0; }
+  .hub-tabs { width: auto; max-width: 100%; overflow-x: auto; flex-wrap: nowrap; }
   .hub-tab { flex: 0 0 auto; }
   .hub-frame { min-height: 70vh; }
 }
