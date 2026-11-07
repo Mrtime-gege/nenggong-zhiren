@@ -18,7 +18,8 @@
 - 静态资源增加服务端 mtime/ETag 缓存；发布脚本增加运行时相对导入闭包检查，避免新增模块漏进发布包。
 - 测试拆分为 `test/provider.test.mjs` 与 `test/ai-relay.test.mjs`；旧 `/ai/suggest` 记录 0.7.0 移除窗口。
 - 发布前浏览器回归清单写入架构文档，覆盖导航、AI 卡片、刷新/重启和 pageerror。
-- 自动化测试 77 / 77 通过。
+- 自动化测试扩充到 105 个：API key、用量配额、附件、设置、模型、审计、JSONC、AI 上下文、状态快照和 UI 契约；新增 `test:ci`、`test:coverage` 和 GitHub Actions Node 20/24 矩阵。
+- 自动化测试 105 / 105 通过。
 
 ## 0.6.2 — 2026-11-07
 

@@ -56,7 +56,9 @@
 - `src/environment.mjs`：管理员环境页的受限能力探测，只检查配置路径和已知 Python 模块。
 - `test/provider.test.mjs`：服务端、票据、数据和 UI 静态回归。
 - `test/ai-relay.test.mjs`：AI relay、协议转发、流式、工具和诊断的纯单元测试。
-- 两类测试共享 `npm test`，当前共 77 个用例。
+- `test/data-units.test.mjs`：API key、用量配额、设置、模型、审计、附件和 JSONC。
+- `test/ai-helpers.test.mjs`、`test/attachment-branches.test.mjs`、`test/core-helpers.test.mjs`：上下文裁剪、附件分支、文本工具和状态快照。
+- 两类测试共享 `npm test`，当前共 105 个用例。
 
 ## 请求生命周期
 
@@ -133,7 +135,15 @@ queued ──claim──► claimed ──chunk/finish──► streaming ──
 4. AI 生成结束后卡片出现，刷新和重启后仍可查看；
 5. 浏览器控制台无 pageerror，静态 CSS/JS 返回 ETag，重复请求可 304。
 
-自动化部分由 `npm test` 覆盖；真实浏览器步骤用于捕获跨脚本加载顺序、iframe 和浏览器 API 问题。
+自动化命令：
+
+```bash
+npm test              # 并行运行全部测试
+npm run test:ci       # 单并发，适合 CI 和问题复现
+npm run test:coverage # 生成 Node 原生覆盖率报告
+```
+
+`test:ci` 会按文件串行执行，避免共享端口/临时目录竞争。GitHub Actions 在 Node 20 和 24 上运行同一套测试；没有 Pillow/pypdfium2 的环境会跳过对应媒体 worker 用例。
 
 ## 持久化边界
 

@@ -12,6 +12,8 @@
     "start": "node server.mjs",
     "dev": "node --watch server.mjs",
     "test": "node --test",
-    "user": "node scripts/user.mjs"
+    "user": "node scripts/user.mjs",
+    "test:coverage": "node --test --experimental-test-coverage",
+    "test:ci": "node --test --test-concurrency=1"
   }
 }
