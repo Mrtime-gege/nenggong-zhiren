@@ -35,6 +35,7 @@ src/data/state.mjs
 src/data/templates.mjs
 src/data/usage.mjs
 src/features.mjs
+src/http/public-assets.mjs
 src/environment.mjs
 src/media/image-worker.mjs
 src/media/pdf-worker.mjs
@@ -45,6 +46,7 @@ src/protocol/index.mjs
 src/protocol/openai.mjs
 src/protocol/stream.mjs
 src/schema.mjs
+src/text.mjs
 src/totp.mjs
 
 public/login.html
@@ -55,6 +57,7 @@ public/console.html
 public/hub.html
 public/console.css
 public/console.js
+public/console-utils.js
 public/navigation.js
 public/theme.css
 public/admin.css

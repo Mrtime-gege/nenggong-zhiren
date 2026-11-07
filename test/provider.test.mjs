@@ -3350,6 +3350,11 @@ test("brand icon and web manifest assets are served", async () => {
   assert.match(html, /rel="manifest" href="\/manifest\.webmanifest"/);
   assert.match(html, /class="login-mark" src="\/icon\.svg"/);
 
+  const consoleUtils = await fetch(`${BASE}/console-utils.js`);
+  assert.equal(consoleUtils.status, 200);
+  assert.match(consoleUtils.headers.get("content-type"), /javascript/);
+  assert.match(await consoleUtils.text(), /function shortId/);
+
   const asset = await fetch(`${BASE}/console.js`);
   assert.equal(asset.status, 200);
   assert.match(asset.headers.get("cache-control"), /max-age=0/);

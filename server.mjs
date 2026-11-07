@@ -20,6 +20,8 @@ import fs, { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { AuthError, AuthService } from "./src/auth.mjs";
 import { ROOT, loadConfig } from "./src/config.mjs";
+import { countTokens, capToTokens, applyStop, splitForStream } from "./src/text.mjs";
+import { PUBLIC_FILES } from "./src/http/public-assets.mjs";
 import { resolveClientIp } from "./src/net.mjs";
 import { publicFeatureCatalog, userAllowsFeature } from "./src/features.mjs";
 import { ApiKeyError, ApiKeyStore, ModelError, ModelStore } from "./src/data/index.mjs";
@@ -301,61 +303,6 @@ if (bootstrap.created && bootstrap.generated) {
   log(`  username: ${bootstrap.username}`);
   log(`  password: ${bootstrap.password}`);
   log("============================================================");
-}
-
-const CJK_RE = /[\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]/u;
-
-function countTokens(text) {
-  const value = String(text ?? "");
-  if (!value) return 0;
-  let cjk = 0;
-  let other = 0;
-  for (const ch of value) {
-    if (CJK_RE.test(ch)) cjk += 1;
-    else other += 1;
-  }
-  return Math.max(1, cjk + Math.ceil(other / 4));
-}
-
-function capToTokens(text, maxTokens) {
-  let used = 0;
-  let out = "";
-  for (const ch of text) {
-    const weight = CJK_RE.test(ch) ? 1 : 0.25;
-    if (used + weight > maxTokens && out.length > 0) {
-      return { text: out, truncated: true };
-    }
-    out += ch;
-    used += weight;
-  }
-  return { text, truncated: false };
-}
-
-function applyStop(text, stops) {
-  if (!stops?.length) return { text, hit: null };
-  let cut = -1;
-  let hit = null;
-  for (const stop of stops) {
-    const at = text.indexOf(stop);
-    if (at !== -1 && (cut === -1 || at < cut)) {
-      cut = at;
-      hit = stop;
-    }
-  }
-  return cut === -1 ? { text, hit: null } : { text: text.slice(0, cut), hit };
-}
-
-function splitForStream(text) {
-  // Word-ish units for Latin text, per-character units for CJK, whitespace kept.
-  const units = text.match(/[\u2e80-\u9fff\uac00-\ud7af]|[^\s\u2e80-\u9fff\uac00-\ud7af]+|\s+/gu) || [];
-  const parts = [];
-  let i = 0;
-  while (i < units.length) {
-    const n = 1 + Math.floor(Math.random() * 3);
-    parts.push(units.slice(i, i + n).join(""));
-    i += n;
-  }
-  return parts.filter(Boolean);
 }
 
 function isResOpen(res) {
@@ -4286,35 +4233,6 @@ async function handleOperator(req, res, url, session) {
 /* ------------------------------------------------------------------ */
 /* Login and static assets                                            */
 /* ------------------------------------------------------------------ */
-
-const PUBLIC_FILES = new Map([
-  ["/login.css", { file: "login.css", type: "text/css; charset=utf-8" }],
-  ["/login.js", { file: "login.js", type: "text/javascript; charset=utf-8" }],
-  ["/console.css", { file: "console.css", type: "text/css; charset=utf-8" }],
-  ["/console.js", { file: "console.js", type: "text/javascript; charset=utf-8" }],
-  ["/admin.css", { file: "admin.css", type: "text/css; charset=utf-8" }],
-  ["/theme.css", { file: "theme.css", type: "text/css; charset=utf-8" }],
-  ["/navigation.js", { file: "navigation.js", type: "text/javascript; charset=utf-8" }],
-  ["/guide.css", { file: "guide.css", type: "text/css; charset=utf-8" }],
-  ["/password-strength.js", { file: "password-strength.js", type: "text/javascript; charset=utf-8" }],
-  ["/admin-settings.js", { file: "admin-settings.js", type: "text/javascript; charset=utf-8" }],
-  ["/admin-usage.js", { file: "admin-usage.js", type: "text/javascript; charset=utf-8" }],
-  ["/admin-audit.js", { file: "admin-audit.js", type: "text/javascript; charset=utf-8" }],
-  ["/admin-status.js", { file: "admin-status.js", type: "text/javascript; charset=utf-8" }],
-  ["/admin-environment.js", { file: "admin-environment.js", type: "text/javascript; charset=utf-8" }],
-  ["/admin-history.js", { file: "admin-history.js", type: "text/javascript; charset=utf-8" }],
-  ["/admin-users.js", { file: "admin-users.js", type: "text/javascript; charset=utf-8" }],
-  ["/admin-keys.js", { file: "admin-keys.js", type: "text/javascript; charset=utf-8" }],
-  ["/admin-models.js", { file: "admin-models.js", type: "text/javascript; charset=utf-8" }],
-  ["/icon.svg", { file: "icon.svg", type: "image/svg+xml" }],
-  ["/favicon.ico", { file: "favicon.ico", type: "image/x-icon" }],
-  ["/icon-16.png", { file: "icon-16.png", type: "image/png" }],
-  ["/icon-32.png", { file: "icon-32.png", type: "image/png" }],
-  ["/icon-192.png", { file: "icon-192.png", type: "image/png" }],
-  ["/icon-512.png", { file: "icon-512.png", type: "image/png" }],
-  ["/apple-touch-icon.png", { file: "apple-touch-icon.png", type: "image/png" }],
-  ["/manifest.webmanifest", { file: "manifest.webmanifest", type: "application/manifest+json" }],
-]);
 
 function escapeHtml(value) {
   return String(value ?? "")

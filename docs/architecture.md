@@ -36,9 +36,12 @@
 - `src/schema.mjs`：零依赖 JSON Schema 子集校验器。
 - `src/protocol/`：OpenAI / Anthropic 请求归一化、响应与流式增量。
 - `src/data/`：模型、密钥、用量、状态、设置、审计、附件、模板和历史存储。
-- `src/ai/`：旧 suggest/native 路径和当前 relay；relay 是工作台主路径。旧 `/ai/suggest` 仅保留兼容，并返回废弃提示头，新集成必须使用 `/ai/relay`。
+- `src/ai/`：旧 suggest/native 路径和当前 relay；relay 是工作台主路径。旧 `/ai/suggest` 仅保留兼容，并返回废弃提示头，新集成必须使用 `/ai/relay`。AI 卡片持久化已拆到 `src/ai/cards.mjs`。
 - `src/media/`：隔离的图片重编码和 PDF 页渲染 worker 适配。
-- `public/console.*`：网页工作台（无构建步骤的原生 JavaScript）；目前是最大的前端单文件，后续可按状态、渲染、AI、subpage 拆分。
+- `public/console.*`：网页工作台（无构建步骤的原生 JavaScript）；目前仍是最大的前端单文件，后续可按状态、渲染、AI、subpage 拆分。
+- `public/console-utils.js`：控制台纯展示格式化工具（短 ID、耗时、JSON、预览文本）。
+- `src/text.mjs`：token 估算、停止词和流式分片。
+- `src/http/public-assets.mjs`：静态资源表和 MIME 映射。
 - `public/hub.html` + `navigation.js`：一级导航和概览/记录/管理 Hub；二级页面通过同源 iframe 复用。
 - `public/login.*`：登录页。
 - `public/settings.html`、`settings-operator.html`：设置页。
