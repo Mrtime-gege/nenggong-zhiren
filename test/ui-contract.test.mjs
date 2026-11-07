@@ -25,6 +25,13 @@ test("console loads split UI modules in dependency order", () => {
   assert.doesNotMatch(html, /id="usersModal"|id="keysModal"/);
 });
 
+test("conversation and inspector scrollbars reserve a control-safe gutter", () => {
+  const css = fs.readFileSync(path.join(ROOT, "public/console.css"), "utf8");
+  assert.match(css, /padding-right:\s*82px/);
+  assert.match(css, /padding-right:\s*60px/);
+  assert.match(css, /scrollbar-gutter:\s*stable/);
+});
+
 test("settings and console do not expose removed AI limit fields", () => {
   const settings = read("public/settings.html");
   const consoleJs = read("public/console.js");

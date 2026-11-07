@@ -87,7 +87,7 @@ curl http://127.0.0.1:7355/v1/chat/completions \
 ## 开发与验证
 
 ```bash
-npm test        # 111 个自动化用例
+npm test        # 112 个自动化用例
 npm start       # 启动
 ```
 

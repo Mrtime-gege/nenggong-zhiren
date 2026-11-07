@@ -4629,3 +4629,24 @@ body[data-page="workbench"] .qitem-foot {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/*
+ * The conversation minimap is a floating overlay. Reserve a stable gutter so
+ * message action buttons never sit underneath it, and keep native inspector
+ * scrollbars from overlapping panel controls.
+ */
+.thread-body {
+  padding-right: 82px;
+  scrollbar-gutter: stable;
+}
+
+.inspector-body,
+.context-pane .context-body {
+  scrollbar-gutter: stable;
+}
+
+@media (max-width: 780px) {
+  .thread-body {
+    padding-right: 60px;
+  }
+}

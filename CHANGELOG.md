@@ -14,6 +14,7 @@
 - AI relay 失败时审计记录安全阶段、错误码和上游状态；对上游 429/5xx 且尚未产生输出的情况最多重试一次。
 - 每张 AI 结果卡片保留独立「详情」，展示该次状态、耗时、输入规模、正文/思考字符数、工具调用、结束原因和 token usage；不再有「翻倍重生成」。
 - AI 结果卡片和详情随票据状态持久化（每张票据最多保留 20 张），刷新页面或服务重启后仍可复盘；未认领票据也可以查看已生成的 AI 结果卡片，但填入/追加仍需先认领。
+- 修复会话右侧浮动微缩滚动条覆盖正文操作按钮的问题：为会话内容和上下文面板预留滚动条安全区，并启用稳定的 scrollbar gutter。
 - 清理工作台旧用户/密钥弹窗、失效的 relay 预算裁剪函数、未使用的协议解析函数和旧分栏辅助代码，两批共减少约 900 行历史死代码。
 - 移除只写不读的 AI 用量文件子系统；清理未使用的旧布局 CSS；旧 `/ai/suggest` 仅保留兼容并返回废弃提示头，新集成使用 `/ai/relay`。
 - 开始模块拆分：抽出 `src/ai/cards.mjs`、`src/text.mjs`、`src/http/public-assets.mjs`、`src/http/pages.mjs`、前端 `public/console-utils.js`、`public/console-ai-cards.js`、`public/console-queue.js`、`public/console-shortcuts.js` 和 `public/console-detail.js`，减少 `server.mjs` / `console.js` 的职责。
@@ -21,7 +22,7 @@
 - 测试拆分为 `test/provider.test.mjs` 与 `test/ai-relay.test.mjs`；旧 `/ai/suggest` 记录 0.7.0 移除窗口。
 - 发布前浏览器回归清单写入架构文档，覆盖导航、AI 卡片、刷新/重启和 pageerror。
 - 自动化测试扩充到 111 个：API key、用量配额、附件、设置、模型、审计、JSONC、AI 上下文、状态快照和 UI 契约；新增 `test:ci`、`test:coverage` 和 GitHub Actions Node 20/24 矩阵。
-- 自动化测试 111 / 111 通过。
+- 自动化测试 112 / 112 通过。
 
 ## 0.6.2 — 2026-11-07
 
