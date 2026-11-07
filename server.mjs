@@ -1370,6 +1370,42 @@ function rememberPreferredOperator(ticket) {
   if (record && ticket.claimedBy) record.preferredOperator = ticket.claimedBy;
 }
 
+const MAX_AI_CARDS = 20;
+
+function aiInputSummary(ticket) {
+  const messages = Array.isArray(ticket?.messages) ? ticket.messages : [];
+  const chars = messages.reduce((sum, message) => {
+    if (typeof message?.content === "string") return sum + message.content.length;
+    if (Array.isArray(message?.content)) {
+      return sum + message.content.reduce((partSum, part) => partSum + (typeof part?.text === "string" ? part.text.length : 0), 0);
+    }
+    return sum;
+  }, 0);
+  return `${messages.length} 条消息 · ${chars} 字符`;
+}
+
+function appendAiCard(ticket, { source, content, reasoning, toolCalls, finishReason, usage, model, instruction, startedAt, finishedAt = Date.now() }) {
+  const card = {
+    id: `ai_${randomUUID().replaceAll("-", "").slice(0, 20)}`,
+    source: source || "manual",
+    model: model || ticket.model || "",
+    content: String(content || ""),
+    reasoning: String(reasoning || ""),
+    toolCalls: Array.isArray(toolCalls) ? toolCalls : [],
+    finishReason: String(finishReason || ""),
+    usage: usage || null,
+    instruction: String(instruction || "").slice(0, 500),
+    inputSummary: aiInputSummary(ticket),
+    startedAt: Number(startedAt) || finishedAt,
+    finishedAt,
+    elapsedMs: Math.max(0, finishedAt - (Number(startedAt) || finishedAt)),
+    createdAt: finishedAt,
+  };
+  const cards = Array.isArray(ticket.aiCards) ? ticket.aiCards : [];
+  ticket.aiCards = [...cards, card].slice(-MAX_AI_CARDS);
+  return card;
+}
+
 function startAiRelayForTicket(ticket, source, actor = "system") {
   if (!ticket || ticket.finished || ticket.aiPending?.status === "running") return;
   if (!live.aiAssist.enabled || !live.aiAssist.endpoint || !live.aiAssist.model || !secrets.has("aiApiKey")) return;
@@ -1395,19 +1431,32 @@ function startAiRelayForTicket(ticket, source, actor = "system") {
     aiTicketLocks.add(ticket.id);
     try {
       const result = await relayReply({ settings: live.aiAssist, apiKey: secrets.get("aiApiKey"), ticket });
+      const finishedAt = Date.now();
+      const card = appendAiCard(ticket, {
+        source,
+        content: result.content,
+        reasoning: result.reasoning,
+        toolCalls: result.toolCalls,
+        finishReason: result.finishReason,
+        usage: result.usage,
+        model: result.model,
+        startedAt: ticket.aiPending.createdAt,
+        finishedAt,
+      });
       ticket.aiPending = {
         status: "ready",
         source,
         actor,
+        cardId: card.id,
         content: result.content || "",
         reasoning: result.reasoning || "",
         toolCalls: result.toolCalls || [],
         finishReason: result.finishReason || "",
         usage: result.usage || null,
-        createdAt: Date.now(),
+        createdAt: finishedAt,
       };
       aiUsage.addTokens(usageActor, (result.usage?.inputTokens || 0) + (result.usage?.outputTokens || 0));
-      persistRuntime();
+      persistRuntime({ flush: true });
     } catch (error) {
       ticket.aiPending = { status: "error", source, actor, error: String(error.message || "AI 求助失败").slice(0, 500), createdAt: Date.now() };
       audit.append({
@@ -1468,6 +1517,7 @@ function createTicket({ request, caller, releaseSlot, session }) {
     tags: [],
     priority: 1,
     notes: [],
+    aiCards: [],
     reasoning: "",
     reasoningDelivered: 0,
     effort: request.effort || "",
@@ -2054,6 +2104,7 @@ function publicTicket(ticket) {
     autoAiAt: ticket.autoAiAt || null,
     aiProposal: ticket.aiProposal || null,
     aiPending: ticket.aiPending || null,
+    aiCards: Array.isArray(ticket.aiCards) ? ticket.aiCards : [],
     maxTokens: ticket.maxTokens,
     stops: ticket.stops,
     promptTokens: ticket.promptTokens,
@@ -2111,6 +2162,7 @@ function ticketSummarySignature(ticket) {
     ticket.toolCalls?.length || 0,
     ticket.aiPending?.status || "",
     ticket.aiPending?.createdAt || 0,
+    (ticket.aiCards || []).length,
   ]);
 }
 
@@ -2172,6 +2224,7 @@ function publicTicketSummary(ticket) {
     finishReason: ticket.finishReason,
     autoAiAt: ticket.autoAiAt || null,
     aiProposal: ticket.aiProposal || null,
+    aiCardCount: (ticket.aiCards || []).length,
     aiPending: ticket.aiPending
       ? {
           status: ticket.aiPending.status,
@@ -3719,6 +3772,8 @@ async function handleOperator(req, res, url, session) {
       ticket.aiPending?.content?.length || 0,
       ticket.aiPending?.toolCalls?.length || 0,
       ticket.aiPending?.error || "",
+      (ticket.aiCards || []).length,
+      ticket.aiCards?.at(-1)?.id || "",
       ticket.sseLog?.length || 0,
       ticket.anthLog?.length || 0,
     ]);
@@ -3784,6 +3839,20 @@ async function handleOperator(req, res, url, session) {
         await new Promise((resolve) => setTimeout(resolve, Math.min(5_000, Math.max(250, Number(error.retryAfterMs) || 500))));
         result = await relayReply({ settings: live.aiAssist, apiKey: secrets.get("aiApiKey"), ticket: relayTicket, instruction });
       }
+      const finishedAt = Date.now();
+      const card = appendAiCard(relayTicket, {
+        source: "manual",
+        content: result.content,
+        reasoning: result.reasoning,
+        toolCalls: result.toolCalls,
+        finishReason: result.finishReason,
+        usage: result.usage,
+        model: result.model,
+        instruction,
+        startedAt: relayStarted,
+        finishedAt,
+      });
+      persistRuntime({ flush: true });
       aiUsage.addTokens(operator, result.usage.inputTokens + result.usage.outputTokens);
       audit.append({
         actor: operator,
@@ -3792,7 +3861,7 @@ async function handleOperator(req, res, url, session) {
         ip: clientIp(req),
         detail: JSON.stringify({ model: result.model, retried, toolCalls: result.toolCalls.length, finishReason: result.finishReason, outputChars: String(result.content || "").length, reasoningChars: String(result.reasoning || "").length, inputTokens: result.usage?.inputTokens || 0, outputTokens: result.usage?.outputTokens || 0, latencyMs: Date.now() - relayStarted }).slice(0, 480),
       });
-      return sendJson(res, 200, { ok: true, ...result });
+      return sendJson(res, 200, { ok: true, ...result, card });
     } catch (error) {
       const mapped = error instanceof AiAssistError
         ? new ApiError(error.status, error.message, "ai_assist_error", error.code, null, error.retryAfterMs ? { "Retry-After": String(Math.ceil(error.retryAfterMs / 1000)) } : undefined)

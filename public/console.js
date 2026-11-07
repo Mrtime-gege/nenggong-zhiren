@@ -1214,6 +1214,7 @@ function render() {
     return;
   }
   notifyAutoAiState(ticket);
+  syncServerAiCards(ticket);
   updateDetail(ticket);
   applyPendingAiHelp(ticket);
   if (!Array.isArray(ticket.messages) || !Array.isArray(ticket.notes)) loadTicketDetail(ticket.id);
@@ -1246,8 +1247,8 @@ function applyPendingAiHelp(ticket) {
   if (!state.aiAssist?.enabled || !state.aiAssist?.allowed) return;
   const pending = ticket?.aiPending;
   if (!pending || !isAutoAiPending(ticket)) return;
-  if (ticket.claimedBy !== state.operator || !isTicketEditable(ticket)) return;
   if (!detail || detail.id !== ticket.id) return;
+  if (pending.cardId && aiCardsFor(ticket.id).some((card) => card.id === pending.cardId)) return;
   if (pending.status === "running") {
     if (detail.aiAutoLoadingAt !== pending.createdAt) {
       detail.aiAutoLoadingAt = pending.createdAt;
@@ -1298,6 +1299,7 @@ function applyPendingAiHelp(ticket) {
   });
   detail.els.aiPanel.classList.add("hidden");
   addAiCard(ticket, detail, {
+    id: pending.cardId || "",
     reasoning: pending.reasoning || "",
     content: pending.content || "",
     toolCalls: pending.toolCalls,
@@ -1311,7 +1313,9 @@ function applyPendingAiHelp(ticket) {
     instruction: "",
   });
   updateComposer(ticket, detail);
-  toast("AI 结果已加入 AI 子页，请选择后填入或追加");
+  toast(isTicketEditable(ticket)
+    ? "AI 结果已加入 AI 子页，请选择后填入或追加"
+    : "AI 结果已生成；认领票据后可填入或追加");
 }
 
 function showEmpty() {
@@ -2849,14 +2853,24 @@ function syncAiTools(ticket, d) {
   d.els.aiTools.classList.toggle("hidden", !available);
   d.els.aiCardToolbar.classList.toggle("hidden", !available);
   if (!available) {
-    d.els.aiEmpty.classList.add("hidden");
+    // Persisted AI cards remain reviewable even when AI is currently disabled.
+    d.els.aiTools.classList.add("hidden");
+    d.els.aiCardToolbar.classList.add("hidden");
     d.els.aiStatus.classList.add("hidden");
+    if (aiCardsFor(ticket.id).length) d.els.aiEmpty.classList.add("hidden");
     syncQuickBar(ticket, d);
     return;
   }
   d.els.aiTrigger.classList.remove("hidden");
   d.els.aiPromptTrigger.classList.remove("hidden");
   const editable = isTicketEditable(ticket) && !d.els.draft.disabled;
+  if (!aiCardsFor(ticket.id).length) {
+    d.els.aiEmpty.textContent = !editable
+      ? ticket.state === "queued"
+        ? "这张票尚未认领；认领后可以生成 AI 结果，已有预生成结果会显示在这里。"
+        : "当前票据不可编辑；已有 AI 结果仍可查看。"
+      : "还没有 AI 结果。使用上方「AI 生成」创建结果卡片。";
+  }
   const run = state.aiRuns.get(ticket.id);
   const pending = ticket.aiPending;
   const auto = isAutoAiPending(ticket);
@@ -3126,6 +3140,42 @@ function normalizeAiToolCalls(calls) {
 }
 
 let aiCardSequence = 0;
+const MAX_CLIENT_AI_CARDS = 20;
+
+function syncServerAiCards(ticket) {
+  if (!ticket || !Array.isArray(ticket.aiCards)) return;
+  const serverCards = ticket.aiCards.slice(-MAX_CLIENT_AI_CARDS);
+  if (!serverCards.length) return;
+  const cards = aiCardsFor(ticket.id);
+  for (const raw of serverCards) {
+    if (!raw?.id) continue;
+    const normalized = {
+      id: String(raw.id),
+      reasoning: typeof raw.reasoning === "string" ? raw.reasoning : "",
+      content: typeof raw.content === "string" ? raw.content : "",
+      toolCalls: normalizeAiToolCalls(raw.toolCalls),
+      source: raw.source || "manual",
+      model: raw.model || "",
+      finishReason: raw.finishReason || "",
+      usage: raw.usage || null,
+      createdAt: Number(raw.createdAt) || Date.now(),
+      startedAt: Number(raw.startedAt) || 0,
+      finishedAt: Number(raw.finishedAt) || 0,
+      elapsedMs: Number(raw.elapsedMs) || 0,
+      inputSummary: raw.inputSummary || "",
+      instruction: raw.instruction || "",
+    };
+    const existing = cards.find((card) => card.id === normalized.id);
+    if (existing) Object.assign(existing, normalized);
+    else cards.push({ ...normalized, detailsOpen: false });
+  }
+  if (cards.length > MAX_CLIENT_AI_CARDS) cards.splice(0, cards.length - MAX_CLIENT_AI_CARDS);
+  const selected = selectedAiCard(ticket.id);
+  if (!selected && cards.length) {
+    state.aiSelectedCards.set(ticket.id, cards.at(-1).id);
+  }
+  if (detail?.id === ticket.id) detail.aiCardsSignature = "";
+}
 
 function aiCardsFor(ticketId) {
   if (!state.aiCards) state.aiCards = new Map();
@@ -3151,6 +3201,7 @@ function cardSourceLabel(source) {
 }
 
 function addAiCard(ticket, d, {
+  id = "",
   reasoning = "",
   content = "",
   toolCalls = [],
@@ -3165,8 +3216,20 @@ function addAiCard(ticket, d, {
   instruction = "",
 } = {}) {
   const cards = aiCardsFor(ticket.id);
+  const cardId = id || `ai_${Date.now()}_${++aiCardSequence}`;
+  const existing = id ? cards.find((item) => item.id === id) : null;
+  if (existing) {
+    Object.assign(existing, {
+      reasoning, content, toolCalls: normalizeAiToolCalls(toolCalls), source, finishReason,
+      usage, createdAt, startedAt, finishedAt, elapsedMs, inputSummary, instruction,
+    });
+    state.aiSelectedCards.set(ticket.id, existing.id);
+    if (d) d.aiCardsSignature = "";
+    renderAiCards(ticket, d, true);
+    return existing;
+  }
   const card = {
-    id: `ai_${Date.now()}_${++aiCardSequence}`,
+    id: cardId,
     reasoning: typeof reasoning === "string" ? reasoning : "",
     content: typeof content === "string" ? content : "",
     toolCalls: normalizeAiToolCalls(toolCalls),
@@ -3241,6 +3304,7 @@ function renderAiCardDetails(card, box) {
   const rows = [];
   const add = (label, value) => rows.push(aiLiveRow(label, value));
   add("状态", "已完成");
+  if (card.model) add("模型", card.model);
   if (card.startedAt) add("开始时间", new Date(card.startedAt).toLocaleString("zh-CN", { hour12: false }));
   if (card.elapsedMs) add("已用时", `${(card.elapsedMs / 1000).toFixed(1)} 秒`);
   if (card.inputSummary) add("输入", card.inputSummary);
@@ -3450,6 +3514,7 @@ async function runAiTask(task, d, instruction = "") {
     clearAiLoadingTimer(d);
     d.els.aiPanel.classList.add("hidden");
     addAiCard(ticket, d, {
+      id: result.card?.id || "",
       reasoning: result.reasoning || "",
       content: stripAiToolAnnotations(result.content || ""),
       toolCalls: result.toolCalls,

@@ -2668,13 +2668,72 @@ test("AI relay retries one pre-output provider failure", async () => {
     await claim(adminSession, ticket.id);
     const response = await op(adminSession, `/op/api/tickets/${ticket.id}/ai/relay`, { method: "POST", body: {} });
     assert.equal(response.status, 200);
-    assert.equal((await response.json()).content, "retry ok");
+    const relayed = await response.json();
+    assert.equal(relayed.content, "retry ok");
+    assert.equal(relayed.card?.content, "retry ok");
+    assert.equal(relayed.card?.source, "manual");
+    const persisted = await opJson(adminSession, `/op/api/tickets/${ticket.id}`);
+    assert.equal(persisted.ticket.aiCards.at(-1).id, relayed.card.id);
+    assert.equal(persisted.ticket.aiCards.at(-1).content, "retry ok");
     assert.equal(calls, 2);
     await finishJson(adminSession, ticket.id, { text: "retry ok", finishReason: "stop" });
     assert.equal((await pending).status, 200);
     await opJson(adminSession, "/op/api/settings", {
       method: "PATCH",
       body: { aiAssist: { enabled: false } },
+    });
+  } finally {
+    await new Promise((resolve) => mockProvider.close(resolve));
+  }
+});
+
+test("an unclaimed ticket exposes persisted auto AI cards", async () => {
+  const mockProvider = http.createServer((req, res) => {
+    req.resume();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      choices: [{ message: { content: "未认领也可查看", tool_calls: [] }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 8, completion_tokens: 6 },
+    }));
+  });
+  await new Promise((resolve) => mockProvider.listen(0, "127.0.0.1", resolve));
+  const tag = marker("AI-UNCLAIMED");
+  let pending = null;
+  try {
+    const current = await opJson(adminSession, "/op/api/settings");
+    await opJson(adminSession, "/op/api/settings", {
+      method: "PATCH",
+      body: {
+        aiAssist: {
+          ...current.settings.aiAssist,
+          enabled: true,
+          autoReplyOnReceive: true,
+          endpoint: `http://127.0.0.1:${mockProvider.address().port}/v1`,
+          model: "unclaimed-mock",
+        },
+        apiKey: "sk-unclaimed",
+      },
+    });
+    pending = startChat({ model: "human-1", messages: [{ role: "user", content: tag }] });
+    const ticket = await waitForTicket((item) => item.messages.some((message) => message.content.includes(tag)));
+    let detail = null;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      detail = await opJson(adminSession, `/op/api/tickets/${ticket.id}`);
+      if (detail.ticket.aiCards?.length) break;
+      await sleep(100);
+    }
+    assert.equal(detail.ticket.state, "queued");
+    assert.ok(detail.ticket.aiCards.length >= 1);
+    assert.equal(detail.ticket.aiCards.at(-1).content, "未认领也可查看");
+    assert.equal(detail.ticket.aiCards.at(-1).source, "auto_receive");
+    const compact = await opJson(adminSession, "/op/api/tickets?compact=1");
+    assert.ok(compact.tickets.find((item) => item.id === ticket.id)?.aiCardCount >= 1);
+    await claim(adminSession, ticket.id);
+    await finishJson(adminSession, ticket.id, { text: "unclaimed ok", finishReason: "stop" });
+    assert.equal((await pending).status, 200);
+    await opJson(adminSession, "/op/api/settings", {
+      method: "PATCH",
+      body: { aiAssist: { enabled: false, autoReplyOnReceive: false } },
     });
   } finally {
     await new Promise((resolve) => mockProvider.close(resolve));
