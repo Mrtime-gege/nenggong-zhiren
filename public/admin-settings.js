@@ -319,13 +319,6 @@ function fillSettings(data) {
   $("aiAutoReceive").checked = ai.autoReplyOnReceive === true;
   $("aiEndpoint").value = ai.endpoint || "";
   $("aiModel").value = ai.model || "";
-  $("aiFirstOutputTimeout").value = ai.firstOutputTimeoutMs ?? 30000;
-  $("aiTimeout").value = ai.timeoutMs ?? 180000;
-  $("aiMaxInput").value = ai.maxInputChars ?? 12000;
-  $("aiMaxOutput").value = ai.maxOutputChars ?? 32000;
-  $("aiDailyRequests").value = ai.dailyRequestsPerOperator ?? 100;
-  $("aiDailyTokens").value = ai.dailyTokensPerOperator ?? 200000;
-  $("aiDailyTotal").value = ai.dailyRequestsTotal ?? 1000;
   $("aiConcurrent").value = ai.maxConcurrent ?? 2;
   $("aiApiKey").value = "";
   $("aiClearKey").checked = false;
@@ -532,13 +525,6 @@ async function saveAiAssist(version) {
         autoReplyOnReceive: $("aiAutoReceive").checked,
         endpoint: $("aiEndpoint").value.trim(),
         model: $("aiModel").value.trim(),
-        firstOutputTimeoutMs: numberField("aiFirstOutputTimeout", "首包无输出等待"),
-        timeoutMs: numberField("aiTimeout", "首包后工作等待"),
-        maxInputChars: numberField("aiMaxInput", "最大输入字符"),
-        maxOutputChars: numberField("aiMaxOutput", "最大输出字符"),
-        dailyRequestsPerOperator: numberField("aiDailyRequests", "每回复员每日请求"),
-        dailyTokensPerOperator: numberField("aiDailyTokens", "每回复员每日 token"),
-        dailyRequestsTotal: numberField("aiDailyTotal", "全局每日请求"),
         maxConcurrent: numberField("aiConcurrent", "全局并发"),
       },
     };

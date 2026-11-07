@@ -2069,3 +2069,89 @@ body[data-page="settings"] .settings-content > .admin-only {
   font-size: 10px;
   line-height: 1.6;
 }
+/* Admin hubs: overview / records / management */
+.hub-main {
+  min-height: calc(100vh - 58px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hub-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 2px;
+}
+
+.hub-heading h1 {
+  margin: 3px 0 0;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.hub-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.hub-tab {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.hub-tab:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.hub-tab.active {
+  color: var(--text);
+  background: rgba(138, 164, 248, 0.13);
+  box-shadow: inset 0 0 0 1px rgba(138, 164, 248, 0.18);
+}
+
+.hub-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 640px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: transparent;
+}
+
+.topnav-help {
+  color: var(--muted);
+  font-size: 10px;
+  text-decoration: none;
+  padding: 0 4px;
+}
+
+.topnav-help:hover {
+  color: var(--text);
+}
+
+@media (max-width: 760px) {
+  .hub-main { min-height: calc(100vh - 86px); }
+  .hub-heading { align-items: flex-start; flex-direction: column; }
+  .hub-tabs { width: 100%; overflow-x: auto; flex-wrap: nowrap; }
+  .hub-tab { flex: 0 0 auto; }
+  .hub-frame { min-height: 70vh; }
+}
+

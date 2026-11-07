@@ -257,7 +257,7 @@ export async function suggestWithAi({ settings, apiKey, ticket, task, selection 
     throw new AiAssistError("请先选中需要处理的文本。", "ai_selection_required", 400);
   }
   const context = buildTicketContext(ticket, {
-    maxChars: settings.maxInputChars,
+    maxChars: 131_072,
     selection,
     includeTools: task === "reply" && Boolean(ticket.tools?.length),
   });
@@ -278,7 +278,7 @@ export async function suggestWithAi({ settings, apiKey, ticket, task, selection 
   ].filter(Boolean).join("\n");
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), settings.timeoutMs);
+  const timer = setTimeout(() => controller.abort(), 900_000);
   let response;
   try {
     response = await fetch(endpointUrl(settings.endpoint), {
@@ -294,7 +294,7 @@ export async function suggestWithAi({ settings, apiKey, ticket, task, selection 
           { role: "user", content: userPrompt },
         ],
         temperature: 0.2,
-        max_tokens: Math.min(2_000, Math.max(128, Math.ceil(settings.maxOutputChars / 4))),
+        max_tokens: 8_192,
         stream: false,
       }),
       signal: controller.signal,
@@ -314,9 +314,6 @@ export async function suggestWithAi({ settings, apiKey, ticket, task, selection 
   }
   const content = stripFences(data?.choices?.[0]?.message?.content || "");
   if (!content) throw new AiAssistError("AI 没有返回内容。", "ai_invalid_output", 502);
-  if (content.length > settings.maxOutputChars) {
-    throw new AiAssistError("AI 输出超过长度上限。", "ai_too_large", 502);
-  }
   let result = content;
   if (task === "reply") {
     result = normalizeReply(parseJsonObject(content), ticket);

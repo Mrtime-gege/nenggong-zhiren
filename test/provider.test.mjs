@@ -365,7 +365,7 @@ test("login page and protected routes", async () => {
 });
 
 test("environment page and capability probe are served to admins", async () => {
-  const page = await fetch(`${BASE}/console/environment`, {
+  const page = await fetch(`${BASE}/console/environment?embed=1`, {
     headers: { Cookie: adminSession.cookie },
     redirect: "manual",
   });
@@ -395,7 +395,7 @@ test("only embedded console pages allow same-origin framing", async () => {
 test("login creates a strict HttpOnly session and CSRF is required", async () => {
   const response = await login(ADMIN, ADMIN_PASSWORD);
   assert.equal(response.status, 303);
-  assert.equal(response.headers.get("location"), "/console#status");
+  assert.equal(response.headers.get("location"), "/console/overview");
   const setCookie = response.headers.getSetCookie()[0];
   assert.match(setCookie, /HttpOnly/);
   assert.match(setCookie, /SameSite=Strict/);
@@ -1281,11 +1281,31 @@ test("operators, ticket transfer and CSV exports", async () => {
   assert.match(await auditCsv.text(), /ticket.transfer/);
 });
 
-test("admin pages are separate and admin-only", async () => {
-  const adminUsers = await fetch(`${BASE}/console/users`, { headers: { Cookie: adminSession.cookie } });
-  assert.equal(adminUsers.status, 200);
-  assert.match(await adminUsers.text(), /用户管理/);
-  const adminKeys = await fetch(`${BASE}/console/keys`, { headers: { Cookie: adminSession.cookie } });
+test("admin pages are grouped into hubs and remain admin-only", async () => {
+  const hub = await fetch(`${BASE}/console/admin?tab=users`, { headers: { Cookie: adminSession.cookie } });
+  assert.equal(hub.status, 200);
+  assert.match(await hub.text(), /管理子页面/);
+  for (const pathname of ["/console/overview?tab=status", "/console/records?tab=history"]) {
+    const response = await fetch(`${BASE}${pathname}`, { headers: { Cookie: adminSession.cookie } });
+    assert.equal(response.status, 200, pathname);
+    assert.match(await response.text(), /hubFrame/);
+  }
+  const operatorHub = await fetch(`${BASE}/console/overview`, { headers: { Cookie: aliceSession.cookie }, redirect: "manual" });
+  assert.equal(operatorHub.status, 302);
+  assert.equal(operatorHub.headers.get("location"), "/console");
+  const legacyUsage = await fetch(`${BASE}/console/usage`, { headers: { Cookie: adminSession.cookie }, redirect: "manual" });
+  assert.equal(legacyUsage.status, 302);
+  assert.match(legacyUsage.headers.get("location"), /\/console\/overview\?tab=usage/);
+  const adminUsers = await fetch(`${BASE}/console/users`, {
+    headers: { Cookie: adminSession.cookie },
+    redirect: "manual",
+  });
+  assert.equal(adminUsers.status, 302);
+  assert.match(adminUsers.headers.get("location"), /\/console\/admin\?tab=users/);
+  const embeddedUsers = await fetch(`${BASE}/console/users?embed=1`, { headers: { Cookie: adminSession.cookie } });
+  assert.equal(embeddedUsers.status, 200);
+  assert.match(await embeddedUsers.text(), /用户管理/);
+  const adminKeys = await fetch(`${BASE}/console/keys?embed=1`, { headers: { Cookie: adminSession.cookie } });
   assert.equal(adminKeys.status, 200);
   assert.match(await adminKeys.text(), /调用密钥/);
   const operatorUsers = await fetch(`${BASE}/console/users`, {
@@ -1293,22 +1313,28 @@ test("admin pages are separate and admin-only", async () => {
     redirect: "manual",
   });
   assert.equal(operatorUsers.status, 302);
-  assert.equal(operatorUsers.headers.get("location"), "/console");
+  assert.match(operatorUsers.headers.get("location"), /\/console\/admin\?tab=users/);
   assert.equal((await fetch(`${BASE}/admin-users.js`)).status, 200);
   assert.equal((await fetch(`${BASE}/admin.css`)).status, 200);
   const navigation = await fetch(`${BASE}/navigation.js`);
   assert.equal(navigation.status, 200);
-  assert.match(await navigation.text(), /const pages = \[/);
+  const navigationText = await navigation.text();
+  assert.match(navigationText, /const pages = \[/);
+  assert.match(navigationText, /console\/overview/);
+  assert.match(navigationText, /console\/records/);
+  assert.match(navigationText, /console\/admin/);
+  assert.match(navigationText, /console\/guide/);
   const settingsMarkup = await fetch(`${BASE}/console/settings`, { headers: { Cookie: adminSession.cookie } }).then((r) => r.text());
+  assert.doesNotMatch(settingsMarkup, /aiMaxInput|aiMaxOutput|aiDailyRequests/);
   assert.match(settingsMarkup, /id="setPublicGuide"/);
   assert.match(settingsMarkup, /允许未登录访问新手教程/);
   assert.match(settingsMarkup, /data-settings-tab="runtime"/);
   assert.match(settingsMarkup, /id="settingsPanels"/);
   for (const [pathname, label] of [
     ["/console/settings", "设置"],
-    ["/console/usage", "用量"],
-    ["/console/audit", "审计"],
-    ["/console/status", "状态"],
+    ["/console/usage?embed=1", "用量"],
+    ["/console/audit?embed=1", "审计"],
+    ["/console/status?embed=1", "状态"],
   ]) {
     const response = await fetch(`${BASE}${pathname}`, { headers: { Cookie: adminSession.cookie } });
     assert.equal(response.status, 200, pathname);
@@ -1324,6 +1350,9 @@ test("admin settings, usage, audit and status APIs", async () => {
   assert.equal(settings.settings.limits.maxConcurrentPerKey > 0, true);
   assert.equal(typeof settings.mfaEnabled, "boolean");
   assert.equal(settings.settings.features.publicGuide, true);
+  for (const key of ["maxInputChars", "maxOutputChars", "firstOutputTimeoutMs", "timeoutMs", "dailyRequestsPerOperator", "dailyTokensPerOperator", "dailyRequestsTotal"]) {
+    assert.equal(Object.hasOwn(settings.settings.aiAssist, key), false, key);
+  }
   assert.equal(settings.readonly.port, PORT);
 
   const updated = await opJson(adminSession, "/op/api/settings", {
@@ -1624,7 +1653,7 @@ test("security: origin, host, open redirect, null origin and traversal", async (
 
   const openRedirect = await login(ADMIN, ADMIN_PASSWORD, { next: "//evil.example/path" });
   assert.equal(openRedirect.status, 303);
-  assert.equal(openRedirect.headers.get("location"), "/console#status");
+  assert.equal(openRedirect.headers.get("location"), "/console/overview");
 
   const traversal = await fetch(`${BASE}/console.css/..%2F..%2Fetc%2Fpasswd`);
   assert.equal(traversal.status, 404);
@@ -2303,7 +2332,7 @@ test("onboarding guide is public and assets are served", async () => {
   assert.match(await css.text(), /guide-hero/);
   assert.equal(css.headers.get("access-control-allow-origin"), null);
   const navigation = await fetch(`${BASE}/navigation.js`).then((r) => r.text());
-  assert.match(navigation, /href: "\/console\/guide"/);
+  assert.match(navigation, /\/console\/guide/);
 });
 
 test("the public guide can be switched to login-only", async () => {
@@ -2517,7 +2546,7 @@ test("ticket routing metadata and internal notes are operator-visible", async ()
   assert.equal((await pending).status, 200);
 });
 
-test("AI assist respects user feature flags, settings, secret handling and quotas", async () => {
+test("AI assist respects user feature flags, settings and secret handling", async () => {
   const requests = [];
   const mockProvider = http.createServer((req, res) => {
     let raw = "";
@@ -2547,12 +2576,6 @@ test("AI assist respects user feature flags, settings, secret handling and quota
           enabled: true,
           endpoint: `http://127.0.0.1:${mockPort}/v1`,
           model: "mock-assist",
-          timeoutMs: 5000,
-          maxInputChars: 12000,
-          maxOutputChars: 4000,
-          dailyRequestsPerOperator: 20,
-          dailyTokensPerOperator: 100000,
-          dailyRequestsTotal: 100,
           maxConcurrent: 2,
         },
         apiKey: "sk-mock-secret",
@@ -2592,23 +2615,6 @@ test("AI assist respects user feature flags, settings, secret handling and quota
       method: "PATCH",
       body: { features: { aiAssist: true } },
     });
-
-    const quotaSettings = await opJson(adminSession, "/op/api/settings");
-    await opJson(adminSession, "/op/api/settings", {
-      method: "PATCH",
-      body: { aiAssist: { ...quotaSettings.settings.aiAssist, dailyRequestsPerOperator: 2 } },
-    });
-    const first = await op(adminSession, `/op/api/tickets/${ticket.id}/ai/suggest`, {
-      method: "POST",
-      body: { task: "summary" },
-    });
-    assert.equal(first.status, 200);
-    const second = await op(adminSession, `/op/api/tickets/${ticket.id}/ai/suggest`, {
-      method: "POST",
-      body: { task: "summary" },
-    });
-    assert.equal(second.status, 429);
-    assert.equal((await second.json()).error.code, "ai_quota_exceeded");
 
     await claim(adminSession, ticket.id);
     await finishJson(adminSession, ticket.id, { text: "ai ok", finishReason: "stop" });
@@ -3122,33 +3128,7 @@ test("AI relay appends an optional operator instruction", async () => {
   }
 });
 
-test("AI relay timeout covers a delayed response body", async () => {
-  const { relayReply } = await import("../src/ai/relay.mjs");
-  const mock = http.createServer((req, res) => {
-    req.resume();
-    res.writeHead(200, { "Content-Type": "application/json" });
-    setTimeout(() => {
-      res.end(JSON.stringify({ choices: [{ message: { content: "late" } }] }));
-    }, 500);
-  });
-  await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
-  try {
-    const started = Date.now();
-    await assert.rejects(
-      relayReply({
-        settings: { endpoint: `http://127.0.0.1:${mock.address().port}/v1`, model: "mock", timeoutMs: 5_000, firstOutputTimeoutMs: 100 },
-        apiKey: "sk",
-        ticket: { id: "timeout-ticket", messages: [{ role: "user", content: "x" }], tools: [] },
-      }),
-      (error) => error.code === "ai_timeout",
-    );
-    assert.ok(Date.now() - started < 450, "relay should abort before the delayed body arrives");
-  } finally {
-    await new Promise((resolve) => mock.close(resolve));
-  }
-});
-
-test("AI relay streams, extends the wait after first output, and enforces a 30s-style first-output timeout", async () => {
+test("AI relay streams chat-completion chunks", async () => {
   const { relayReply } = await import("../src/ai/relay.mjs");
   const mock = http.createServer((req, res) => {
     req.resume();
@@ -3159,18 +3139,13 @@ test("AI relay streams, extends the wait after first output, and enforces a 30s-
       setTimeout(() => {
         res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "结果" }, finish_reason: "stop" }] })}\n\n`);
         res.end("data: [DONE]\n\n");
-      }, 120);
-    }, 60);
+      }, 30);
+    }, 30);
   });
   await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
   try {
     const result = await relayReply({
-      settings: {
-        endpoint: `http://127.0.0.1:${mock.address().port}/v1`,
-        model: "stream-mock",
-        firstOutputTimeoutMs: 500,
-        timeoutMs: 1200,
-      },
+      settings: { endpoint: `http://127.0.0.1:${mock.address().port}/v1`, model: "stream-mock" },
       apiKey: "sk",
       ticket: { id: "stream-ticket", messages: [{ role: "user", content: "stream" }], tools: [] },
     });
@@ -3181,67 +3156,7 @@ test("AI relay streams, extends the wait after first output, and enforces a 30s-
   }
 });
 
-test("AI relay work timeout starts after output and double limits apply", async () => {
-  const { relayReply } = await import("../src/ai/relay.mjs");
-  const content = "x".repeat(200);
-  const mock = http.createServer((req, res) => {
-    req.resume();
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }] }));
-  });
-  await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
-  try {
-    const base = {
-      endpoint: `http://127.0.0.1:${mock.address().port}/v1`,
-      model: "limit-mock",
-      firstOutputTimeoutMs: 500,
-      timeoutMs: 1000,
-      maxOutputChars: 10,
-    };
-    const ticket = { id: "limit-ticket", messages: [{ role: "user", content: "limit" }], tools: [] };
-    await assert.rejects(
-      relayReply({ settings: base, apiKey: "sk", ticket }),
-      (error) => error.code === "ai_too_large",
-    );
-    const doubled = await relayReply({ settings: base, apiKey: "sk", ticket, doubleLimits: true });
-    assert.equal(doubled.content, content);
-    assert.equal(doubled.limits.multiplier, 2);
-    assert.equal(doubled.limits.maxOutputChars, 256);
-  } finally {
-    await new Promise((resolve) => mock.close(resolve));
-  }
-});
-
-test("AI relay aborts on the work timeout after any output", async () => {
-  const { relayReply } = await import("../src/ai/relay.mjs");
-  const mock = http.createServer((req, res) => {
-    req.resume();
-    res.writeHead(200, { "Content-Type": "text/event-stream" });
-    res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "已开始" } }] })}\n\n`);
-  });
-  await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
-  try {
-    const started = Date.now();
-    await assert.rejects(
-      relayReply({
-        settings: {
-          endpoint: `http://127.0.0.1:${mock.address().port}/v1`,
-          model: "work-timeout-mock",
-          firstOutputTimeoutMs: 500,
-          timeoutMs: 120,
-        },
-        apiKey: "sk",
-        ticket: { id: "work-timeout-ticket", messages: [{ role: "user", content: "x" }], tools: [] },
-      }),
-      (error) => error.code === "ai_timeout" && /首包后/.test(error.message),
-    );
-    assert.ok(Date.now() - started < 700);
-  } finally {
-    await new Promise((resolve) => mock.close(resolve));
-  }
-});
-
-test("AI relay trims messages and tools to the configured input budget", async () => {
+test("AI relay keeps only the newest 255 messages", async () => {
   const { relayReply } = await import("../src/ai/relay.mjs");
   let received = "";
   const mock = http.createServer((req, res) => {
@@ -3250,33 +3165,20 @@ test("AI relay trims messages and tools to the configured input budget", async (
     req.on("end", () => {
       received = raw;
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
-        choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
-        usage: { prompt_tokens: 10, completion_tokens: 1 },
-      }));
+      res.end(JSON.stringify({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }] }));
     });
   });
   await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
   try {
-    const messages = Array.from({ length: 60 }, (_, index) => ({
-      role: index % 2 ? "assistant" : "user",
-      content: `message-${index} ${"x".repeat(400)}`,
-    }));
-    const tools = Array.from({ length: 10 }, (_, index) => ({
-      type: "function",
-      function: { name: `tool_${index}`, description: "x".repeat(300), parameters: { type: "object", properties: { q: { type: "string" } } } },
-    }));
+    const messages = Array.from({ length: 300 }, (_, index) => ({ role: "user", content: `message-${index}` }));
     await relayReply({
-      settings: { endpoint: `http://127.0.0.1:${mock.address().port}/v1`, model: "mock", timeoutMs: 5000, maxInputChars: 5000 },
+      settings: { endpoint: `http://127.0.0.1:${mock.address().port}/v1`, model: "mock" },
       apiKey: "sk",
-      ticket: { id: "budget-ticket", messages, tools },
+      ticket: { id: "message-limit-ticket", messages, tools: [] },
     });
     const body = JSON.parse(received);
-    assert.ok(body.messages.length < messages.length);
-    assert.ok(body.tools.length < tools.length);
-    assert.match(body.messages.at(-1).content, /message-59/);
-    assert.match(body.messages[0].content, /输入预算/);
-    assert.ok(JSON.stringify(body.messages).length + JSON.stringify(body.tools).length < 6000);
+    assert.equal(body.messages.length, 255);
+    assert.equal(body.messages.at(-1).content, "message-299");
   } finally {
     await new Promise((resolve) => mock.close(resolve));
   }

@@ -91,7 +91,7 @@ function messageText(message) {
 
 function buildRequest(ticket, settings) {
   const warnings = [];
-  const inputBudget = Math.max(4_000, Number(settings.maxInputChars) || 12_000);
+  const inputBudget = 131_072;
   const toolBudget = Math.max(2_000, Math.floor(inputBudget * 0.58));
   const allTools = compactTools(ticket.tools || []);
   const selection = selectTools(allTools, ticket, toolBudget);
@@ -134,7 +134,7 @@ function buildRequest(ticket, settings) {
     model: settings.model,
     messages,
     temperature: 0.2,
-    max_tokens: Math.min(8_000, Math.max(4_096, Math.ceil((Number(settings.maxOutputChars) || 4_000) / 1.5))),
+    max_tokens: 8_192,
     stream: false,
   };
   if (selection.tools.length) {
@@ -220,7 +220,7 @@ export async function suggestNative({ settings, apiKey, ticket, instruction = ""
   if (!url.pathname.endsWith("/chat/completions")) url.pathname = `${url.pathname.replace(/\/$/, "")}/chat/completions`;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), settings.timeoutMs);
+  const timer = setTimeout(() => controller.abort(), 900_000);
   let response;
   try {
     response = await fetch(url, {
@@ -294,7 +294,6 @@ export async function suggestNative({ settings, apiKey, ticket, instruction = ""
     throw new AiAssistError("AI 输出被内容过滤器截断。", "ai_content_filtered", 502);
   }
   if (!content && !toolCalls.length) throw new AiAssistError("AI 没有生成可用的回复内容。", "ai_invalid_output", 502);
-  if (content.length > settings.maxOutputChars) throw new AiAssistError("AI 输出超过长度上限。", "ai_too_large", 502);
   if ((ticket.toolChoice === "required" || (ticket.toolChoice && typeof ticket.toolChoice === "object")) && !toolCalls.length) {
     throw new AiAssistError("当前请求要求工具调用，但 AI 没有返回工具调用。", "ai_tool_required", 502);
   }

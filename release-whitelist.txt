@@ -52,6 +52,7 @@ public/login.css
 public/login.js
 public/password-strength.js
 public/console.html
+public/hub.html
 public/console.css
 public/console.js
 public/navigation.js

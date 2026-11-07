@@ -33,7 +33,7 @@
           <span>功能开关</span><small>后台可见能力</small>
         </button>
         <button class="settings-nav-item" type="button" data-settings-tab="ai">
-          <span>AI 辅助</span><small>连接、限额与结果卡片</small>
+          <span>AI 辅助</span><small>连接、并发与结果卡片</small>
         </button>
         <button class="settings-nav-item" type="button" data-settings-tab="security">
           <span>安全</span><small>管理员 MFA</small>
@@ -112,15 +112,8 @@
             <label class="field"><span class="field-label">模型名</span><input id="aiModel" type="text" maxlength="200" placeholder="local-assist" /></label>
             <label class="field field-wide"><span class="field-label">API Key <em class="opt">留空不修改</em></span><input id="aiApiKey" type="password" maxlength="4096" autocomplete="new-password" placeholder="已配置则留空" /></label>
             <div class="field"><span class="field-label">密钥状态</span><span id="aiKeyStatus" class="admin-hint">未配置</span><label class="inline-check"><input id="aiClearKey" type="checkbox" /><span>清除已保存 Key</span></label></div>
-            <div class="settings-subhead">限额与请求</div>
-            <label class="field"><span class="field-label">首包无输出等待（毫秒）</span><input id="aiFirstOutputTimeout" type="number" min="1000" max="120000" /><span class="field-hint">上游尚未返回任何内容时最多等待；范围 1000–120000 毫秒。</span></label>
-            <label class="field"><span class="field-label">首包后工作等待（毫秒）</span><input id="aiTimeout" type="number" min="3000" max="300000" /><span class="field-hint">首包后允许继续生成的时间；范围 3000–300000 毫秒。</span></label>
+            <div class="settings-subhead">连接与并发</div>
             <label class="field"><span class="field-label">全局并发</span><input id="aiConcurrent" type="number" min="1" max="16" /><span class="field-hint">同时进行的 AI 请求数；范围 1–16。</span></label>
-            <label class="field"><span class="field-label">最大输入字符</span><input id="aiMaxInput" type="number" min="1000" max="50000" /><span class="field-hint">转发给供应商的上下文字符上限；范围 1000–50000。</span></label>
-            <label class="field"><span class="field-label">最大输出字符</span><input id="aiMaxOutput" type="number" min="128" max="128000" /><span class="field-hint">AI 回复字符上限；范围 128–128000。</span></label>
-            <label class="field"><span class="field-label">每回复员每日请求</span><input id="aiDailyRequests" type="number" min="0" max="10000" /><span class="field-hint">范围 0–10000 次/天；0 = 不限。</span></label>
-            <label class="field"><span class="field-label">每回复员每日 token</span><input id="aiDailyTokens" type="number" min="0" max="20000000" /><span class="field-hint">范围 0–20000000 token/天；0 = 不限。</span></label>
-            <label class="field"><span class="field-label">全局每日请求</span><input id="aiDailyTotal" type="number" min="0" max="100000" /><span class="field-hint">范围 0–100000 次/天；0 = 不限。</span></label>
             <div class="form-actions"><span class="admin-hint">修改后立即自动保存；0 表示不限；数值超限会拒绝本次修改；API Key 不会返回浏览器。</span></div>
           </form>
           <div id="aiError" class="form-error" role="alert"></div>

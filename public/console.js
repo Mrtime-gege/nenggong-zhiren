@@ -1266,7 +1266,6 @@ function applyPendingAiHelp(ticket) {
       error: pending.error || "自动 AI 辅助失败。",
       startedAt: pending.createdAt,
       finishedAt: Date.now(),
-      limits: aiLimitsFor(ticket.id),
     };
     run.elapsedMs = Math.max(0, run.finishedAt - run.startedAt);
     state.aiRuns.set(ticket.id, run);
@@ -1291,7 +1290,6 @@ function applyPendingAiHelp(ticket) {
     startedAt: pending.createdAt,
     autoPendingAt: pending.createdAt,
     finishedAt: Date.now(),
-    limits: aiLimitsFor(ticket.id),
     contentChars: String(pending.content || "").length,
     reasoningChars: String(pending.reasoning || "").length,
     toolCalls: Array.isArray(pending.toolCalls) ? pending.toolCalls.length : 0,
@@ -1307,8 +1305,6 @@ function applyPendingAiHelp(ticket) {
     finishReason: pending.finishReason || "",
     usage: pending.usage || null,
     createdAt: pending.createdAt,
-    limits: aiLimitsFor(ticket.id),
-    doubleLimits: false,
     startedAt: pending.createdAt,
     elapsedMs: Math.max(0, Date.now() - pending.createdAt),
     inputSummary: aiInputSummary(ticket),
@@ -1968,9 +1964,6 @@ function buildDetail(ticket) {
     if (!hidden) aiPromptInput.focus();
   });
   aiTools.append(aiTrigger, aiPromptTrigger, aiPromptPopover);
-  const aiLimitBar = el("div", "ai-limit-bar hidden");
-  const aiLimitSummary = el("span", "ai-limit-summary", "");
-  aiLimitBar.append(aiLimitSummary);
   const quickBar = el("div", "quick-bar hidden");
   const aiButtons = { reply: aiTrigger };
   const aiPanel = el("section", "ai-panel hidden");
@@ -2009,7 +2002,7 @@ function buildDetail(ticket) {
   const aiCardList = el("div", "ai-card-list hidden");
   const aiStatus = el("div", "ai-compact-status hidden");
   const aiEmpty = el("div", "ai-empty", "还没有 AI 结果。使用上方「AI 生成」创建结果卡片。");
-  aiSection.append(aiCardToolbar, aiLimitBar, aiCardList, aiStatus, aiPanel, aiEmpty);
+  aiSection.append(aiCardToolbar, aiCardList, aiStatus, aiPanel, aiEmpty);
 
   const clearButton = el("button", "btn ghost editor-clear", "清空");
   clearButton.type = "button";
@@ -2125,8 +2118,6 @@ function buildDetail(ticket) {
     sentTextCopy,
     toolsSection,
     aiSection,
-    aiLimitBar,
-    aiLimitSummary,
     notesSection,
     moreActions,
     moreRefresh,
@@ -2829,45 +2820,11 @@ function syncAiTabIndicator(ticket) {
 }
 
 
-function aiLimitNumber(value) {
-  return Number(value || 0).toLocaleString("zh-CN");
-}
-
-function aiSeconds(value) {
-  const seconds = Math.max(0, Number(value) || 0) / 1000;
-  return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)}s`;
-}
-
-function aiLimitsFor(ticketId, doubleLimits = false) {
-  const configured = state.aiAssist?.limits || {};
-  const multiplier = doubleLimits ? 2 : 1;
-  return {
-    multiplier,
-    maxOutputChars: Math.min(256_000, Math.max(128, Number(configured.maxOutputChars) || 32_000) * multiplier),
-    firstOutputTimeoutMs: Math.min(240_000, Math.max(1_000, Number(configured.firstOutputTimeoutMs) || 30_000) * multiplier),
-    workTimeoutMs: Math.min(600_000, Math.max(3_000, Number(configured.timeoutMs) || 180_000) * multiplier),
-  };
-}
-
-function aiLimitText(limits) {
-  return `输出 ≤ ${aiLimitNumber(limits.maxOutputChars)} 字 · 首包 ${aiSeconds(limits.firstOutputTimeoutMs)} · 首包后 ${aiSeconds(limits.workTimeoutMs)}`;
-}
-
-function syncAiLimits(ticket, d) {
-  if (!d?.els?.aiLimitBar) return;
-  const available = Boolean(state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
-  d.els.aiLimitBar.classList.toggle("hidden", !available);
-  if (!available) return;
-  const limits = aiLimitsFor(ticket.id);
-  d.els.aiLimitSummary.textContent = `默认限制：${aiLimitText(limits)}`;
-}
-
 function syncAiTools(ticket, d) {
   syncAiTabIndicator(ticket);
   const available = Boolean(state.aiAssist?.enabled && state.aiAssist?.configured && state.aiAssist?.allowed);
   d.els.aiTools.classList.toggle("hidden", !available);
   d.els.aiCardToolbar.classList.toggle("hidden", !available);
-  syncAiLimits(ticket, d);
   if (!available) {
     d.els.aiEmpty.classList.add("hidden");
     d.els.aiStatus.classList.add("hidden");
@@ -2892,7 +2849,6 @@ function syncAiTools(ticket, d) {
     updateAiPromptTrigger(d);
   }
   syncAiCardActions(ticket, d);
-  syncAiLimits(ticket, d);
   syncQuickBar(ticket, d);
 }
 
@@ -2971,6 +2927,10 @@ function clearDetailTimers(d = detail) {
   clearAutoAiTimer(d);
 }
 
+function aiLimitNumber(value) {
+  return Number(value || 0).toLocaleString("zh-CN");
+}
+
 function aiLiveRow(label, value) {
   const row = el("div", "ai-live-row");
   row.append(el("span", "ai-live-label", label), el("span", "ai-live-value", value));
@@ -2991,7 +2951,6 @@ function renderAiLiveStatus(d, run = {}) {
   if (!live) return;
   const ticket = currentTicket();
   const instruction = String(run.instruction || state.aiPrompts.get(ticket?.id) || "").trim();
-  const limits = run.limits || aiLimitsFor(ticket?.id);
   const phase = el("div", "ai-live-phase");
   const pulse = el("span", "ai-live-pulse");
   pulse.setAttribute("aria-hidden", "true");
@@ -3001,7 +2960,6 @@ function renderAiLiveStatus(d, run = {}) {
   grid.append(aiLiveRow("任务", run.task === "reply" ? "回复建议" : "AI 辅助"));
   if (ticket?.model) grid.append(aiLiveRow("票据模型", ticket.model));
   if (ticket) grid.append(aiLiveRow("输入", aiInputSummary(ticket)));
-  grid.append(aiLiveRow("限制", `${aiLimitText(limits)}${limits.multiplier === 2 ? " · 已翻倍" : ""}`));
   if (ticket?.maxTokens) grid.append(aiLiveRow("调用方上限", `max_tokens ${ticket.maxTokens}`));
   if (instruction) grid.append(aiLiveRow("生成引导", instruction.slice(0, 140)));
   grid.append(aiLiveRow("开始时间", new Date(d.aiLoadingStartedAt).toLocaleTimeString("zh-CN", { hour12: false })));
@@ -3177,8 +3135,6 @@ function addAiCard(ticket, d, {
   finishReason = "",
   usage = null,
   createdAt = Date.now(),
-  limits = null,
-  doubleLimits = false,
   startedAt = 0,
   finishedAt = 0,
   elapsedMs = 0,
@@ -3195,8 +3151,6 @@ function addAiCard(ticket, d, {
     finishReason,
     usage,
     createdAt,
-    limits,
-    doubleLimits: doubleLimits === true,
     startedAt,
     finishedAt,
     elapsedMs,
@@ -3261,11 +3215,9 @@ function toolCallArgsText(call) {
 
 function renderAiCardDetails(card, box) {
   if (!box) return;
-  const limits = card.limits || aiLimitsFor(null, card.doubleLimits);
   const rows = [];
   const add = (label, value) => rows.push(aiLiveRow(label, value));
   add("状态", "已完成");
-  add("限制", `${aiLimitText(limits)}${card.doubleLimits ? " · 本次已翻倍" : ""}`);
   if (card.startedAt) add("开始时间", new Date(card.startedAt).toLocaleString("zh-CN", { hour12: false }));
   if (card.elapsedMs) add("已用时", `${(card.elapsedMs / 1000).toFixed(1)} 秒`);
   if (card.inputSummary) add("输入", card.inputSummary);
@@ -3357,7 +3309,6 @@ function renderAiCards(ticket, d, force = false) {
     node.append(toolsBlock);
 
     const footer = el("div", "ai-card-footer");
-    const limitBadge = el("span", `ai-card-limit${card.doubleLimits ? " is-double" : ""}`, card.doubleLimits ? "限制 ×2" : "标准限制");
     const detailsButton = el("button", "btn ghost ai-card-details", "详情");
     detailsButton.type = "button";
     detailsButton.setAttribute("aria-expanded", card.detailsOpen ? "true" : "false");
@@ -3374,16 +3325,7 @@ function renderAiCards(ticket, d, force = false) {
       detailsBox.classList.toggle("hidden", !card.detailsOpen);
       if (card.detailsOpen) renderAiCardDetails(card, detailsBox);
     });
-    const doubleButton = el("button", "btn ghost ai-card-double", card.doubleLimits ? "再次双倍生成" : "翻倍重生成");
-    doubleButton.type = "button";
-    doubleButton.title = "用同一提示和双倍限制再生成一张 AI 卡片";
-    doubleButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      if (!isTicketEditable(ticket) || state.busy) return;
-      state.aiSelectedCards.set(ticket.id, card.id);
-      runAiTask("reply", d, card.instruction || state.aiPrompts.get(ticket.id) || "", { doubleLimits: true });
-    });
-    footer.append(limitBadge, detailsButton, doubleButton);
+    footer.append(detailsButton);
     node.append(footer, detailsBox);
     list.append(node);
   });
@@ -3445,7 +3387,7 @@ function stripAiToolAnnotations(value) {
     .trim();
 }
 
-async function runAiTask(task, d, instruction = "", options = {}) {
+async function runAiTask(task, d, instruction = "") {
   const ticket = currentTicket();
   if (!ticket || !d || d.id !== ticket.id || task !== "reply") return;
   if (state.aiRuns.get(ticket.id)?.status === "running") return;
@@ -3456,16 +3398,12 @@ async function runAiTask(task, d, instruction = "", options = {}) {
   d.inspectorCollapsed = false;
   applyInspectorState(d);
   activateInspectorTab(d, "ai");
-  const doubleLimits = options.doubleLimits === true;
-  const limits = aiLimitsFor(ticket.id, doubleLimits);
   const run = {
     status: "running",
     task: "reply",
     relay: true,
     startedAt: Date.now(),
     instruction: String(instruction || "").trim(),
-    doubleLimits,
-    limits,
   };
   state.aiRuns.set(ticket.id, run);
   d.aiRunDismissed = false;
@@ -3474,7 +3412,7 @@ async function runAiTask(task, d, instruction = "", options = {}) {
   try {
     const result = await api(`/op/api/tickets/${encodeURIComponent(ticket.id)}/ai/relay`, {
       method: "POST",
-      body: instruction ? { instruction, doubleLimits } : { doubleLimits },
+      body: instruction ? { instruction } : {},
     });
     run.status = "done";
     run.finishedAt = Date.now();
@@ -3484,7 +3422,6 @@ async function runAiTask(task, d, instruction = "", options = {}) {
     run.toolCalls = Array.isArray(result.toolCalls) ? result.toolCalls.length : 0;
     run.finishReason = result.finishReason || "";
     run.usage = result.usage || null;
-    run.limits = result.limits || run.limits;
     state.aiRuns.set(ticket.id, run);
     d.aiRunDismissed = false;
     clearAiLoadingTimer(d);
@@ -3496,8 +3433,6 @@ async function runAiTask(task, d, instruction = "", options = {}) {
       source: "manual",
       finishReason: result.finishReason || "",
       usage: result.usage || null,
-      limits: result.limits || run.limits,
-      doubleLimits,
       startedAt: run.startedAt,
       finishedAt: run.finishedAt,
       elapsedMs: run.elapsedMs,

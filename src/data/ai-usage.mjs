@@ -3,7 +3,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
-import { QuotaError } from "./usage.mjs";
 
 const VERSION = 1;
 const DAY_MS = 86_400_000;
@@ -76,25 +75,7 @@ export class AiUsageStore {
     return this.operators[username];
   }
 
-  checkRequest(username, limits = {}) {
-    this.resetIfNeeded();
-    const entry = this.entry(username);
-    const operatorLimit = Math.max(0, Number(limits.dailyRequestsPerOperator) || 0);
-    const totalLimit = Math.max(0, Number(limits.dailyRequestsTotal) || 0);
-    if (operatorLimit && entry.requests >= operatorLimit) {
-      throw new QuotaError("AI 辅助今日请求额度已用完。", { code: "ai_quota_exceeded", retryAfterMs: this.untilNextDay() });
-    }
-    if (totalLimit && this.total.requests >= totalLimit) {
-      throw new QuotaError("AI 辅助全局今日请求额度已用完。", { code: "ai_quota_exceeded", retryAfterMs: this.untilNextDay() });
-    }
-    const tokenLimit = Math.max(0, Number(limits.dailyTokensPerOperator) || 0);
-    if (tokenLimit && entry.tokens >= tokenLimit) {
-      throw new QuotaError("AI 辅助今日 token 额度已用完。", { code: "ai_quota_exceeded", retryAfterMs: this.untilNextDay() });
-    }
-  }
-
   addRequest(username) {
-    this.checkRequest(username, {});
     const entry = this.entry(username);
     entry.requests += 1;
     this.total.requests += 1;
@@ -117,12 +98,6 @@ export class AiUsageStore {
       total: { ...this.total },
       operator: { ...(this.operators[username] || emptyDay()) },
     };
-  }
-
-  untilNextDay() {
-    const next = new Date(this.now());
-    next.setUTCHours(24, 0, 0, 0);
-    return Math.max(1000, next.getTime() - this.now());
   }
 
   persist() {

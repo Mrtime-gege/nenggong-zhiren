@@ -124,13 +124,6 @@ const settingsStore = new SettingsStore({
       enabled: false,
       endpoint: "",
       model: "",
-      timeoutMs: 180_000,
-      firstOutputTimeoutMs: 30_000,
-      maxInputChars: 12_000,
-      maxOutputChars: 32_000,
-      dailyRequestsPerOperator: 100,
-      dailyTokensPerOperator: 200_000,
-      dailyRequestsTotal: 1_000,
       maxConcurrent: 4,
       autoReplyOnReceive: false,
       autoReplyAfterSeconds: 0,
@@ -1389,23 +1382,7 @@ function startAiRelayForTicket(ticket, source, actor = "system") {
   }
   if (ticket.aiPending?.status === "ready") return;
   const usageActor = source === "auto_receive" ? "__auto_receive__" : actor;
-  const usageLimits = source === "auto_claim"
-    ? live.aiAssist
-    : { dailyRequestsTotal: live.aiAssist.dailyRequestsTotal };
-  try {
-    aiUsage.checkRequest(usageActor, usageLimits);
-    aiUsage.addRequest(usageActor);
-  } catch (error) {
-    ticket.aiPending = {
-      status: "error",
-      source,
-      actor,
-      error: String(error.message || "AI 辅助今日额度已用完。").slice(0, 500),
-      createdAt: Date.now(),
-    };
-    persistRuntime();
-    return;
-  }
+  aiUsage.addRequest(usageActor);
   ticket.aiPending = { status: "running", source, actor, createdAt: Date.now() };
   persistRuntime();
   setImmediate(async () => {
@@ -3774,29 +3751,20 @@ async function handleOperator(req, res, url, session) {
     if (!relayEditable) throw new ApiError(409, "先认领票据，再请求 AI 回复。", "invalid_request_error", "ai_reply_not_editable");
     if (aiTicketLocks.has(relayTicket.id)) throw new ApiError(409, "该票据已有 AI 生成任务。", "invalid_request_error", "ai_busy");
     if (aiActive >= live.aiAssist.maxConcurrent) throw new ApiError(503, "AI 辅助当前繁忙，请稍后重试。", "server_error", "ai_busy");
-    try {
-      aiUsage.checkRequest(operator, live.aiAssist);
-    } catch (error) {
-      if (error instanceof QuotaError) {
-        throw new ApiError(429, error.message, "rate_limit_error", error.code, null, { "Retry-After": String(Math.max(1, Math.ceil(error.retryAfterMs / 1000))) });
-      }
-      throw error;
-    }
     aiActive += 1;
     aiTicketLocks.add(relayTicket.id);
     aiUsage.addRequest(operator);
     const relayStarted = Date.now();
     const instruction = String(body.instruction || "").trim().slice(0, 500);
-    const doubleLimits = body.doubleLimits === true;
     try {
-      const result = await relayReply({ settings: live.aiAssist, apiKey: secrets.get("aiApiKey"), ticket: relayTicket, instruction, doubleLimits });
+      const result = await relayReply({ settings: live.aiAssist, apiKey: secrets.get("aiApiKey"), ticket: relayTicket, instruction });
           aiUsage.addTokens(operator, result.usage.inputTokens + result.usage.outputTokens);
       audit.append({
         actor: operator,
         action: "ai.relay",
         target: relayTicket.id,
         ip: clientIp(req),
-        detail: JSON.stringify({ model: result.model, toolCalls: result.toolCalls.length, finishReason: result.finishReason, doubleLimits, latencyMs: Date.now() - relayStarted }).slice(0, 480),
+        detail: JSON.stringify({ model: result.model, toolCalls: result.toolCalls.length, finishReason: result.finishReason, latencyMs: Date.now() - relayStarted }).slice(0, 480),
       });
       return sendJson(res, 200, { ok: true, ...result });
     } catch (error) {
@@ -3852,16 +3820,6 @@ async function handleOperator(req, res, url, session) {
     }
     if (aiActive >= live.aiAssist.maxConcurrent) {
       throw new ApiError(503, "AI 辅助当前繁忙，请稍后重试。", "server_error", "ai_busy");
-    }
-    try {
-      aiUsage.checkRequest(operator, live.aiAssist);
-    } catch (error) {
-      if (error instanceof QuotaError) {
-        throw new ApiError(429, error.message, "rate_limit_error", error.code, null, {
-          "Retry-After": String(Math.max(1, Math.ceil(error.retryAfterMs / 1000))),
-        });
-      }
-      throw error;
     }
     aiActive += 1;
     aiTicketLocks.add(aiTicket.id);
@@ -4568,7 +4526,7 @@ async function handleLogin(req, res, url) {
   audit.append({ actor: user.username, action: "login.success", target: user.role, ip });
   log(`[login-ok] user=${user.username} role=${user.role} ip=${ip}`);
   res.setHeader("Set-Cookie", auth.sessionCookie(session, req));
-  const defaultPath = user.role === "admin" ? "/console#status" : "/console";
+  const defaultPath = user.role === "admin" ? "/console/overview" : "/console";
   const requestedNext = String(form.next || "").trim();
   const destination = safeNextPath(requestedNext && requestedNext !== "/console" ? requestedNext : "", defaultPath);
   res.writeHead(303, { Location: destination });
@@ -4606,11 +4564,7 @@ async function handleMe(req, res) {
       allowed: userAllowsFeature(user, "aiAssist"),
       autoClaimEnabled: live.aiAssist.autoClaimEnabled === true,
       limits: {
-        dailyRequestsPerOperator: live.aiAssist.dailyRequestsPerOperator,
-        dailyTokensPerOperator: live.aiAssist.dailyTokensPerOperator,
-        firstOutputTimeoutMs: live.aiAssist.firstOutputTimeoutMs,
-        timeoutMs: live.aiAssist.timeoutMs,
-        maxOutputChars: live.aiAssist.maxOutputChars,
+        maxConcurrent: live.aiAssist.maxConcurrent,
       },
     },
     config: {
@@ -4687,7 +4641,7 @@ async function route(req, res) {
     if (pathname === "/login" && req.method === "GET") {
       const existingSession = auth.getSession(req);
       if (existingSession) {
-        res.writeHead(302, { Location: existingSession.role === "admin" ? "/console#status" : "/console" });
+        res.writeHead(302, { Location: existingSession.role === "admin" ? "/console/overview" : "/console" });
         res.end();
         return;
       }
@@ -4727,7 +4681,7 @@ async function route(req, res) {
 
     if (pathname === "/" && req.method === "GET") {
       const rootSession = auth.getSession(req);
-      res.writeHead(302, { Location: rootSession ? (rootSession.role === "admin" ? "/console#status" : "/console") : "/login" });
+      res.writeHead(302, { Location: rootSession ? (rootSession.role === "admin" ? "/console/overview" : "/console") : "/login" });
       res.end();
       return;
     }
@@ -4742,6 +4696,36 @@ async function route(req, res) {
         return;
       }
       return serveConsole(req, res);
+    }
+
+    if (pathname === "/console/overview" || pathname === "/console/overview/" ||
+        pathname === "/console/records" || pathname === "/console/records/" ||
+        pathname === "/console/admin" || pathname === "/console/admin/") {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      }
+      return serveAdminPage(req, res, "hub.html");
+    }
+
+    const legacyHubs = new Map([
+      ["/console/status", "/console/overview?tab=status"],
+      ["/console/environment", "/console/overview?tab=environment"],
+      ["/console/usage", "/console/overview?tab=usage"],
+      ["/console/history", "/console/records?tab=history"],
+      ["/console/audit", "/console/records?tab=audit"],
+      ["/console/users", "/console/admin?tab=users"],
+      ["/console/models", "/console/admin?tab=models"],
+      ["/console/keys", "/console/admin?tab=keys"],
+    ]);
+    const legacyHubTarget = legacyHubs.get(pathname.replace(/\/$/, ""));
+    if (legacyHubTarget && url.searchParams.get("embed") !== "1") {
+      const rest = new URLSearchParams(url.searchParams);
+      rest.delete("embed");
+      rest.delete("tab");
+      const query = rest.toString();
+      res.writeHead(302, { Location: `${legacyHubTarget}${query ? `&${query}` : ""}` });
+      res.end();
+      return;
     }
 
     if (pathname === "/console/environment" || pathname === "/console/environment/") {

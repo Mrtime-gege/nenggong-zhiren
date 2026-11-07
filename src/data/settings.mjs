@@ -63,21 +63,7 @@ export class SettingsStore {
       if (parsed?.version !== VERSION || !parsed.values || typeof parsed.values !== "object") {
         throw new Error(`设置文件格式不正确: ${this.file}`);
       }
-      const legacyAi = !parsed.values?.aiAssist || parsed.values.aiAssist.firstOutputTimeoutMs === undefined;
       this.values = this.merge(parsed.values);
-      if (legacyAi) {
-        // 0.6.3 introduced adaptive first-output/work waits and an 8x output
-        // allowance. Migrate persisted 0.6.x settings once instead of keeping
-        // the old single 20s timeout and 16k maximum.
-        const oldOutput = Number(parsed.values?.aiAssist?.maxOutputChars);
-        this.values.aiAssist.firstOutputTimeoutMs = 30_000;
-        this.values.aiAssist.timeoutMs = 180_000;
-        this.values.aiAssist.maxOutputChars = Math.min(
-          128_000,
-          Math.max(4_000, Number.isFinite(oldOutput) ? oldOutput * 8 : 32_000),
-        );
-        this.persist();
-      }
     } else {
       this.persist();
     }
@@ -106,13 +92,6 @@ export class SettingsStore {
         enabled: bool(raw.aiAssist?.enabled ?? defaults.aiAssist.enabled, "aiAssist.enabled"),
         endpoint: text(raw.aiAssist?.endpoint ?? defaults.aiAssist.endpoint, "aiAssist.endpoint", { max: 500 }),
         model: text(raw.aiAssist?.model ?? defaults.aiAssist.model, "aiAssist.model", { max: 200 }),
-        timeoutMs: int(raw.aiAssist?.timeoutMs ?? defaults.aiAssist.timeoutMs, "aiAssist.timeoutMs", 3_000, 300_000),
-        firstOutputTimeoutMs: int(raw.aiAssist?.firstOutputTimeoutMs ?? defaults.aiAssist.firstOutputTimeoutMs, "aiAssist.firstOutputTimeoutMs", 1_000, 120_000),
-        maxInputChars: int(raw.aiAssist?.maxInputChars ?? defaults.aiAssist.maxInputChars, "aiAssist.maxInputChars", 1_000, 50_000),
-        maxOutputChars: int(raw.aiAssist?.maxOutputChars ?? defaults.aiAssist.maxOutputChars, "aiAssist.maxOutputChars", 128, 128_000),
-        dailyRequestsPerOperator: int(raw.aiAssist?.dailyRequestsPerOperator ?? defaults.aiAssist.dailyRequestsPerOperator, "aiAssist.dailyRequestsPerOperator", 0, 10_000),
-        dailyTokensPerOperator: int(raw.aiAssist?.dailyTokensPerOperator ?? defaults.aiAssist.dailyTokensPerOperator, "aiAssist.dailyTokensPerOperator", 0, 20_000_000),
-        dailyRequestsTotal: int(raw.aiAssist?.dailyRequestsTotal ?? defaults.aiAssist.dailyRequestsTotal, "aiAssist.dailyRequestsTotal", 0, 100_000),
         maxConcurrent: int(raw.aiAssist?.maxConcurrent ?? defaults.aiAssist.maxConcurrent, "aiAssist.maxConcurrent", 1, 16),
         autoReplyOnReceive: bool(raw.aiAssist?.autoReplyOnReceive ?? defaults.aiAssist.autoReplyOnReceive, "aiAssist.autoReplyOnReceive"),
         autoClaimEnabled: bool(raw.aiAssist?.autoClaimEnabled ?? defaults.aiAssist.autoClaimEnabled, "aiAssist.autoClaimEnabled"),
