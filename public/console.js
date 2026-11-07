@@ -7,31 +7,6 @@ const els = {
   logout: $("logout"),
   queueToggle: $("queueToggle"),
   commandPaletteBtn: $("commandPaletteBtn"),
-  usersModal: $("usersModal"),
-  usersClose: $("usersClose"),
-  userCreateForm: $("userCreateForm"),
-  newUsername: $("newUsername"),
-  newPassword: $("newPassword"),
-  newRole: $("newRole"),
-  userCreateBtn: $("userCreateBtn"),
-  userList: $("userList"),
-  usersError: $("usersError"),
-  keysModal: $("keysModal"),
-  keysClose: $("keysClose"),
-  keyCreateForm: $("keyCreateForm"),
-  newKeyName: $("newKeyName"),
-  newKeyRpm: $("newKeyRpm"),
-  newKeyPerDay: $("newKeyPerDay"),
-  newKeyPerMonth: $("newKeyPerMonth"),
-  newKeyConcurrent: $("newKeyConcurrent"),
-  newKeyModels: $("newKeyModels"),
-  newKeyExpires: $("newKeyExpires"),
-  keyCreateBtn: $("keyCreateBtn"),
-  keyList: $("keyList"),
-  keysError: $("keysError"),
-  newKeyBox: $("newKeyBox"),
-  newKeyValue: $("newKeyValue"),
-  copyKeyBtn: $("copyKeyBtn"),
   status: $("status"),
   statusDot: $("statusDot"),
   stats: $("stats"),
@@ -641,320 +616,6 @@ async function logout() {
     state.connected = false;
     clearTimeout(state.pollTimer);
     location.replace("/login");
-  }
-}
-
-function setUsersError(message = "") {
-  els.usersError.textContent = message;
-}
-
-function openUsers() {
-  if (state.role !== "admin") return;
-  setUsersError("");
-  els.usersModal.classList.remove("hidden");
-  window.NGZRPasswordStrength?.hide(els.newPassword);
-  loadUsers().catch((error) => setUsersError(error.message));
-}
-
-function closeUsers() {
-  els.usersModal.classList.add("hidden");
-}
-
-function renderUsers(users) {
-  els.userList.replaceChildren();
-  for (const user of users) {
-    const row = el("div", "user-row");
-    row.append(el("div", "user-name", user.username));
-    row.append(badge(user.role === "admin" ? "管理员" : "人工回复员", user.role === "admin" ? "warn" : ""));
-    row.append(el("div", "user-created", new Date(user.createdAt).toLocaleString()));
-    const actions = el("div", "user-actions");
-    const reset = el("button", "btn ghost", "重置密码");
-    reset.type = "button";
-    reset.addEventListener("click", () => resetUserPassword(user.username));
-    actions.append(reset);
-    if (user.username !== state.operator) {
-      const remove = el("button", "btn danger", "删除");
-      remove.type = "button";
-      remove.addEventListener("click", () => deleteUser(user.username));
-      actions.append(remove);
-    }
-    row.append(actions);
-    els.userList.append(row);
-  }
-  if (!users.length) els.userList.append(el("div", "hint", "（暂无用户）"));
-}
-
-async function loadUsers() {
-  const data = await api("/op/api/users");
-  renderUsers(Array.isArray(data.users) ? data.users : []);
-}
-
-async function createUser(event) {
-  event.preventDefault();
-  if (state.busy) return;
-  setUsersError("");
-  state.busy = true;
-  els.userCreateBtn.disabled = true;
-  try {
-    await api("/op/api/users", {
-      method: "POST",
-      body: {
-        username: els.newUsername.value.trim(),
-        password: els.newPassword.value,
-        role: els.newRole.value,
-      },
-    });
-    els.newUsername.value = "";
-    els.newPassword.value = "";
-    window.NGZRPasswordStrength?.hide(els.newPassword);
-    els.newUsername.focus();
-    toast("用户已添加");
-    await loadUsers();
-  } catch (error) {
-    setUsersError(error.message);
-  } finally {
-    state.busy = false;
-    els.userCreateBtn.disabled = false;
-  }
-}
-
-async function resetUserPassword(username) {
-  const password = window.prompt(`为 ${username} 设置新密码（至少 8 位）：`);
-  if (!password) return;
-  setUsersError("");
-  try {
-    await api(`/op/api/users/${encodeURIComponent(username)}`, {
-      method: "PATCH",
-      body: { password },
-    });
-    toast(`已重置 ${username} 的密码`);
-    if (username === state.operator) {
-      state.connected = false;
-      clearTimeout(state.pollTimer);
-      toast("当前账号密码已更新，请重新登录", 5000);
-      setTimeout(() => redirectToLogin(), 800);
-    }
-  } catch (error) {
-    setUsersError(error.message);
-  }
-}
-
-async function deleteUser(username) {
-  if (!window.confirm(`删除用户 ${username}？该用户现有会话会立即失效。`)) return;
-  setUsersError("");
-  try {
-    await api(`/op/api/users/${encodeURIComponent(username)}`, { method: "DELETE" });
-    toast(`已删除用户 ${username}`);
-    await loadUsers();
-  } catch (error) {
-    setUsersError(error.message);
-  }
-}
-
-function setKeysError(message = "") {
-  els.keysError.textContent = message;
-}
-
-function openKeys() {
-  if (state.role !== "admin") return;
-  setKeysError("");
-  els.newKeyBox.classList.add("hidden");
-  els.keysModal.classList.remove("hidden");
-  loadKeys().catch((error) => setKeysError(error.message));
-}
-
-function closeKeys() {
-  els.keysModal.classList.add("hidden");
-  setKeysError("");
-}
-
-function renderKeys(keys) {
-  els.keyList.replaceChildren();
-  for (const key of keys) {
-    const row = el("div", "key-row");
-    const identity = el("div");
-    identity.append(el("div", "key-name", key.name));
-    identity.append(el("div", "key-hint", key.hint || "—"));
-    row.append(identity);
-    const meta = el("div", "key-meta");
-    meta.append(el("div", "", key.disabled ? "已停用" : "可用"));
-    meta.append(el("div", "", `创建：${new Date(key.createdAt).toLocaleString()}`));
-    meta.append(el("div", "", `最近使用：${key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : "从未"}`));
-    const limits = key.limits || {};
-    meta.append(
-      el(
-        "div",
-        "",
-        `配额：${Number(limits.requestsPerMinute) || "不限"}/分 · ${Number(limits.requestsPerDay) || "不限"}/日 · ${Number(limits.requestsPerMonth) || "不限"}/月 · 并发 ${Number(limits.maxConcurrent) || "继承"}`,
-      ),
-    );
-    if (key.allowedModels?.length) meta.append(el("div", "", `模型：${key.allowedModels.join(", ")}`));
-    if (key.expiresAt) meta.append(el("div", "", `过期：${new Date(key.expiresAt).toLocaleString()}`));
-    if (key.usage) meta.append(el("div", "", `已用：${key.usage.minute}/分 · ${key.usage.day}/日 · ${key.usage.month}/月`));
-    row.append(meta);
-    const actions = el("div", "key-actions");
-    const toggle = el("button", "btn ghost", key.disabled ? "启用" : "停用");
-    toggle.type = "button";
-    toggle.addEventListener("click", () => toggleKey(key));
-    const quota = el("button", "btn ghost", "配额");
-    quota.type = "button";
-    quota.addEventListener("click", () => editKeyQuota(key));
-    const rename = el("button", "btn ghost", "重命名");
-    rename.type = "button";
-    rename.addEventListener("click", () => renameKey(key));
-    const remove = el("button", "btn danger", "删除");
-    remove.type = "button";
-    remove.addEventListener("click", () => deleteKey(key));
-    actions.append(toggle, quota, rename, remove);
-    row.append(actions);
-    els.keyList.append(row);
-  }
-  if (!keys.length) els.keyList.append(el("div", "hint", "（还没有调用密钥，先创建一个）"));
-}
-
-async function loadKeys() {
-  const data = await api("/op/api/keys");
-  renderKeys(Array.isArray(data.keys) ? data.keys : []);
-}
-
-async function createKey(event) {
-  event.preventDefault();
-  if (state.busy) return;
-  setKeysError("");
-  state.busy = true;
-  els.keyCreateBtn.disabled = true;
-  try {
-    const data = await api("/op/api/keys", {
-      method: "POST",
-      body: {
-        name: els.newKeyName.value.trim(),
-        limits: {
-          requestsPerMinute: Number(els.newKeyRpm.value) || 0,
-          requestsPerDay: Number(els.newKeyPerDay.value) || 0,
-          requestsPerMonth: Number(els.newKeyPerMonth.value) || 0,
-          maxConcurrent: Number(els.newKeyConcurrent.value) || 0,
-        },
-        allowedModels: els.newKeyModels.value
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean),
-        expiresAt: els.newKeyExpires.value ? new Date(els.newKeyExpires.value).getTime() : null,
-      },
-    });
-    els.newKeyValue.textContent = data.key;
-    els.newKeyBox.classList.remove("hidden");
-    els.newKeyName.value = "";
-    els.newKeyModels.value = "";
-    els.newKeyExpires.value = "";
-    toast("调用密钥已创建，请现在保存");
-    await loadKeys();
-  } catch (error) {
-    setKeysError(error.message);
-  } finally {
-    state.busy = false;
-    els.keyCreateBtn.disabled = false;
-  }
-}
-
-async function toggleKey(key) {
-  setKeysError("");
-  try {
-    await api(`/op/api/keys/${encodeURIComponent(key.id)}`, {
-      method: "PATCH",
-      body: { disabled: !key.disabled },
-    });
-    toast(key.disabled ? "密钥已启用" : "密钥已停用");
-    await loadKeys();
-  } catch (error) {
-    setKeysError(error.message);
-  }
-}
-
-async function renameKey(key) {
-  const name = window.prompt("给这个调用密钥起个名字：", key.name);
-  if (!name || !name.trim()) return;
-  setKeysError("");
-  try {
-    await api(`/op/api/keys/${encodeURIComponent(key.id)}`, {
-      method: "PATCH",
-      body: { name: name.trim() },
-    });
-    toast("名称已修改");
-    await loadKeys();
-  } catch (error) {
-    setKeysError(error.message);
-  }
-}
-
-async function editKeyQuota(key) {
-  const current = key.limits || {};
-  const rpm = window.prompt("每分钟请求上限（0 = 不限）：", String(current.requestsPerMinute || 0));
-  if (rpm === null) return;
-  const perDay = window.prompt("每日请求上限（0 = 不限）：", String(current.requestsPerDay || 0));
-  if (perDay === null) return;
-  const perMonth = window.prompt("每月请求上限（0 = 不限）：", String(current.requestsPerMonth || 0));
-  if (perMonth === null) return;
-  const concurrent = window.prompt("并发上限（0 = 使用全局默认）：", String(current.maxConcurrent || 0));
-  if (concurrent === null) return;
-  const models = window.prompt("允许的模型（逗号分隔，留空 = 全部）：", (key.allowedModels || []).join(","));
-  if (models === null) return;
-  const expires = window.prompt(
-    "过期时间（ISO 时间或留空 = 不过期）：",
-    key.expiresAt ? new Date(key.expiresAt).toISOString() : "",
-  );
-  if (expires === null) return;
-  const expiresAt = expires.trim() ? Date.parse(expires) : null;
-  if (expires.trim() && !Number.isFinite(expiresAt)) {
-    setKeysError("过期时间格式无法识别，请使用类似 2026-12-31T00:00:00Z。");
-    return;
-  }
-  setKeysError("");
-  try {
-    await api(`/op/api/keys/${encodeURIComponent(key.id)}`, {
-      method: "PATCH",
-      body: {
-        limits: {
-          requestsPerMinute: Number(rpm) || 0,
-          requestsPerDay: Number(perDay) || 0,
-          requestsPerMonth: Number(perMonth) || 0,
-          maxConcurrent: Number(concurrent) || 0,
-        },
-        allowedModels: models.split(",").map((value) => value.trim()).filter(Boolean),
-        expiresAt,
-      },
-    });
-    toast("配额已更新");
-    await loadKeys();
-  } catch (error) {
-    setKeysError(error.message);
-  }
-}
-
-async function deleteKey(key) {
-  if (!window.confirm(`删除调用密钥「${key.name}」？删除后使用它的调用方会立即失败。`)) return;
-  setKeysError("");
-  try {
-    await api(`/op/api/keys/${encodeURIComponent(key.id)}`, { method: "DELETE" });
-    toast("调用密钥已删除");
-    await loadKeys();
-  } catch (error) {
-    setKeysError(error.message);
-  }
-}
-
-async function copyNewKey() {
-  const value = els.newKeyValue.textContent || "";
-  if (!value) return;
-  try {
-    await navigator.clipboard.writeText(value);
-    toast("已复制到剪贴板");
-  } catch {
-    const range = document.createRange();
-    range.selectNodeContents(els.newKeyValue);
-    const selection = window.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
-    toast("请手动复制选中的密钥");
   }
 }
 
@@ -5439,7 +5100,6 @@ function renderShortcutEditor() {
 }
 
 function openShortcuts() {
-  closeUsers();
   state.shortcuts = loadShortcuts();
   renderShortcutEditor();
   els.shortcutModal.classList.remove("hidden");
@@ -5678,14 +5338,6 @@ function handleGlobalShortcut(event) {
       closeShortcuts();
       return;
     }
-    if (!els.keysModal.classList.contains("hidden")) {
-      closeKeys();
-      return;
-    }
-    if (!els.usersModal.classList.contains("hidden")) {
-      closeUsers();
-      return;
-    }
   }
   if (!els.shortcutModal.classList.contains("hidden") || event.repeat) return;
   const action = shortcutForEvent(event);
@@ -5760,17 +5412,6 @@ function init() {
     renderQueue();
   });
   els.logout.addEventListener("click", logout);
-  els.usersClose.addEventListener("click", closeUsers);
-  els.keysClose.addEventListener("click", closeKeys);
-  els.keyCreateForm.addEventListener("submit", createKey);
-  els.copyKeyBtn.addEventListener("click", copyNewKey);
-  els.keysModal.addEventListener("click", (event) => {
-    if (event.target === els.keysModal) closeKeys();
-  });
-  els.usersModal.addEventListener("click", (event) => {
-    if (event.target === els.usersModal) closeUsers();
-  });
-  els.userCreateForm.addEventListener("submit", createUser);
   els.cmdClaim.addEventListener("click", () => doAction("claim"));
   els.cmdTemplates.addEventListener("click", openTemplateModal);
   els.cmdTransfer.addEventListener("click", openTransfer);
@@ -5842,7 +5483,6 @@ function init() {
     if (event.target === els.attachmentModal) els.attachmentModal.classList.add("hidden");
   });
   window.addEventListener("pagehide", saveDraftsNow);
-  window.NGZRPasswordStrength?.mount(els.newPassword);
   document.addEventListener("keydown", handleGlobalShortcut);
   syncCommandbar();
 

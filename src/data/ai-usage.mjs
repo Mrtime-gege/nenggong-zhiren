@@ -91,15 +91,6 @@ export class AiUsageStore {
     this.persist();
   }
 
-  snapshot(username) {
-    this.resetIfNeeded();
-    return {
-      day: this.day,
-      total: { ...this.total },
-      operator: { ...(this.operators[username] || emptyDay()) },
-    };
-  }
-
   persist() {
     const temp = path.join(
       path.dirname(this.file),
