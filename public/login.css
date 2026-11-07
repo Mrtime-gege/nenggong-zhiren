@@ -50,19 +50,6 @@ body {
   gap: 13px;
 }
 
-.brand-mark {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  border-radius: 12px;
-  background: #dedfe2;
-  color: #111214;
-  font-weight: 800;
-  font-size: 21px;
-  box-shadow: none;
-}
-
 h1 {
   margin: 0;
   font-size: 22px;

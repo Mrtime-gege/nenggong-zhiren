@@ -2452,6 +2452,92 @@ function updateAiPromptTrigger(d = detail) {
     : "给本次/再次生成附加一段方向提示";
 }
 
+function elapsedText(startedAt) {
+  const seconds = Math.max(0, Math.floor((Date.now() - Number(startedAt || Date.now())) / 1000));
+  if (seconds < 60) return `${seconds} 秒`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分 ${String(seconds % 60).padStart(2, "0")} 秒`;
+  return `${Math.floor(seconds / 3600)} 小时 ${Math.floor((seconds % 3600) / 60)} 分`;
+}
+
+function clearAiLoadingTimer(d = detail) {
+  if (d?.aiLoadingTimer) clearInterval(d.aiLoadingTimer);
+  if (d) d.aiLoadingTimer = null;
+}
+
+function clearAutoAiTimer(d = detail) {
+  if (d?.autoAiTimer) clearInterval(d.autoAiTimer);
+  if (d) d.autoAiTimer = null;
+}
+
+function clearDetailTimers(d = detail) {
+  if (!d) return;
+  clearAiLoadingTimer(d);
+  clearAutoAiTimer(d);
+}
+
+function aiLimitNumber(value) {
+  return Number(value || 0).toLocaleString("zh-CN");
+}
+
+function aiLiveRow(label, value) {
+  const row = el("div", "ai-live-row");
+  row.append(el("span", "ai-live-label", label), el("span", "ai-live-value", value));
+  return row;
+}
+
+function aiInputSummary(ticket) {
+  const messages = Array.isArray(ticket?.messages) ? ticket.messages : [];
+  let chars = 0;
+  for (const message of messages) {
+    if (typeof message?.content === "string") chars += message.content.length;
+  }
+  return `${messages.length} 条消息 · ${chars} 字符`;
+}
+
+function renderAiLiveStatus(d, run = {}) {
+  const live = d?.els?.aiLiveStatus;
+  if (!live) return;
+  const ticket = currentTicket();
+  const instruction = String(run.instruction || state.aiPrompts.get(ticket?.id) || "").trim();
+  const phase = el("div", "ai-live-phase");
+  const pulse = el("span", "ai-live-pulse");
+  pulse.setAttribute("aria-hidden", "true");
+  const phaseText = el("span", "ai-live-phase-text", "正在等待 AI 上游响应…");
+  phase.append(pulse, phaseText);
+  const grid = el("div", "ai-live-grid");
+  grid.append(aiLiveRow("任务", run.task === "reply" ? "回复建议" : "AI 辅助"));
+  if (ticket?.model) grid.append(aiLiveRow("票据模型", ticket.model));
+  if (ticket) grid.append(aiLiveRow("输入", aiInputSummary(ticket)));
+  if (ticket?.maxTokens) grid.append(aiLiveRow("调用方上限", `max_tokens ${ticket.maxTokens}`));
+  if (instruction) grid.append(aiLiveRow("生成引导", instruction.slice(0, 140)));
+  grid.append(aiLiveRow("开始时间", new Date(d.aiLoadingStartedAt).toLocaleTimeString("zh-CN", { hour12: false })));
+  const elapsedValue = aiLiveRow("已用时", "0.0 秒");
+  grid.append(elapsedValue);
+  const note = el("div", "ai-live-note", "结果返回后会显示为 AI 卡片；不会自动填入草稿或发送。");
+  live.replaceChildren(phase, grid, note);
+  live.classList.remove("hidden");
+  d.aiLiveElapsed = elapsedValue.querySelector(".ai-live-value");
+  d.aiLivePhase = phaseText;
+}
+
+function updateAiLoadingHint(d = detail) {
+  if (!d?.els?.aiPanelHint) return;
+  const elapsed = elapsedText(d.aiLoadingStartedAt);
+  d.els.aiPanelHint.textContent = `已用时 ${elapsed} · 不会自动发送`;
+  if (d.aiLiveElapsed) {
+    const ms = Math.max(0, Date.now() - Number(d.aiLoadingStartedAt || Date.now()));
+    d.aiLiveElapsed.textContent = `${(ms / 1000).toFixed(1)} 秒`;
+  }
+  if (d.aiLivePhase) {
+    const ms = Date.now() - Number(d.aiLoadingStartedAt || Date.now());
+    d.aiLivePhase.textContent = ms < 3000
+      ? "请求已发送，等待 AI 上游响应…"
+      : ms < 15000
+        ? "AI 正在阅读上下文并生成回复…"
+        : "仍在等待 AI 上游响应，请稍候…";
+  }
+}
+
 function showAiLoading(d, startedAt = Date.now(), run = {}) {
   d.aiLoadingStartedAt = Number(startedAt) || Date.now();
   clearAiLoadingTimer(d);
