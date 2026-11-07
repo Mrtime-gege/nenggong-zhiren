@@ -565,23 +565,6 @@ async function readBody(req, limit) {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-async function readRawBody(req, limit) {
-  const declared = Number(req.headers["content-length"] || 0);
-  if (declared && declared > limit) {
-    throw new ApiError(413, "Request body too large.", "invalid_request_error", "payload_too_large");
-  }
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > limit) {
-      throw new ApiError(413, "Request body too large.", "invalid_request_error", "payload_too_large");
-    }
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
-}
-
 async function readBodyToTemp(req, limit) {
   const declared = Number(req.headers["content-length"] || 0);
   if (declared && declared > limit) {
@@ -904,34 +887,6 @@ function normalizeFinishReason(value) {
   return ["stop", "length", "content_filter", "tool_calls"].includes(value) ? value : "stop";
 }
 
-function normalizeTools(raw) {
-  if (raw === undefined || raw === null) return [];
-  if (!Array.isArray(raw)) {
-    throw new ApiError(400, "tools must be an array.", "invalid_request_error", "invalid_tools", "tools");
-  }
-  const tools = [];
-  for (const item of raw.slice(0, 128)) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-    if (item.type !== "function" || !item.function || typeof item.function !== "object") continue;
-    const fn = item.function;
-    const name = typeof fn.name === "string" ? fn.name.trim() : "";
-    if (!name) continue;
-    tools.push({
-      type: "function",
-      function: {
-        name: name.slice(0, 64),
-        description: typeof fn.description === "string" ? fn.description.slice(0, 16_000) : "",
-        parameters:
-          fn.parameters && typeof fn.parameters === "object" && !Array.isArray(fn.parameters)
-            ? fn.parameters
-            : { type: "object", properties: {} },
-        ...(fn.strict === true ? { strict: true } : {}),
-      },
-    });
-  }
-  return tools;
-}
-
 function normalizeResponseFormat(raw) {
   if (raw === undefined || raw === null) return undefined;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -1004,92 +959,6 @@ function validateStructuredText(ticket, text) {
       );
     }
   }
-}
-
-function normalizeToolChoice(raw, tools) {
-  if (raw === undefined || raw === null) return tools.length ? "auto" : "none";
-  if (typeof raw === "string") {
-    if (!["auto", "none", "required"].includes(raw)) {
-      throw new ApiError(
-        400,
-        "tool_choice must be 'auto', 'none', 'required', or a function selector.",
-        "invalid_request_error",
-        "invalid_tool_choice",
-        "tool_choice",
-      );
-    }
-    if (raw === "required" && !tools.length) {
-      throw new ApiError(
-        400,
-        "tool_choice 'required' needs at least one tool.",
-        "invalid_request_error",
-        "invalid_tool_choice",
-        "tool_choice",
-      );
-    }
-    return raw;
-  }
-  if (!tools.length) {
-    throw new ApiError(
-      400,
-      "A tool_choice function selector needs at least one tool.",
-      "invalid_request_error",
-      "invalid_tool_choice",
-      "tool_choice",
-    );
-  }
-  if (
-    raw &&
-    typeof raw === "object" &&
-    raw.type === "function" &&
-    raw.function &&
-    typeof raw.function.name === "string"
-  ) {
-    const name = raw.function.name.trim();
-    if (!name) {
-      throw new ApiError(400, "tool_choice function name cannot be empty.", "invalid_request_error", "invalid_tool_choice", "tool_choice");
-    }
-    if (tools.length && !tools.some((tool) => tool.function.name === name)) {
-      throw new ApiError(
-        400,
-        `tool_choice names '${name}', which is not in tools.`,
-        "invalid_request_error",
-        "invalid_tool_choice",
-        "tool_choice",
-      );
-    }
-    return { type: "function", name };
-  }
-  throw new ApiError(
-    400,
-    "tool_choice must be 'auto', 'none', 'required', or a function selector.",
-    "invalid_request_error",
-    "invalid_tool_choice",
-    "tool_choice",
-  );
-}
-
-function normalizeMessageToolCalls(raw) {
-  if (!Array.isArray(raw)) return [];
-  const calls = [];
-  for (const call of raw.slice(0, 32)) {
-    if (!call || typeof call !== "object" || !call.function || typeof call.function !== "object") continue;
-    const name = typeof call.function.name === "string" ? call.function.name.slice(0, 64) : "";
-    if (!name) continue;
-    const args =
-      typeof call.function.arguments === "string"
-        ? call.function.arguments
-        : JSON.stringify(call.function.arguments ?? {});
-    calls.push({
-      id:
-        typeof call.id === "string" && call.id
-          ? call.id.slice(0, 128)
-          : `call_${randomUUID().replaceAll("-", "").slice(0, 24)}`,
-      type: "function",
-      function: { name, arguments: args.slice(0, 64_000) },
-    });
-  }
-  return calls;
 }
 
 function normalizeOperatorToolCalls(ticket, raw) {

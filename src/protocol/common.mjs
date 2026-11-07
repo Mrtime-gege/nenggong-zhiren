@@ -74,16 +74,6 @@ export function validateImageUrl(url) {
   );
 }
 
-export function unixNow() {
-  return Date.now();
-}
-
-export function parseInteger(value, { min = -Infinity, max = Infinity } = {}) {
-  const number = Number(value);
-  if (!Number.isFinite(number) || !Number.isInteger(number) || number < min || number > max) return null;
-  return number;
-}
-
 export function normalizeToolName(value) {
   const name = String(value ?? "").trim();
   return name ? name.slice(0, 64) : "";

@@ -85,10 +85,6 @@ function selectTools(tools, ticket, budget) {
   return { tools: selected, omitted: tools.length - selected.length };
 }
 
-function messageText(message) {
-  return String(message?.content || "");
-}
-
 function buildRequest(ticket, settings) {
   const warnings = [];
   const inputBudget = 131_072;

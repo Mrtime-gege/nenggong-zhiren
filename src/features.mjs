@@ -16,10 +16,6 @@ export const USER_FEATURES = Object.freeze([
 
 const FEATURE_BY_KEY = new Map(USER_FEATURES.map((feature) => [feature.key, feature]));
 
-export function featureDefaults() {
-  return Object.fromEntries(USER_FEATURES.map((feature) => [feature.key, feature.defaultEnabled]));
-}
-
 export function normalizeUserFeatures(raw) {
   const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   const result = {};

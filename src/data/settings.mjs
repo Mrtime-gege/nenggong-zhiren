@@ -28,12 +28,6 @@ function bool(value, label) {
   return value;
 }
 
-function enumText(value, label, allowed, fallback) {
-  const result = String(value ?? fallback).trim();
-  if (!allowed.includes(result)) throw new SettingsError(`${label} must be one of ${allowed.join(", ")}.`);
-  return result;
-}
-
 function text(value, label, { max = 500, allowEmpty = true } = {}) {
   const result = String(value ?? "").trim();
   if (!allowEmpty && !result) throw new SettingsError(`${label} cannot be empty.`);
