@@ -18,6 +18,7 @@ SECURITY.md
 CHANGELOG.md
 
 src/ai/assist.mjs
+src/ai/cards.mjs
 src/ai/native.mjs
 src/ai/relay.mjs
 src/auth.mjs
