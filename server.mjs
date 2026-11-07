@@ -1410,6 +1410,19 @@ function startAiRelayForTicket(ticket, source, actor = "system") {
       persistRuntime();
     } catch (error) {
       ticket.aiPending = { status: "error", source, actor, error: String(error.message || "AI 求助失败").slice(0, 500), createdAt: Date.now() };
+      audit.append({
+        actor,
+        action: "ai.auto",
+        target: ticket.id,
+        detail: JSON.stringify({
+          status: "error",
+          source,
+          code: error?.code || "ai_error",
+          stage: error?.stage || "unknown",
+          upstreamStatus: Number(error?.upstreamStatus) || 0,
+          partialOutput: Boolean(error?.partialOutput),
+        }).slice(0, 480),
+      });
       persistRuntime();
     } finally {
       aiActive = Math.max(0, aiActive - 1);
@@ -3757,21 +3770,42 @@ async function handleOperator(req, res, url, session) {
     const relayStarted = Date.now();
     const instruction = String(body.instruction || "").trim().slice(0, 500);
     try {
-      const result = await relayReply({ settings: live.aiAssist, apiKey: secrets.get("aiApiKey"), ticket: relayTicket, instruction });
-          aiUsage.addTokens(operator, result.usage.inputTokens + result.usage.outputTokens);
+      let result;
+      let retried = false;
+      try {
+        result = await relayReply({ settings: live.aiAssist, apiKey: secrets.get("aiApiKey"), ticket: relayTicket, instruction });
+      } catch (error) {
+        const retryable = error instanceof AiAssistError &&
+          error.code === "ai_provider_error" &&
+          [429, 500, 502, 503, 504].includes(Number(error.upstreamStatus)) &&
+          !error.partialOutput;
+        if (!retryable) throw error;
+        retried = true;
+        await new Promise((resolve) => setTimeout(resolve, Math.min(5_000, Math.max(250, Number(error.retryAfterMs) || 500))));
+        result = await relayReply({ settings: live.aiAssist, apiKey: secrets.get("aiApiKey"), ticket: relayTicket, instruction });
+      }
+      aiUsage.addTokens(operator, result.usage.inputTokens + result.usage.outputTokens);
       audit.append({
         actor: operator,
         action: "ai.relay",
         target: relayTicket.id,
         ip: clientIp(req),
-        detail: JSON.stringify({ model: result.model, toolCalls: result.toolCalls.length, finishReason: result.finishReason, latencyMs: Date.now() - relayStarted }).slice(0, 480),
+        detail: JSON.stringify({ model: result.model, retried, toolCalls: result.toolCalls.length, finishReason: result.finishReason, outputChars: String(result.content || "").length, reasoningChars: String(result.reasoning || "").length, inputTokens: result.usage?.inputTokens || 0, outputTokens: result.usage?.outputTokens || 0, latencyMs: Date.now() - relayStarted }).slice(0, 480),
       });
       return sendJson(res, 200, { ok: true, ...result });
     } catch (error) {
       const mapped = error instanceof AiAssistError
         ? new ApiError(error.status, error.message, "ai_assist_error", error.code, null, error.retryAfterMs ? { "Retry-After": String(Math.ceil(error.retryAfterMs / 1000)) } : undefined)
         : error;
-      audit.append({ actor: operator, action: "ai.relay", target: relayTicket.id, ip: clientIp(req), detail: JSON.stringify({ status: "error", latencyMs: Date.now() - relayStarted }).slice(0, 480) });
+      const detail = {
+        status: "error",
+        code: error?.code || "ai_error",
+        stage: error?.stage || "unknown",
+        upstreamStatus: Number(error?.upstreamStatus) || 0,
+        partialOutput: Boolean(error?.partialOutput),
+        latencyMs: Date.now() - relayStarted,
+      };
+      audit.append({ actor: operator, action: "ai.relay", target: relayTicket.id, ip: clientIp(req), detail: JSON.stringify(detail).slice(0, 480) });
       throw mapped;
     } finally {
       aiActive = Math.max(0, aiActive - 1);
@@ -3887,7 +3921,15 @@ async function handleOperator(req, res, url, session) {
         action: "ai.suggest",
         target: aiTicket.id,
         ip: clientIp(req),
-        detail: JSON.stringify({ task, status: "error", latencyMs: Date.now() - startedAt }).slice(0, 480),
+        detail: JSON.stringify({
+          task,
+          status: "error",
+          code: error?.code || "ai_error",
+          stage: error?.stage || "unknown",
+          upstreamStatus: Number(error?.upstreamStatus) || 0,
+          partialOutput: Boolean(error?.partialOutput),
+          latencyMs: Date.now() - startedAt,
+        }).slice(0, 480),
       });
       throw mapped;
     } finally {
@@ -4402,7 +4444,10 @@ async function serveStatic(req, res, entry, extraHeaders = {}) {
   try {
     const body = await readFile(path.join(PUBLIC_DIR, entry.file));
     const etag = `"s-${createHash("sha1").update(body).digest("base64url").slice(0, 20)}"`;
-    const cacheControl = "public, max-age=300, must-revalidate";
+    const isCodeAsset = /\.(?:css|js)$/i.test(entry.file);
+    const cacheControl = isCodeAsset
+      ? "public, max-age=0, must-revalidate"
+      : "public, max-age=86400, immutable";
     if (String(req.headers["if-none-match"] || "") === etag) {
       res.writeHead(304, { ETag: etag, "Cache-Control": cacheControl });
       res.end();

@@ -722,7 +722,7 @@ async function loadSession() {
     els.userLabel.textContent = `${me.user.username} · ${me.user.role === "admin" ? "管理员" : "人工回复员"}`;
     window.NGZRNAV?.render(me.user.role, me.features);
     if (me.user.role === "admin" && (location.hash === "#status" || new URLSearchParams(location.search).get("page") === "status")) {
-      openSubpage("/console/status", "状态");
+      openSubpage("/console/overview?tab=status", "状态");
     }
     setStatus("ok", `${me.user.username} 已登录`);
     refreshQuickBarInfo(true);
@@ -1885,7 +1885,7 @@ function buildDetail(ticket) {
   });
   const moreHistory = el("button", "btn ghost", "查看历史");
   moreHistory.type = "button";
-  moreHistory.addEventListener("click", () => openSubpage(`/console/history?ticket=${encodeURIComponent(ticket.id)}`, "历史"));
+  moreHistory.addEventListener("click", () => openSubpage(`/console/records?tab=history&ticket=${encodeURIComponent(ticket.id)}`, "历史"));
   moreActions.append(moreRefresh, moreCopyId, moreCopyReply);
   if (state.role === "admin") moreActions.append(moreHistory);
   const quickTemplate = el("button", "btn ghost", "快捷回复");
@@ -2526,16 +2526,39 @@ const QUICK_BAR_ACTION_SPECS = {
   usage: { label: "打开用量", adminOnly: true },
   audit: { label: "打开审计", adminOnly: true },
 };
+const QUICK_BAR_LINK_ALIASES = {
+  "/console/status": "/console/overview?tab=status",
+  "/console/environment": "/console/overview?tab=environment",
+  "/console/usage": "/console/overview?tab=usage",
+  "/console/history": "/console/records?tab=history",
+  "/console/audit": "/console/records?tab=audit",
+  "/console/users": "/console/admin?tab=users",
+  "/console/models": "/console/admin?tab=models",
+  "/console/keys": "/console/admin?tab=keys",
+};
+const QUICK_BAR_ACTION_HREFS = {
+  status: "/console/overview?tab=status",
+  usage: "/console/overview?tab=usage",
+  history: "/console/records?tab=history",
+  audit: "/console/records?tab=audit",
+  users: "/console/admin?tab=users",
+  models: "/console/admin?tab=models",
+  keys: "/console/admin?tab=keys",
+};
 const QUICK_BAR_LINK_SPECS = {
-  "/console/status": { label: "状态页", adminOnly: true },
-  "/console/users": { label: "用户管理", adminOnly: true },
-  "/console/models": { label: "模型管理", adminOnly: true },
-  "/console/keys": { label: "API 密钥", adminOnly: true },
-  "/console/usage": { label: "用量", adminOnly: true },
-  "/console/audit": { label: "审计", adminOnly: true },
-  "/console/history": { label: "历史", adminOnly: true },
+  "/console/overview?tab=status": { label: "状态页", adminOnly: true },
+  "/console/overview?tab=environment": { label: "环境", adminOnly: true },
+  "/console/overview?tab=usage": { label: "用量", adminOnly: true },
+  "/console/records?tab=history": { label: "历史", adminOnly: true },
+  "/console/records?tab=audit": { label: "审计", adminOnly: true },
+  "/console/admin?tab=users": { label: "用户管理", adminOnly: true },
+  "/console/admin?tab=models": { label: "模型管理", adminOnly: true },
+  "/console/admin?tab=keys": { label: "API 密钥", adminOnly: true },
   "/console/settings": { label: "设置" },
 };
+function normalizedQuickBarHref(value) {
+  return QUICK_BAR_LINK_ALIASES[value] || value;
+}
 const QUICK_BAR_INFO_SPECS = {
   memory: { label: "内存占用" },
   uptime: { label: "运行时长" },
@@ -2556,7 +2579,7 @@ const DEFAULT_QUICK_BAR = [
 
 function quickBarSpec(item) {
   if (item.kind === "action") return { ...(QUICK_BAR_ACTION_SPECS[item.value] || {}), kind: "action" };
-  if (item.kind === "link") return { ...(QUICK_BAR_LINK_SPECS[item.value] || {}), kind: "link" };
+  if (item.kind === "link") return { ...(QUICK_BAR_LINK_SPECS[normalizedQuickBarHref(item.value)] || {}), kind: "link" };
   if (item.kind === "info") return { ...(QUICK_BAR_INFO_SPECS[item.value] || {}), kind: "info" };
   return null;
 }
@@ -2674,7 +2697,7 @@ function runQuickBarItem(item) {
   if (!ticket || !detail) return;
   if (item.kind === "info") return;
   if (item.kind === "link") {
-    openSubpage(item.value, item.label);
+    openSubpage(normalizedQuickBarHref(item.value), item.label);
     return;
   }
   switch (item.value) {
@@ -2716,7 +2739,7 @@ function runQuickBarItem(item) {
       nextTicket();
       break;
     case "history":
-      openSubpage(`/console/history?ticket=${encodeURIComponent(ticket.id)}`, "历史");
+      openSubpage(`/console/records?tab=history&ticket=${encodeURIComponent(ticket.id)}`, "历史");
       break;
     case "settings":
       openSubpage("/console/settings", "设置");
@@ -2727,7 +2750,7 @@ function runQuickBarItem(item) {
     case "keys":
     case "usage":
     case "audit":
-      openSubpage(`/console/${item.value}`, quickBarSpec(item)?.label || item.label);
+      openSubpage(QUICK_BAR_ACTION_HREFS[item.value] || "/console", quickBarSpec(item)?.label || item.label);
       break;
   }
 }
@@ -5455,7 +5478,7 @@ function initSubpages() {
       return;
     }
     if (event.data?.type !== "ngzr-models-changed") return;
-    for (const href of ["/console/keys", "/console/users"]) {
+    for (const href of ["/console/admin?tab=keys", "/console/admin?tab=users"]) {
       const frame = subpageCache.get(href);
       if (!frame) continue;
       frame.dataset.loaded = "";

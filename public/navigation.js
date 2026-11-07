@@ -122,7 +122,12 @@
   }
 
   function frameUrl(tab) {
-    return `${tab.href}${tab.href.includes("?") ? "&" : "?"}embed=1`;
+    const url = new URL(tab.href, location.origin);
+    for (const [key, value] of new URLSearchParams(location.search)) {
+      if (key !== "tab" && key !== "embed") url.searchParams.set(key, value);
+    }
+    url.searchParams.set("embed", "1");
+    return url.toString();
   }
 
   function initHub(features = {}) {
@@ -189,22 +194,25 @@
       button.textContent = tab.label;
       button.setAttribute("aria-selected", "false");
       button.addEventListener("click", () => activate(tab));
+      const preloadOnIntent = () => ensureFrame(tab, { preload: true });
+      button.addEventListener("pointerenter", preloadOnIntent);
+      button.addEventListener("focus", preloadOnIntent);
       tabbar.append(button);
     }
 
     activate(initial);
-    // Preload the other tabs after the first screen settles. Hidden same-origin
-    // iframes are reused on click, so switching tabs does not re-download or
-    // re-run the admin page boot sequence.
-    const preload = () => {
-      const pending = spec.tabs.filter((tab) => tab.key !== initial.key && !frames.has(tab.key));
-      const next = pending.shift();
-      if (!next) return;
-      ensureFrame(next, { preload: true });
-      if (pending.length) setTimeout(preload, 350);
+    // Preload only the adjacent tab after the first screen settles. Hovering or
+    // focusing a tab preloads that specific page immediately; the environment
+    // page is intentionally not preloaded automatically because it probes
+    // external workers and can be expensive.
+    const currentIndex = spec.tabs.indexOf(initial);
+    const adjacent = spec.tabs[currentIndex + 1] || spec.tabs[currentIndex - 1];
+    const preloadAdjacent = () => {
+      if (!adjacent || adjacent.key === "environment" || frames.has(adjacent.key)) return;
+      ensureFrame(adjacent, { preload: true });
     };
-    if (typeof requestIdleCallback === "function") requestIdleCallback(preload, { timeout: 1500 });
-    else setTimeout(preload, 500);
+    if (typeof requestIdleCallback === "function") requestIdleCallback(preloadAdjacent, { timeout: 1500 });
+    else setTimeout(preloadAdjacent, 500);
   }
 
   async function bootHub() {

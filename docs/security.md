@@ -234,7 +234,7 @@
 - 上游超时/错误/格式错误只返回建议失败，不改变票据；
 - AI 辅助只保留账号权限、票据锁和全局并发保护；不设应用级每日请求/token 限额，资源和费用边界由上游模型/账号负责；
 - 计数文件不保存 prompt 或回复正文；
-- 审计只记录任务、票据、模型、耗时和 token，不记录正文。
+- 审计只记录任务、票据、模型、耗时、token、失败阶段、错误码和上游状态，不记录正文、提示词或 API Key。
 
 
 ## SQLite/FTS 历史索引
@@ -271,7 +271,7 @@ SQLite 可用时，票据和幂等记录写入 `state.db`（0600）。首次启�
 
 ## 环境探测
 
-- 管理员 `/console/overview?tab=environment` 只检查；旧 `/console/environment` 会兼容跳转 `config.jsonc → workers` 中明确配置的 Python、图片 worker 和 PDF worker；
+- 管理员 `/console/overview?tab=environment` 只检查 `config.jsonc → workers` 中明确配置的 Python、图片 worker 和 PDF worker；旧 `/console/environment` 会兼容跳转；
 - 不扫描项目树、家目录或主机目录；
 - Python 探测只调用配置的可执行文件并导入已知依赖，超时后终止；
 - 环境页只返回路径、版本、可用状态和错误摘要，不返回 AI Key、调用密钥或票据内容。

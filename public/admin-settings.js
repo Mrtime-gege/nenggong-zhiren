@@ -30,14 +30,25 @@ const QUICK_ACTIONS = [
   { value: "usage", label: "打开用量", adminOnly: true },
   { value: "audit", label: "打开审计", adminOnly: true },
 ];
+const QUICK_LINK_ALIASES = {
+  "/console/status": "/console/overview?tab=status",
+  "/console/environment": "/console/overview?tab=environment",
+  "/console/usage": "/console/overview?tab=usage",
+  "/console/history": "/console/records?tab=history",
+  "/console/audit": "/console/records?tab=audit",
+  "/console/users": "/console/admin?tab=users",
+  "/console/models": "/console/admin?tab=models",
+  "/console/keys": "/console/admin?tab=keys",
+};
 const QUICK_LINKS = [
-  { value: "/console/status", label: "状态页", adminOnly: true },
-  { value: "/console/users", label: "用户管理", adminOnly: true },
-  { value: "/console/models", label: "模型管理", adminOnly: true },
-  { value: "/console/keys", label: "API 密钥", adminOnly: true },
-  { value: "/console/usage", label: "用量", adminOnly: true },
-  { value: "/console/audit", label: "审计", adminOnly: true },
-  { value: "/console/history", label: "历史", adminOnly: true },
+  { value: "/console/overview?tab=status", label: "状态页", adminOnly: true },
+  { value: "/console/overview?tab=environment", label: "环境", adminOnly: true },
+  { value: "/console/overview?tab=usage", label: "用量", adminOnly: true },
+  { value: "/console/records?tab=history", label: "历史", adminOnly: true },
+  { value: "/console/records?tab=audit", label: "审计", adminOnly: true },
+  { value: "/console/admin?tab=users", label: "用户管理", adminOnly: true },
+  { value: "/console/admin?tab=models", label: "模型管理", adminOnly: true },
+  { value: "/console/admin?tab=keys", label: "API 密钥", adminOnly: true },
   { value: "/console/settings", label: "设置" },
 ];
 const QUICK_INFOS = [
@@ -76,6 +87,7 @@ function normalizeQuickItem(raw, index) {
   const kind = QUICK_KINDS.some(([value]) => value === source.kind) ? source.kind : "action";
   const options = quickBarOptionsFor(kind);
   let value = String(source.value || "");
+  if (kind === "link") value = QUICK_LINK_ALIASES[value] || value;
   if (!options.some((item) => item.value === value)) value = options[0]?.value || "";
   if (!value) return null;
   const spec = quickBarSpec(kind, value);

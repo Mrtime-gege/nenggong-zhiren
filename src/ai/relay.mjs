@@ -313,7 +313,8 @@ export async function relayReply({ settings, apiKey, ticket, instruction = "" } 
   const requestTimeoutMs = 900_000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
-  const markOutput = () => {};
+  let partialOutput = false;
+  const markOutput = () => { partialOutput = true; };
   try {
     const response = await fetch(endpointUrl(settings.endpoint), {
       method: "POST",
@@ -324,7 +325,15 @@ export async function relayReply({ settings, apiKey, ticket, instruction = "" } 
     if (!response.ok) {
       let detail = "";
       try { detail = (await response.text()).slice(0, 300); } catch { /* optional */ }
-      throw new AiAssistError(`AI 上游返回 ${response.status}${detail ? `：${detail}` : ""}`, "ai_provider_error", response.status === 429 ? 429 : 502, response.status === 429 ? 5_000 : 0);
+      const providerError = new AiAssistError(
+        `AI 上游返回 ${response.status}${detail ? `：${detail}` : ""}`,
+        "ai_provider_error",
+        response.status === 429 ? 429 : 502,
+        response.status === 429 ? 5_000 : 0,
+      );
+      providerError.stage = "upstream_http";
+      providerError.upstreamStatus = response.status;
+      throw providerError;
     }
     const contentType = String(response.headers.get("content-type") || "").toLowerCase();
     if (!response.body || contentType.includes("application/json")) {
@@ -350,11 +359,24 @@ export async function relayReply({ settings, apiKey, ticket, instruction = "" } 
     const streamed = accumulator.state;
     return resultFromMessage(settings, accumulator.asMessage(), streamed.finishReason, accumulator.asUsage());
   } catch (error) {
+    if (error && typeof error === "object") error.partialOutput = partialOutput;
     if (error instanceof AiAssistError) throw error;
     if (error?.name === "AbortError") {
-      throw new AiAssistError("AI 生成超时（900 秒）。", "ai_timeout", 504);
+      const timeoutError = new AiAssistError("AI 生成超时（900 秒）。", "ai_timeout", 504);
+      timeoutError.stage = "timeout";
+      timeoutError.partialOutput = partialOutput;
+      throw timeoutError;
     }
-    throw new AiAssistError(`AI 上游不可达：${error.message}`, "ai_provider_error", 502);
+    if (error instanceof SyntaxError) {
+      const parseError = new AiAssistError("AI 上游返回格式错误。", "ai_provider_error", 502);
+      parseError.stage = "response_parse";
+      parseError.partialOutput = partialOutput;
+      throw parseError;
+    }
+    const networkError = new AiAssistError(`AI 上游不可达：${error.message}`, "ai_provider_error", 502);
+    networkError.stage = "connect";
+    networkError.partialOutput = partialOutput;
+    throw networkError;
   } finally {
     clearTimeout(timer);
   }

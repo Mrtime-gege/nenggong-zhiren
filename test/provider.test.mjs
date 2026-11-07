@@ -2630,6 +2630,57 @@ test("AI assist respects user feature flags, settings and secret handling", asyn
   }
 });
 
+test("AI relay retries one pre-output provider failure", async () => {
+  let calls = 0;
+  const mockProvider = http.createServer((req, res) => {
+    req.resume();
+    calls += 1;
+    if (calls === 1) {
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "temporary" } }));
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      choices: [{ message: { content: "retry ok", tool_calls: [] }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 5, completion_tokens: 3 },
+    }));
+  });
+  await new Promise((resolve) => mockProvider.listen(0, "127.0.0.1", resolve));
+  const tag = marker("AI-RETRY");
+  let pending = null;
+  try {
+    const current = await opJson(adminSession, "/op/api/settings");
+    await opJson(adminSession, "/op/api/settings", {
+      method: "PATCH",
+      body: {
+        aiAssist: {
+          ...current.settings.aiAssist,
+          enabled: true,
+          endpoint: `http://127.0.0.1:${mockProvider.address().port}/v1`,
+          model: "retry-mock",
+        },
+        apiKey: "sk-retry",
+      },
+    });
+    pending = startChat({ model: "human-1", messages: [{ role: "user", content: tag }] });
+    const ticket = await waitForTicket((item) => item.messages.some((message) => message.content.includes(tag)));
+    await claim(adminSession, ticket.id);
+    const response = await op(adminSession, `/op/api/tickets/${ticket.id}/ai/relay`, { method: "POST", body: {} });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).content, "retry ok");
+    assert.equal(calls, 2);
+    await finishJson(adminSession, ticket.id, { text: "retry ok", finishReason: "stop" });
+    assert.equal((await pending).status, 200);
+    await opJson(adminSession, "/op/api/settings", {
+      method: "PATCH",
+      body: { aiAssist: { enabled: false } },
+    });
+  } finally {
+    await new Promise((resolve) => mockProvider.close(resolve));
+  }
+});
+
 test("SQLite history index supports full-text recall and filters", async () => {
   const { HistoryIndex } = await import("../src/data/history-index.mjs");
   const dir = mkdtempSync(path.join(os.tmpdir(), "ngzr-history-"));
@@ -3184,6 +3235,34 @@ test("AI relay keeps only the newest 255 messages", async () => {
   }
 });
 
+test("AI relay exposes safe upstream diagnostics", async () => {
+  const { relayReply } = await import("../src/ai/relay.mjs");
+  const mock = http.createServer((req, res) => {
+    req.resume();
+    res.writeHead(503, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: { message: "provider unavailable" } }));
+  });
+  await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
+  try {
+    await assert.rejects(
+      () => relayReply({
+        settings: { endpoint: `http://127.0.0.1:${mock.address().port}/v1`, model: "mock" },
+        apiKey: "sk",
+        ticket: { id: "diagnostic-ticket", messages: [{ role: "user", content: "hello" }], tools: [] },
+      }),
+      (error) => {
+        assert.equal(error.code, "ai_provider_error");
+        assert.equal(error.stage, "upstream_http");
+        assert.equal(error.upstreamStatus, 503);
+        assert.equal(error.partialOutput, false);
+        return true;
+      },
+    );
+  } finally {
+    await new Promise((resolve) => mock.close(resolve));
+  }
+});
+
 test("brand icon and web manifest assets are served", async () => {
   const expected = new Map([
     ["/icon.svg", /image\/svg\+xml/],
@@ -3208,7 +3287,7 @@ test("brand icon and web manifest assets are served", async () => {
 
   const asset = await fetch(`${BASE}/console.js`);
   assert.equal(asset.status, 200);
-  assert.match(asset.headers.get("cache-control"), /max-age=/);
+  assert.match(asset.headers.get("cache-control"), /max-age=0/);
   const etag = asset.headers.get("etag");
   assert.match(etag, /^"s-[A-Za-z0-9_-]{20}"$/);
   const revalidated = await fetch(`${BASE}/console.js`, { headers: { "If-None-Match": etag } });
