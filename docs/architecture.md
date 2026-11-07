@@ -46,6 +46,7 @@
 - `src/http/public-assets.mjs`：静态资源表和 MIME 映射。
 - `src/http/pages.mjs`：静态页面、登录壳和管理页鉴权服务。
 - `public/console-queue.js`：控制台队列选择、统计和渲染。
+- `public/console-shortcuts.js`：快捷键定义、持久化和编辑面板。
 - `public/hub.html` + `navigation.js`：一级导航和概览/记录/管理 Hub；二级页面通过同源 iframe 复用。
 - `public/login.*`：登录页。
 - `public/settings.html`、`settings-operator.html`：设置页。

@@ -2900,6 +2900,10 @@ test("brand icon and web manifest assets are served", async () => {
   assert.equal(consoleQueue.status, 200);
   assert.match(consoleQueue.headers.get("content-type"), /javascript/);
   assert.match(await consoleQueue.text(), /function renderQueue/);
+  const consoleShortcuts = await fetch(`${BASE}/console-shortcuts.js`);
+  assert.equal(consoleShortcuts.status, 200);
+  assert.match(consoleShortcuts.headers.get("content-type"), /javascript/);
+  assert.match(await consoleShortcuts.text(), /function loadShortcuts/);
 
   const asset = await fetch(`${BASE}/console.js`);
   assert.equal(asset.status, 200);
