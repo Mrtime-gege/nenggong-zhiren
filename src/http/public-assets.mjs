@@ -9,6 +9,7 @@ export const PUBLIC_FILES = new Map([
   ["/theme.css", { file: "theme.css", type: "text/css; charset=utf-8" }],
   ["/navigation.js", { file: "navigation.js", type: "text/javascript; charset=utf-8" }],
   ["/console-utils.js", { file: "console-utils.js", type: "text/javascript; charset=utf-8" }],
+  ["/console-ai-cards.js", { file: "console-ai-cards.js", type: "text/javascript; charset=utf-8" }],
   ["/guide.css", { file: "guide.css", type: "text/css; charset=utf-8" }],
   ["/password-strength.js", { file: "password-strength.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-settings.js", { file: "admin-settings.js", type: "text/javascript; charset=utf-8" }],

@@ -3354,6 +3354,10 @@ test("brand icon and web manifest assets are served", async () => {
   assert.equal(consoleUtils.status, 200);
   assert.match(consoleUtils.headers.get("content-type"), /javascript/);
   assert.match(await consoleUtils.text(), /function shortId/);
+  const consoleAiCards = await fetch(`${BASE}/console-ai-cards.js`);
+  assert.equal(consoleAiCards.status, 200);
+  assert.match(consoleAiCards.headers.get("content-type"), /javascript/);
+  assert.match(await consoleAiCards.text(), /function aiCardsFor/);
 
   const asset = await fetch(`${BASE}/console.js`);
   assert.equal(asset.status, 200);

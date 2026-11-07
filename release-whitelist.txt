@@ -58,6 +58,7 @@ public/hub.html
 public/console.css
 public/console.js
 public/console-utils.js
+public/console-ai-cards.js
 public/navigation.js
 public/theme.css
 public/admin.css

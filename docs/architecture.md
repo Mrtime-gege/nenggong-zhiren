@@ -40,6 +40,7 @@
 - `src/media/`：隔离的图片重编码和 PDF 页渲染 worker 适配。
 - `public/console.*`：网页工作台（无构建步骤的原生 JavaScript）；目前仍是最大的前端单文件，后续可按状态、渲染、AI、subpage 拆分。
 - `public/console-utils.js`：控制台纯展示格式化工具（短 ID、耗时、JSON、预览文本）。
+- `public/console-ai-cards.js`：控制台 AI 卡片状态、服务端卡片合并和选中逻辑。
 - `src/text.mjs`：token 估算、停止词和流式分片。
 - `src/http/public-assets.mjs`：静态资源表和 MIME 映射。
 - `public/hub.html` + `navigation.js`：一级导航和概览/记录/管理 Hub；二级页面通过同源 iframe 复用。
