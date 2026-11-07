@@ -147,8 +147,6 @@
     if (!spec.tabs.length) return;
     const title = document.getElementById("hubTitle");
     if (title) title.textContent = spec.title;
-    const tabbarLabel = document.querySelector(".hub-tabs-kicker");
-    if (tabbarLabel) tabbarLabel.textContent = "二级菜单";
     const frame = document.getElementById("hubFrame");
     const tabbar = document.getElementById("hubTabs");
     if (!frame || !tabbar) return;

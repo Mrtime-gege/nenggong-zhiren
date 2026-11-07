@@ -2101,17 +2101,6 @@ body[data-page="settings"] .settings-content > .admin-only {
   padding-bottom: 2px;
 }
 
-.hub-tabs-kicker {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-  padding: 0;
-  color: var(--muted);
-  font-size: 9px;
-  letter-spacing: 0.1px;
-  white-space: nowrap;
-}
-
 .hub-tabs {
   display: flex;
   align-items: stretch;
@@ -2173,7 +2162,6 @@ body[data-page="settings"] .settings-content > .admin-only {
   .hub-main { min-height: calc(100vh - 86px); }
   .hub-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
   .hub-secondary { align-items: flex-start; flex-wrap: wrap; gap: 5px; }
-  .hub-tabs-kicker { padding: 0; }
   .hub-tabs { width: auto; max-width: 100%; overflow-x: auto; flex-wrap: nowrap; }
   .hub-tab { flex: 0 0 auto; }
   .hub-frame { min-height: 70vh; }
