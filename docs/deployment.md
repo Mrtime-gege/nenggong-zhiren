@@ -7,11 +7,11 @@
 默认：
 
 ```text
-LAN browser ──HTTPS/HTTP──► 能工智人 :7355 ──HTTP(loopback)──► DSH
+LAN browser ──HTTPS/HTTP──► 能工智人 :7355 ◄──HTTP── OpenAI-compatible caller (DSH/curl)
 ```
 
 - 回复员通过浏览器访问 `http://<LAN-IP>:7355/login`（或 HTTPS 域名）。
-- DSH/调用方访问 `http://127.0.0.1:7355/v1`。
+- 调用方（DSH、curl 或任意 OpenAI 兼容客户端）访问 `http://127.0.0.1:7355/v1`。DSH 是可选调用方，不是运行时依赖。
 - 账号/密码哈希保存在项目根目录 `users.json`，文件权限 `0600`，仅保留在本机，
   不要随项目公开。
 - 票据、会话和日志不随项目发布；日志建议写到项目目录外。
@@ -333,7 +333,29 @@ journalctl -u nenggong-zhiren -f
 - 登录会话、CSRF token 和限速计数仍在内存，重启后需重新登录；
 - 恢复账号/密钥文件后重启，或让用户文件热重载生效（会清空受影响账号的会话）。
 
-## 8. 端口与网络
+## 8. 0.6.3 发布准备
+
+发布前按顺序执行：
+
+```bash
+npm run test:ci
+npm run test:coverage
+node scripts/build-release.mjs --check
+node scripts/build-release.mjs --out /tmp/nenggong-zhiren-0.6.3.tar.gz
+```
+
+检查：
+
+- 测试 111 / 111 通过；
+- 发布白名单 91 个文件，运行时导入闭包通过；
+- 压缩包不包含 `config.jsonc`、`users.json`、`api-keys.json`、数据库、日志、附件和测试；
+- 启动压缩包内服务后 `/healthz` 返回 `0.6.3`；
+- 浏览器按架构文档的回归清单完成最后检查；
+- 确认管理员密码、API 密钥和 TLS 配置不在仓库或发布包中。
+
+发布操作（推送、tag、GitHub Release）需维护者明确执行；本阶段只准备产物。
+
+## 9. 端口与网络
 
 | 端口 | 用途 | 暴露建议 |
 | --- | --- | --- |
