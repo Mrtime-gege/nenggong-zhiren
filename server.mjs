@@ -22,6 +22,7 @@ import { AuthError, AuthService } from "./src/auth.mjs";
 import { ROOT, loadConfig } from "./src/config.mjs";
 import { countTokens, capToTokens, applyStop, splitForStream } from "./src/text.mjs";
 import { PUBLIC_FILES } from "./src/http/public-assets.mjs";
+import { createPageService } from "./src/http/pages.mjs";
 import { resolveClientIp } from "./src/net.mjs";
 import { publicFeatureCatalog, userAllowsFeature } from "./src/features.mjs";
 import { ApiKeyError, ApiKeyStore, ModelError, ModelStore } from "./src/data/index.mjs";
@@ -490,6 +491,9 @@ function sendSse(res, payload) {
     return false;
   }
 }
+
+const pageService = createPageService({ publicDir: PUBLIC_DIR, auth, ApiError, sendRaw });
+const { escapeHtml, safeNextPath, serveStatic, serveLoginPage, servePage, serveConsole, serveAdminPage } = pageService;
 
 async function readBody(req, limit) {
   const declared = Number(req.headers["content-length"] || 0);
@@ -4233,96 +4237,6 @@ async function handleOperator(req, res, url, session) {
 /* ------------------------------------------------------------------ */
 /* Login and static assets                                            */
 /* ------------------------------------------------------------------ */
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-function safeNextPath(value, fallback = "/console") {
-  const next = String(value || "").trim();
-  if (!next || next.length > 512) return fallback;
-  if (!next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return fallback;
-  if (next.includes("\\") || /[\u0000-\u001f\u007f]/.test(next)) return fallback;
-  return next;
-}
-
-async function serveStatic(req, res, entry, extraHeaders = {}) {
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
-  }
-  try {
-    const body = await readFile(path.join(PUBLIC_DIR, entry.file));
-    const etag = `"s-${createHash("sha1").update(body).digest("base64url").slice(0, 20)}"`;
-    const isCodeAsset = /\.(?:css|js)$/i.test(entry.file);
-    const cacheControl = isCodeAsset
-      ? "public, max-age=0, must-revalidate"
-      : "public, max-age=86400, immutable";
-    if (String(req.headers["if-none-match"] || "") === etag) {
-      res.writeHead(304, { ETag: etag, "Cache-Control": cacheControl });
-      res.end();
-      return;
-    }
-    sendRaw(res, 200, entry.type, req.method === "HEAD" ? "" : body, {
-      "Cache-Control": cacheControl,
-      ETag: etag,
-      "X-Content-Type-Options": "nosniff",
-      ...extraHeaders,
-    });
-  } catch {
-    throw new ApiError(404, "Asset not found.", "invalid_request_error", "not_found");
-  }
-}
-
-async function serveLoginPage(res, { status = 200, error = "", next = "/console", retryAfter = null } = {}) {
-  let html;
-  try {
-    html = await readFile(path.join(PUBLIC_DIR, "login.html"), "utf8");
-  } catch {
-    throw new ApiError(500, "Login page unavailable.", "server_error", "login_page_unavailable");
-  }
-  html = html
-    .replaceAll("{{NEXT}}", escapeHtml(safeNextPath(next)))
-    .replaceAll("{{ERROR}}", escapeHtml(error));
-  const headers = {};
-  if (retryAfter !== null) headers["Retry-After"] = String(retryAfter);
-  sendRaw(res, status, "text/html; charset=utf-8", html, headers);
-}
-
-async function servePage(req, res, filename, fallback) {
-  try {
-    const body = await readFile(path.join(PUBLIC_DIR, filename));
-    sendRaw(res, 200, "text/html; charset=utf-8", req.method === "HEAD" ? "" : body, {
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-    });
-  } catch {
-    throw new ApiError(404, fallback || "Page not found.", "invalid_request_error", "not_found");
-  }
-}
-
-async function serveConsole(req, res) {
-  return servePage(req, res, "console.html", "Console not found.");
-}
-
-async function serveAdminPage(req, res, filename) {
-  const session = auth.getSession(req);
-  if (!session) {
-    res.writeHead(302, { Location: `/login?next=${encodeURIComponent(req.url || "/console")}` });
-    res.end();
-    return;
-  }
-  if (session.role !== "admin") {
-    res.writeHead(302, { Location: "/console" });
-    res.end();
-    return;
-  }
-  return servePage(req, res, filename);
-}
 
 function parseLoginBody(raw, contentType) {
   const type = String(contentType || "").toLowerCase();

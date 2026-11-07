@@ -36,20 +36,25 @@
 - `src/schema.mjs`：零依赖 JSON Schema 子集校验器。
 - `src/protocol/`：OpenAI / Anthropic 请求归一化、响应与流式增量。
 - `src/data/`：模型、密钥、用量、状态、设置、审计、附件、模板和历史存储。
-- `src/ai/`：旧 suggest/native 路径和当前 relay；relay 是工作台主路径。旧 `/ai/suggest` 仅保留兼容，并返回废弃提示头，新集成必须使用 `/ai/relay`。AI 卡片持久化已拆到 `src/ai/cards.mjs`。
+- `src/ai/`：旧 suggest/native 路径和当前 relay；relay 是工作台主路径。旧 `/ai/suggest` 仅保留兼容，并返回废弃提示头，新集成必须使用 `/ai/relay`。计划在 0.7.0 移除 suggest/native 路径；0.6.x 期间只修安全问题和致命缺陷。AI 卡片持久化已拆到 `src/ai/cards.mjs`。
 - `src/media/`：隔离的图片重编码和 PDF 页渲染 worker 适配。
 - `public/console.*`：网页工作台（无构建步骤的原生 JavaScript）；目前仍是最大的前端单文件，后续可按状态、渲染、AI、subpage 拆分。
 - `public/console-utils.js`：控制台纯展示格式化工具（短 ID、耗时、JSON、预览文本）。
 - `public/console-ai-cards.js`：控制台 AI 卡片状态、服务端卡片合并和选中逻辑。
+- `public/console-queue.js`：队列选择、统计、筛选和渲染。
 - `src/text.mjs`：token 估算、停止词和流式分片。
 - `src/http/public-assets.mjs`：静态资源表和 MIME 映射。
+- `src/http/pages.mjs`：静态页面、登录壳和管理页鉴权服务。
+- `public/console-queue.js`：控制台队列选择、统计和渲染。
 - `public/hub.html` + `navigation.js`：一级导航和概览/记录/管理 Hub；二级页面通过同源 iframe 复用。
 - `public/login.*`：登录页。
 - `public/settings.html`、`settings-operator.html`：设置页。
 - `public/status.html`、`environment.html`、`usage.html`、`history.html`、`audit.html`、`users.html`、`models.html`、`keys.html`：旧管理页面，保留为 Hub 的嵌入页面和兼容入口。
 - `scripts/user.mjs`：账号 CLI。
 - `src/environment.mjs`：管理员环境页的受限能力探测，只检查配置路径和已知 Python 模块。
-- `test/provider.test.mjs`：当前 77 个用例集中在单个测试文件，后续可按协议、票据、AI、数据和 UI 回归拆分。
+- `test/provider.test.mjs`：服务端、票据、数据和 UI 静态回归。
+- `test/ai-relay.test.mjs`：AI relay、协议转发、流式、工具和诊断的纯单元测试。
+- 两类测试共享 `npm test`，当前共 77 个用例。
 
 ## 请求生命周期
 

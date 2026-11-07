@@ -36,6 +36,7 @@ src/data/templates.mjs
 src/data/usage.mjs
 src/features.mjs
 src/http/public-assets.mjs
+src/http/pages.mjs
 src/environment.mjs
 src/media/image-worker.mjs
 src/media/pdf-worker.mjs
@@ -59,6 +60,7 @@ public/console.css
 public/console.js
 public/console-utils.js
 public/console-ai-cards.js
+public/console-queue.js
 public/navigation.js
 public/theme.css
 public/admin.css

@@ -45,6 +45,27 @@ for (const file of files) {
   if (!existsSync(path.join(ROOT, file))) fail(`whitelisted file missing: ${file}`);
 }
 
+// Every relative module imported by a whitelisted runtime file must also be
+// shipped. This catches the common failure where a refactor adds a new module
+// but forgets to add it to the whitelist.
+function assertImportClosure() {
+  const queue = [...files];
+  const scanned = new Set();
+  while (queue.length) {
+    const file = queue.shift();
+    if (scanned.has(file) || !/\.(?:mjs|js)$/i.test(file)) continue;
+    scanned.add(file);
+    const source = readFileSync(path.join(ROOT, file), "utf8");
+    for (const match of source.matchAll(/(?:from\s+|import\s*\()\s*["'](\.{1,2}\/[^"']+)["']/g)) {
+      const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(file), match[1]));
+      if (resolved.startsWith("../")) fail(`import escapes project root: ${file} -> ${match[1]}`);
+      if (!seen.has(resolved)) fail(`runtime import missing from whitelist: ${resolved} (from ${file})`);
+      queue.push(resolved);
+    }
+  }
+}
+assertImportClosure();
+
 const forbidden = [
   "test/",
   "examples/",
