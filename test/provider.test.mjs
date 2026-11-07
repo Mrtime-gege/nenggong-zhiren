@@ -2594,6 +2594,7 @@ test("AI assist respects user feature flags, settings and secret handling", asyn
       body: { task: "summary" },
     });
     assert.equal(aiResponse.status, 200);
+    assert.equal(aiResponse.headers.get("deprecation"), "true");
     const ai = await aiResponse.json();
     assert.match(ai.suggestion, /退款进度/);
     assert.equal(requests.length, 1);

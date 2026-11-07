@@ -22,7 +22,6 @@ src/ai/native.mjs
 src/ai/relay.mjs
 src/auth.mjs
 src/config.mjs
-src/data/ai-usage.mjs
 src/data/api-keys.mjs
 src/data/attachments.mjs
 src/data/audit.mjs

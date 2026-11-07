@@ -21,7 +21,6 @@ docs/screenshots/*.tmp
 /templates.json
 
 /ai-secrets.json
-/ai-usage.json
 
 /history.db
 /history.db-*

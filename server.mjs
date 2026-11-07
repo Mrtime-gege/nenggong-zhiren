@@ -24,7 +24,7 @@ import { resolveClientIp } from "./src/net.mjs";
 import { publicFeatureCatalog, userAllowsFeature } from "./src/features.mjs";
 import { ApiKeyError, ApiKeyStore, ModelError, ModelStore } from "./src/data/index.mjs";
 import { QuotaError, StateStore, UsageStore } from "./src/data/index.mjs";
-import { AiUsageStore, SecretStore } from "./src/data/index.mjs";
+import { SecretStore } from "./src/data/index.mjs";
 import { AttachmentError, AttachmentStore, AuditStore, HistoryIndex, SettingsError, SettingsStore, TemplateError, TemplateStore } from "./src/data/index.mjs";
 import { generateSecret, otpauthUrl } from "./src/totp.mjs";
 import { AiAssistError, suggestWithAi } from "./src/ai/assist.mjs";
@@ -73,7 +73,6 @@ const config = Object.freeze({
   attachmentsDir: PUBLIC_CONFIG.storage.attachmentsDir,
   templatesFile: PUBLIC_CONFIG.storage.templatesFile,
   aiSecretsFile: PUBLIC_CONFIG.storage.aiSecretsFile,
-  aiUsageFile: PUBLIC_CONFIG.storage.aiUsageFile,
   historyFile: PUBLIC_CONFIG.storage.historyFile,
   attachments: PUBLIC_CONFIG.attachments,
   alerts: PUBLIC_CONFIG.alerts,
@@ -135,10 +134,6 @@ const settingsStore = new SettingsStore({
 const live = settingsStore.values;
 const secrets = new SecretStore({
   file: config.aiSecretsFile,
-  logger: console,
-}).init();
-const aiUsage = new AiUsageStore({
-  file: config.aiUsageFile,
   logger: console,
 }).init();
 let aiActive = 0;
@@ -1286,8 +1281,6 @@ function startAiRelayForTicket(ticket, source, actor = "system") {
     if (auth.getPreferences(actor).autoAiOnClaim !== true) return;
   }
   if (ticket.aiPending?.status === "ready") return;
-  const usageActor = source === "auto_receive" ? "__auto_receive__" : actor;
-  aiUsage.addRequest(usageActor);
   ticket.aiPending = { status: "running", source, actor, createdAt: Date.now() };
   persistRuntime();
   setImmediate(async () => {
@@ -1324,7 +1317,6 @@ function startAiRelayForTicket(ticket, source, actor = "system") {
         usage: result.usage || null,
         createdAt: finishedAt,
       };
-      aiUsage.addTokens(usageActor, (result.usage?.inputTokens || 0) + (result.usage?.outputTokens || 0));
       persistRuntime({ flush: true });
     } catch (error) {
       ticket.aiPending = { status: "error", source, actor, error: String(error.message || "AI 求助失败").slice(0, 500), createdAt: Date.now() };
@@ -3690,7 +3682,6 @@ async function handleOperator(req, res, url, session) {
     if (aiActive >= live.aiAssist.maxConcurrent) throw new ApiError(503, "AI 辅助当前繁忙，请稍后重试。", "server_error", "ai_busy");
     aiActive += 1;
     aiTicketLocks.add(relayTicket.id);
-    aiUsage.addRequest(operator);
     const relayStarted = Date.now();
     const instruction = String(body.instruction || "").trim().slice(0, 500);
     try {
@@ -3722,7 +3713,6 @@ async function handleOperator(req, res, url, session) {
         finishedAt,
       });
       persistRuntime({ flush: true });
-      aiUsage.addTokens(operator, result.usage.inputTokens + result.usage.outputTokens);
       audit.append({
         actor: operator,
         action: "ai.relay",
@@ -3796,7 +3786,6 @@ async function handleOperator(req, res, url, session) {
     aiActive += 1;
     aiTicketLocks.add(aiTicket.id);
     if (auto) aiAutoLocks.add(aiTicket.id);
-    aiUsage.addRequest(operator);
     const startedAt = Date.now();
     try {
       let result;
@@ -3831,7 +3820,6 @@ async function handleOperator(req, res, url, session) {
           targetLanguage,
         });
       }
-      aiUsage.addTokens(operator, result.usage.inputTokens + result.usage.outputTokens);
       if (auto) {
         aiTicket.autoAiAt = Date.now();
         persistRuntime();
@@ -3849,7 +3837,12 @@ async function handleOperator(req, res, url, session) {
           latencyMs: Date.now() - startedAt,
         }).slice(0, 480),
       });
-      return sendJson(res, 200, { ok: true, ...result });
+      // Kept for API compatibility with early 0.5/0.6 clients. The console
+      // uses /ai/relay; new integrations must use /ai/relay.
+      return sendJson(res, 200, { ok: true, ...result }, {
+        Deprecation: "true",
+        Warning: '299 - "AI suggest is deprecated; use /ai/relay"',
+      });
     } catch (error) {
       const mapped = error instanceof AiAssistError
         ? new ApiError(error.status, error.message, "ai_assist_error", error.code, null, error.retryAfterMs ? { "Retry-After": String(Math.ceil(error.retryAfterMs / 1000)) } : undefined)

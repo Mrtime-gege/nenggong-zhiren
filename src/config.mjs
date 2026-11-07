@@ -191,7 +191,6 @@ export function loadConfig(file = CONFIG_FILE) {
   const attachmentsDir = resolvePath(stringAt(storage, "attachmentsDir", "storage.attachmentsDir", "attachments"));
   const templatesFile = resolvePath(stringAt(storage, "templatesFile", "storage.templatesFile", "templates.json"));
   const aiSecretsFile = resolvePath(stringAt(storage, "aiSecretsFile", "storage.aiSecretsFile", "ai-secrets.json"));
-  const aiUsageFile = resolvePath(stringAt(storage, "aiUsageFile", "storage.aiUsageFile", "ai-usage.json"));
   const historyFile = resolvePath(stringAt(storage, "historyFile", "storage.historyFile", "history.db"));
   const stateDb = resolvePath(stringAt(storage, "stateDb", "storage.stateDb", "state.db"));
   const modelIds = stringArrayAt(models, "ids", "models.ids", ["human-1", "human-1-fast"]);
@@ -301,7 +300,7 @@ export function loadConfig(file = CONFIG_FILE) {
       trustedProxies: stringArrayAt(server, "trustedProxies", "server.trustedProxies", []),
       corsOrigins: stringArrayAt(server, "corsOrigins", "server.corsOrigins", ["*"]),
     }),
-    storage: Object.freeze({ usersFile, apiKeysFile, stateFile, usageFile, settingsFile, auditFile, modelsFile, attachmentsDir, templatesFile, aiSecretsFile, aiUsageFile, historyFile, stateDb }),
+    storage: Object.freeze({ usersFile, apiKeysFile, stateFile, usageFile, settingsFile, auditFile, modelsFile, attachmentsDir, templatesFile, aiSecretsFile, historyFile, stateDb }),
     auth: Object.freeze({
       sessionTtlMs: integerAt(auth, "sessionTtlMs", "auth.sessionTtlMs", {
         fallback: 12 * 60 * 60_000,

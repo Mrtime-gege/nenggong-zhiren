@@ -74,9 +74,6 @@
     // AI 辅助的 API Key（0600，只有管理员能写；不会通过 API 返回）。
     "aiSecretsFile": "ai-secrets.json",
 
-    // AI 辅助的每日限额计数（不保存提示词或回复内容）。
-    "aiUsageFile": "ai-usage.json",
-
     // 已完成票据的 SQLite/FTS5 历史索引；没有 node:sqlite 时自动回退内存搜索。
     "historyFile": "history.db",
 
