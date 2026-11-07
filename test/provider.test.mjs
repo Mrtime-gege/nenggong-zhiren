@@ -1284,7 +1284,10 @@ test("operators, ticket transfer and CSV exports", async () => {
 test("admin pages are grouped into hubs and remain admin-only", async () => {
   const hub = await fetch(`${BASE}/console/admin?tab=users`, { headers: { Cookie: adminSession.cookie } });
   assert.equal(hub.status, 200);
-  assert.match(await hub.text(), /管理子页面/);
+  const hubText = await hub.text();
+  assert.match(hubText, /管理子页面/);
+  assert.match(hubText, /id="hubFrames"/);
+  assert.doesNotMatch(hubText, /hub-breadcrumb/);
   for (const pathname of ["/console/overview?tab=status", "/console/records?tab=history"]) {
     const response = await fetch(`${BASE}${pathname}`, { headers: { Cookie: adminSession.cookie } });
     assert.equal(response.status, 200, pathname);
@@ -1324,6 +1327,8 @@ test("admin pages are grouped into hubs and remain admin-only", async () => {
   assert.match(navigationText, /console\/records/);
   assert.match(navigationText, /console\/admin/);
   assert.match(navigationText, /console\/guide/);
+  assert.match(navigationText, /requestIdleCallback/);
+  assert.match(navigationText, /pointerenter/);
   const settingsMarkup = await fetch(`${BASE}/console/settings`, { headers: { Cookie: adminSession.cookie } }).then((r) => r.text());
   assert.doesNotMatch(settingsMarkup, /aiMaxInput|aiMaxOutput|aiDailyRequests/);
   assert.match(settingsMarkup, /id="setPublicGuide"/);
