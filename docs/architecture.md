@@ -35,7 +35,7 @@
 - `src/auth.mjs`：用户文件、scrypt 哈希、内存会话、CSRF、TOTP MFA、登录失败限速、热重载。
 - `src/schema.mjs`：零依赖 JSON Schema 子集校验器。
 - `src/protocol/`：OpenAI / Anthropic 请求归一化、响应与流式增量。
-- `src/data/`：模型、密钥、用量、状态、设置、审计、附件、模板、历史和 AI 用量存储。
+- `src/data/`：模型、密钥、用量、状态、设置、审计、附件、模板和历史存储。
 - `src/ai/`：旧 suggest/native 路径和当前 relay；relay 是工作台主路径。旧 `/ai/suggest` 仅保留兼容，并返回废弃提示头，新集成必须使用 `/ai/relay`。
 - `src/media/`：隔离的图片重编码和 PDF 页渲染 worker 适配。
 - `public/console.*`：网页工作台（无构建步骤的原生 JavaScript）；目前是最大的前端单文件，后续可按状态、渲染、AI、subpage 拆分。
