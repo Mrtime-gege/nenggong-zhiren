@@ -62,6 +62,7 @@ public/console-utils.js
 public/console-ai-cards.js
 public/console-queue.js
 public/console-shortcuts.js
+public/console-detail.js
 public/navigation.js
 public/theme.css
 public/admin.css

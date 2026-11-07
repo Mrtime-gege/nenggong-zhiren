@@ -12,6 +12,7 @@ export const PUBLIC_FILES = new Map([
   ["/console-ai-cards.js", { file: "console-ai-cards.js", type: "text/javascript; charset=utf-8" }],
   ["/console-queue.js", { file: "console-queue.js", type: "text/javascript; charset=utf-8" }],
   ["/console-shortcuts.js", { file: "console-shortcuts.js", type: "text/javascript; charset=utf-8" }],
+  ["/console-detail.js", { file: "console-detail.js", type: "text/javascript; charset=utf-8" }],
   ["/guide.css", { file: "guide.css", type: "text/css; charset=utf-8" }],
   ["/password-strength.js", { file: "password-strength.js", type: "text/javascript; charset=utf-8" }],
   ["/admin-settings.js", { file: "admin-settings.js", type: "text/javascript; charset=utf-8" }],

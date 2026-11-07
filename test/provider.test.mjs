@@ -2904,6 +2904,10 @@ test("brand icon and web manifest assets are served", async () => {
   assert.equal(consoleShortcuts.status, 200);
   assert.match(consoleShortcuts.headers.get("content-type"), /javascript/);
   assert.match(await consoleShortcuts.text(), /function loadShortcuts/);
+  const consoleDetail = await fetch(`${BASE}/console-detail.js`);
+  assert.equal(consoleDetail.status, 200);
+  assert.match(consoleDetail.headers.get("content-type"), /javascript/);
+  assert.match(await consoleDetail.text(), /function buildDetail/);
 
   const asset = await fetch(`${BASE}/console.js`);
   assert.equal(asset.status, 200);
