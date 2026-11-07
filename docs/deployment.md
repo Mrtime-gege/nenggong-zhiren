@@ -76,7 +76,7 @@ Restart-Service iphlpsvc
 ```
 
 两个路径都可以改成外部绝对路径，或留空禁用。修改后重启服务，在管理员
-`/console/environment` 页面查看探测结果和实际可用功能。
+`/console/overview?tab=environment` 页面查看探测结果和实际可用功能；旧 `/console/environment` 会兼容跳转。
 
 ### 图片重编码
 

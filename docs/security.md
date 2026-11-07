@@ -147,7 +147,7 @@
 
 - `/metrics` 是公开聚合指标端点；不包含聊天内容、用户名、密钥或票据 ID。生产环境建议通过反向代理限制来源。
 - `/op/api/operators` 必须携带当前回复员可见的 `ticket`，只返回该票据模型可接单的账号，不返回 `allowedModels`。
-- `/console/history` 仅管理员可访问；检索结果来自 `state.db` / `history.db`，受模型权限和管理员角色保护。
+- `/console/records?tab=history` 仅管理员可访问；旧 `/console/history` 会兼容跳转；检索结果来自 `state.db` / `history.db`，受模型权限和管理员角色保护。
 - 历史 CSV 导出由管理员主动触发，不写入临时文件；所有字段复用公式前缀防护，避免 CSV/Excel 公式注入。
 - 会话 ID 可由调用方通过 `X-Session-Id` 等头提供；服务会按调用方隔离，不跨 key 合并。
 
@@ -271,7 +271,7 @@ SQLite 可用时，票据和幂等记录写入 `state.db`（0600）。首次启�
 
 ## 环境探测
 
-- 管理员 `/console/environment` 只检查 `config.jsonc → workers` 中明确配置的 Python、图片 worker 和 PDF worker；
+- 管理员 `/console/overview?tab=environment` 只检查；旧 `/console/environment` 会兼容跳转 `config.jsonc → workers` 中明确配置的 Python、图片 worker 和 PDF worker；
 - 不扫描项目树、家目录或主机目录；
 - Python 探测只调用配置的可执行文件并导入已知依赖，超时后终止；
 - 环境页只返回路径、版本、可用状态和错误摘要，不返回 AI Key、调用密钥或票据内容。
