@@ -21,12 +21,21 @@
     </header>
 
     <main class="admin-main hub-main">
+      <div class="hub-breadcrumb" aria-label="菜单层级">
+        <span class="hub-breadcrumb-level">一级菜单</span>
+        <span id="hubParent" class="hub-breadcrumb-parent">概览</span>
+        <span class="hub-breadcrumb-sep" aria-hidden="true">/</span>
+        <strong id="hubCurrent">实时状态</strong>
+      </div>
       <div class="hub-heading">
         <div>
           <span class="status-kicker">CONSOLE / HUB</span>
           <h1 id="hubTitle">概览</h1>
         </div>
-        <nav id="hubTabs" class="hub-tabs" aria-label="子页面"></nav>
+      </div>
+      <div class="hub-secondary">
+        <span class="hub-tabs-kicker">二级菜单</span>
+        <nav id="hubTabs" class="hub-tabs" aria-label="概览子页面"></nav>
       </div>
       <iframe id="hubFrame" class="hub-frame" title="管理子页面"></iframe>
     </main>

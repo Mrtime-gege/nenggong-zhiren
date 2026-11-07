@@ -85,7 +85,11 @@
       link.className = "topnav-item";
       link.href = page.href;
       link.textContent = page.label;
-      if (page.key === currentPage()) link.classList.add("active");
+      link.dataset.menuLevel = "primary";
+      if (page.key === currentPage()) {
+        link.classList.add("active");
+        link.setAttribute("aria-current", "page");
+      }
       nav.append(link);
     }
     ensureHelpLink();
@@ -128,6 +132,8 @@
     url.searchParams.set("tab", tab.key);
     history.replaceState({}, "", url);
     frame.src = `${tab.href}${tab.href.includes("?") ? "&" : "?"}embed=1`;
+    const current = document.getElementById("hubCurrent");
+    if (current) current.textContent = tab.label;
   }
 
   function initHub(features = {}) {
@@ -143,6 +149,10 @@
     if (!spec.tabs.length) return;
     const title = document.getElementById("hubTitle");
     if (title) title.textContent = spec.title;
+    const parent = document.getElementById("hubParent");
+    if (parent) parent.textContent = spec.title;
+    const tabbarLabel = document.querySelector(".hub-tabs-kicker");
+    if (tabbarLabel) tabbarLabel.textContent = `二级菜单 · ${spec.title}`;
     const frame = document.getElementById("hubFrame");
     const tabbar = document.getElementById("hubTabs");
     if (!frame || !tabbar) return;
@@ -165,6 +175,8 @@
           item.setAttribute("aria-selected", active ? "true" : "false");
         }
         frame.src = `${tab.href}${tab.href.includes("?") ? "&" : "?"}embed=1`;
+        const current = document.getElementById("hubCurrent");
+        if (current) current.textContent = tab.label;
       });
       tabbar.append(button);
     }

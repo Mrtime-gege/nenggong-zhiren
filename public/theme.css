@@ -720,9 +720,11 @@ a.btn {
 }
 
 .topnav-item.active {
-  border-color: rgba(138, 164, 248, 0.22);
-  background: rgba(138, 164, 248, 0.13);
-  color: #dce5ff;
+  border-color: rgba(138, 164, 248, 0.34);
+  background: rgba(138, 164, 248, 0.16);
+  color: #eef3ff;
+  font-weight: 650;
+  box-shadow: inset 0 -2px 0 var(--accent-strong);
 }
 
 .topnav-item.hidden {
