@@ -196,10 +196,7 @@ npm start             # 启动服务
 
 ## 发布
 
-当前版本：**0.6.3**
-
-- [GitHub Releases](https://github.com/Mrtime-gege/nenggong-zhiren/releases)
-- 发布包只包含白名单文件，不包含配置、密钥、数据库、日志、附件和测试。
+最新版本：**0.6.3**。发布说明和下载见 [GitHub Releases](https://github.com/Mrtime-gege/nenggong-zhiren/releases)。
 
 ## License
 
