@@ -26,7 +26,7 @@ permissions. Many local privilege-escalation and persistence paths need only one
 command execution opportunity; they do not require a remote exploit against this
 project.
 
-This repository itself does not provide an Agent shell. When it is used as a
+This repository exposes OpenAI/Anthropic-compatible endpoints but does not provide an Agent shell. When it is used as a
 model endpoint from DSH, the host decides whether shell/filesystem/browser tools
 are enabled and what they can reach. Treat those tools as having the same
 privileges as the account running the host.
