@@ -18,6 +18,24 @@ credentials, or queue content. Contact the maintainers privately with:
 The project is pre-1.0; security fixes are applied to the current published release.
 There is no long-term support release yet.
 
+## Agent tools and local privilege
+
+Using an Agent with terminal, filesystem, browser, package-install, or network
+tools is equivalent to handing an automated process the current user's machine
+permissions. Many local privilege-escalation and persistence paths need only one
+command execution opportunity; they do not require a remote exploit against this
+project.
+
+This repository itself does not provide an Agent shell. When it is used as a
+model endpoint from DSH, the host decides whether shell/filesystem/browser tools
+are enabled and what they can reach. Treat those tools as having the same
+privileges as the account running the host.
+
+Run Agents in a container or VM with a low-privilege account, read-only sensitive
+mounts, explicit command approval, egress restrictions, snapshots, and audit
+review. Never expose production hosts, root/admin credentials, SSH keys, cloud
+tokens, customer data, or unrestricted home directories to an unisolated Agent.
+
 ## Not a security boundary
 
 - The default HTTP mode does not encrypt passwords in transit. Use TLS.
