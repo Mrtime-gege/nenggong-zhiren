@@ -258,6 +258,7 @@
 
 - AI 默认关闭；管理员在设置中显式启用并配置 Endpoint、模型和 API Key；
 - API Key 保存在独立 `ai-secrets.json`（0600），接口只返回是否配置和掩码提示，不返回明文；
+- 清除已保存 Key 使用独立按钮和二次确认，只删除本机 `ai-secrets.json` 中的值，不返回旧 Key；
 - 每个回复员有通用功能开关 `features.aiAssist`，管理员可单独关闭；
 - AI 请求只读取当前票据上下文，不读取其他票据、附件二进制、Cookie 或 API Key；
 - 发送前脱敏 Bearer/Key/Cookie/私钥等模式；

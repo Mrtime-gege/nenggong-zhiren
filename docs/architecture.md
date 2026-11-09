@@ -46,7 +46,7 @@
 - `src/http/pages.mjs`：静态页面、登录壳和管理页鉴权服务。
 - `public/console-queue.js`：控制台队列选择、统计和渲染。
 - `public/console-shortcuts.js`：快捷键定义、持久化和编辑面板。
-- `public/console-detail.js`：票据详情工作区构建，包含原始/归一化请求检查面板。
+- `public/console-detail.js`：票据详情工作区构建；资料页展示请求关键字段并跳转到独立请求检查页。
 - `public/requests.html`、`public/admin-requests.js`：独立请求检查页，支持多条件筛选、原始/归一化对照和同会话关联。
 - `public/hub.html` + `navigation.js`：一级导航和概览/记录/管理 Hub；二级页面通过同源 iframe 复用。
 - `public/login.*`：登录页。
@@ -135,7 +135,10 @@ queued ──claim──► claimed ──chunk/finish──► streaming ──
 3. 工作台票据详情可打开，未认领票据可查看 AI 卡片但填入/追加禁用；
 4. AI 生成结束后卡片出现，刷新和重启后仍可查看；
 5. 浏览器控制台无 pageerror，静态 CSS/JS 返回 ETag，重复请求可 304；
-6. 会话右侧浮动滚动条不得覆盖消息操作按钮；上下文面板原生滚动条使用稳定 gutter。
+6. 会话右侧浮动滚动条不得覆盖消息操作按钮；上下文面板原生滚动条使用稳定 gutter；
+7. 可滚动会话的右侧缩略图保持显示，无可滚动内容时隐藏；
+8. 「记录 → 请求检查」可打开结构图、折叠 JSON、字段跳转，并能从票据自动筛选同会话；
+9. 「设置 → 系统信息」的刷新、诊断复制和重启/结束服务按钮可用，生命周期操作有确认和审计。
 
 自动化命令：
 
