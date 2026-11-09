@@ -41,6 +41,18 @@ test("settings and console do not expose removed AI limit fields", () => {
   assert.doesNotMatch(consoleJs, /aiLimitBar|ai-card-double|doubleLimits/);
 });
 
+test("login page includes progressive enhancement interactions", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/login.html"), "utf8");
+  const script = fs.readFileSync(path.join(ROOT, "public/login.js"), "utf8");
+  assert.match(html, /login-visual/);
+  assert.match(html, /id="totp-progress"/);
+  assert.match(html, /id="caps-lock"/);
+  assert.match(html, /id="login-submit"/);
+  assert.match(script, /updateTotp/);
+  assert.match(script, /updateCaps/);
+  assert.match(script, /requestSubmit/);
+});
+
 test("minimap stays visible for scrollable conversations", () => {
   const css = fs.readFileSync(path.join(ROOT, "public/console.css"), "utf8");
   assert.match(css, /\.thread-minimap:not\(\.hidden\)\s*\{[^}]*opacity:\s*1/s);
@@ -57,6 +69,11 @@ test("settings exposes admin service controls", () => {
   assert.match(html, /id="aiClearKey"/);
   assert.match(html, /id="aiClearKeyConfirm"/);
   assert.match(html, /id="aiClearKeyConfirmBtn"/);
+  assert.match(html, /id="quickBarRestore"/);
+  assert.match(html, /quickBarOptions/);
+  assert.match(script, /quickbar-drag/);
+  assert.match(script, /moveQuickBarItem/);
+  assert.match(script, /restoreQuickBarDefaults/);
   assert.match(html, /id="systemRuntime"/);
   assert.match(html, /id="readonly"/);
   assert.match(html, /系统信息/);

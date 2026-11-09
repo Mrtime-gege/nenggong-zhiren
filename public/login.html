@@ -14,7 +14,38 @@
   </head>
   <body>
     <main class="login-shell">
+      <section class="login-visual" aria-hidden="true">
+        <div class="visual-grid"></div>
+        <div class="visual-top">
+          <span class="visual-eyebrow">HUMAN PROVIDER / WORKBENCH</span>
+          <span class="visual-status"><i></i>LOCAL</span>
+        </div>
+        <div class="visual-copy">
+          <p class="visual-kicker">OPENAI / ANTHROPIC COMPATIBLE</p>
+          <h2>请求进来，<br />人写回复。</h2>
+          <p>兼容的协议入口，真实的回复员。请求进入票据队列，由坐席认领、编辑并通过流式响应返回。</p>
+        </div>
+        <div class="visual-flow">
+          <div class="flow-node active"><span>01</span>请求</div>
+          <div class="flow-line"></div>
+          <div class="flow-node"><span>02</span>队列</div>
+          <div class="flow-line"></div>
+          <div class="flow-node"><span>03</span>人工回复</div>
+        </div>
+        <div class="visual-preview">
+          <div class="preview-head"><span>POST</span><code>/v1/chat/completions</code><b>SSE</b></div>
+          <div class="preview-route"><span>caller</span><i>→</i><span>ticket</span><i>→</i><span>operator</span></div>
+          <div class="preview-lines">
+            <span><em>queued</em> waiting for operator</span>
+            <span><em>claimed</em> human reply in progress</span>
+            <span class="typing"><em>stream</em> writing response<span class="typing-dots">...</span></span>
+          </div>
+        </div>
+        <p class="visual-note">没有模型权重。真正接单的是工作台后面的人。</p>
+      </section>
+
       <section class="login-card" aria-labelledby="login-title">
+        <div class="login-card-glow"></div>
         <div class="brand">
           <img class="login-mark" src="/icon.svg" width="46" height="46" alt="" />
           <div>
@@ -23,7 +54,7 @@
           </div>
         </div>
 
-        <p class="intro">局域网网页工作台。登录后，你处理的每个请求都会记录你的用户名。</p>
+        <p class="intro">登录后进入工作台。你处理的每个请求都会记录你的用户名。</p>
 
         <form id="login-form" method="post" action="/auth/login" autocomplete="on">
           <input type="hidden" name="next" value="{{NEXT}}" />
@@ -56,26 +87,37 @@
               />
               <button id="password-toggle" class="password-toggle" type="button" aria-label="显示密码">显示</button>
             </div>
+            <span id="caps-lock" class="caps-lock hidden" role="status">Caps Lock 已开启</span>
           </label>
           <label class="field">
             <span>动态验证码 <small>启用 MFA 时填写</small></span>
-            <input
-              id="totp"
-              name="totp"
-              type="text"
-              inputmode="numeric"
-              autocomplete="one-time-code"
-              maxlength="6"
-              placeholder="6 位验证码，未启用可留空"
-            />
+            <div class="totp-wrap">
+              <input
+                id="totp"
+                name="totp"
+                type="text"
+                inputmode="numeric"
+                autocomplete="one-time-code"
+                maxlength="6"
+                placeholder="6 位验证码，未启用可留空"
+              />
+              <span id="totp-progress" class="totp-progress" aria-live="polite">0 / 6</span>
+            </div>
+            <span class="field-hint">支持数字键盘；粘贴验证码时会自动过滤非数字。</span>
           </label>
-          <button id="login-submit" type="submit">登录控制台</button>
+          <button id="login-submit" type="submit" class="login-submit">
+            <span class="submit-label">登录控制台</span>
+            <span class="submit-spinner" aria-hidden="true"></span>
+          </button>
         </form>
+
+        <p class="shortcut-hint"><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Enter</kbd> 提交</p>
 
         <p class="fineprint">
           仅限授权的局域网用户 · 会话 12 小时有效 · 失败尝试会被限速
           <a class="guide-link" href="/guide">第一次使用？查看新手教程</a>
         </p>
+        <noscript><p class="noscript">需要启用 JavaScript 才能提交登录。</p></noscript>
       </section>
     </main>
     <script src="/login.js" defer></script>

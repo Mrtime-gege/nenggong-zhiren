@@ -17,7 +17,7 @@
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-9ad7b4" /></a>
   <a href="https://nodejs.org/"><img alt="node" src="https://img.shields.io/badge/node-%3E%3D20-5fa04e" /></a>
   <img alt="dependencies" src="https://img.shields.io/badge/runtime_dependencies-0-c28a5a" />
-  <img alt="tests" src="https://img.shields.io/badge/tests-119%20passing-b084f0" />
+  <img alt="tests" src="https://img.shields.io/badge/tests-120%20passing-b084f0" />
 </p>
 
 <p align="center">

@@ -70,6 +70,8 @@ const DEFAULT_QUICK_BAR = [
 ];
 let quickBarDraft = [];
 let quickBarDraftSeq = 0;
+let freshQuickBarId = "";
+let draggingQuickBarIndex = null;
 
 function quickBarSpec(kind, value) {
   const list = kind === "action" ? QUICK_ACTIONS : kind === "link" ? QUICK_LINKS : kind === "info" ? QUICK_INFOS : [];
@@ -109,6 +111,7 @@ function quickBarFormRow(item, index) {
   const row = document.createElement("div");
   row.className = "quickbar-item";
   row.dataset.index = String(index);
+  row.dataset.itemId = item.id;
 
   const top = document.createElement("div");
   top.className = "quickbar-item-main";
@@ -137,30 +140,54 @@ function quickBarFormRow(item, index) {
   };
   fillValueOptions();
 
+  const drag = document.createElement("span");
+  drag.className = "quickbar-drag";
+  drag.draggable = true;
+  drag.tabIndex = 0;
+  drag.setAttribute("role", "button");
+  drag.setAttribute("aria-label", "拖动排序，或使用上下方向键移动");
+  drag.title = "拖动排序；聚焦后可用方向键移动";
+  drag.textContent = "⋮⋮";
+  drag.addEventListener("dragstart", (event) => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", String(index));
+    draggingQuickBarIndex = index;
+    row.classList.add("dragging");
+    drag.setAttribute("aria-grabbed", "true");
+  });
+  drag.addEventListener("dragend", () => {
+    row.classList.remove("dragging");
+    drag.setAttribute("aria-grabbed", "false");
+    draggingQuickBarIndex = null;
+    for (const node of hostRows()) node.classList.remove("drag-over");
+  });
+  drag.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    const direction = event.key === "ArrowUp" ? -1 : 1;
+    moveQuickBarItem(index, index + direction);
+  });
+
+  row.addEventListener("dragover", (event) => {
+    if (!row.classList.contains("dragging")) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      row.classList.add("drag-over");
+    }
+  });
+  row.addEventListener("dragleave", (event) => {
+    if (!row.contains(event.relatedTarget)) row.classList.remove("drag-over");
+  });
+  row.addEventListener("drop", (event) => {
+    event.preventDefault();
+    row.classList.remove("drag-over");
+    const from = Number(event.dataTransfer.getData("text/plain"));
+    const source = Number.isInteger(from) && from >= 0 ? from : draggingQuickBarIndex;
+    if (Number.isInteger(source) && source !== index) moveQuickBarItem(source, index);
+  });
+
   const actions = document.createElement("div");
   actions.className = "quickbar-item-actions";
-  const up = document.createElement("button");
-  up.type = "button";
-  up.className = "btn ghost quickbar-mini";
-  up.textContent = "↑";
-  up.title = "上移";
-  up.disabled = index === 0;
-  up.addEventListener("click", () => {
-    [quickBarDraft[index - 1], quickBarDraft[index]] = [quickBarDraft[index], quickBarDraft[index - 1]];
-    renderQuickBarOptions();
-    queueSave("personal", savePersonal);
-  });
-  const down = document.createElement("button");
-  down.type = "button";
-  down.className = "btn ghost quickbar-mini";
-  down.textContent = "↓";
-  down.title = "下移";
-  down.disabled = index === quickBarDraft.length - 1;
-  down.addEventListener("click", () => {
-    [quickBarDraft[index + 1], quickBarDraft[index]] = [quickBarDraft[index], quickBarDraft[index + 1]];
-    renderQuickBarOptions();
-    queueSave("personal", savePersonal);
-  });
   const remove = document.createElement("button");
   remove.type = "button";
   remove.className = "btn ghost quickbar-mini quickbar-remove";
@@ -171,7 +198,7 @@ function quickBarFormRow(item, index) {
     renderQuickBarOptions();
     queueSave("personal", savePersonal);
   });
-  actions.append(up, down, remove);
+  actions.append(remove);
 
   kind.addEventListener("change", () => {
     item.kind = kind.value;
@@ -189,10 +216,42 @@ function quickBarFormRow(item, index) {
     renderQuickBarOptions();
     queueSave("personal", savePersonal);
   });
-  top.append(label, kind, value, actions);
+  top.append(drag, label, kind, value, actions);
 
   row.append(top);
+  if (item.id === freshQuickBarId) {
+    row.classList.add("quickbar-item-new");
+    row.addEventListener("animationend", () => {
+      row.classList.remove("quickbar-item-new");
+      if (freshQuickBarId === item.id) freshQuickBarId = "";
+    }, { once: true });
+  }
   return row;
+}
+
+function hostRows() {
+  return [...document.querySelectorAll("#quickBarOptions .quickbar-item")];
+}
+
+function moveQuickBarItem(from, to) {
+  if (!Number.isInteger(from) || !Number.isInteger(to)) return;
+  if (from < 0 || from >= quickBarDraft.length || to < 0 || to >= quickBarDraft.length || from === to) return;
+  const [item] = quickBarDraft.splice(from, 1);
+  quickBarDraft.splice(to, 0, item);
+  renderQuickBarOptions();
+  queueSave("personal", savePersonal);
+  requestAnimationFrame(() => {
+    const handles = document.querySelectorAll("#quickBarOptions .quickbar-drag");
+    handles[to]?.focus();
+  });
+}
+
+function restoreQuickBarDefaults() {
+  if (!window.confirm("恢复默认快捷栏？当前排序和自定义项会被替换。")) return;
+  quickBarDraft = DEFAULT_QUICK_BAR.map((item) => ({ ...item }));
+  freshQuickBarId = "";
+  renderQuickBarOptions();
+  queueSave("personal", savePersonal);
 }
 
 function renderQuickBarOptions() {
@@ -222,14 +281,21 @@ function addQuickBarItem() {
   const options = quickBarOptionsFor("action");
   const first = options[0];
   if (!first) return;
-  quickBarDraft.push({
+  const item = {
     id: `quick_${Date.now()}_${++quickBarDraftSeq}`,
     kind: "action",
     value: first.value,
     label: first.label,
-  });
+  };
+  quickBarDraft.push(item);
+  freshQuickBarId = item.id;
   renderQuickBarOptions();
   queueSave("personal", savePersonal);
+  requestAnimationFrame(() => {
+    const node = [...document.querySelectorAll("#quickBarOptions .quickbar-item")]
+      .find((row) => row.dataset.itemId === item.id);
+    node?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  });
 }
 
 async function api(path, { method = "GET", body } = {}) {
@@ -868,6 +934,7 @@ async function init() {
     await load();
     bindAutoSave("personalForm", "personal", savePersonal);
     $("quickBarAdd")?.addEventListener("click", addQuickBarItem);
+    $("quickBarRestore")?.addEventListener("click", restoreQuickBarDefaults);
     $("notifyPermission").addEventListener("click", requestPermission);
     $("prefSoundTest")?.addEventListener("click", previewSound);
     $("logout").addEventListener("click", logout);

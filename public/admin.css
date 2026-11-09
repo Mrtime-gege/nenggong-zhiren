@@ -1859,19 +1859,94 @@ body[data-page="settings"] .settings-content > .admin-only {
 }
 
 .quickbar-item {
+  position: relative;
   display: grid;
   gap: 7px;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.018);
+  transition: border-color 0.2s ease, background 0.2s ease, opacity 0.2s ease;
 }
 
 .quickbar-item-main {
   display: grid;
-  grid-template-columns: minmax(100px, 1fr) 112px minmax(130px, 1.1fr) auto;
+  grid-template-columns: 22px minmax(100px, 1fr) 112px minmax(130px, 1.1fr) auto;
   gap: 6px;
   align-items: center;
+}
+
+.quickbar-drag {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 30px;
+  border-radius: 5px;
+  color: #697381;
+  cursor: grab;
+  user-select: none;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: -2px;
+}
+
+.quickbar-drag:hover,
+.quickbar-drag:focus-visible {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  outline: none;
+}
+
+.quickbar-drag:active {
+  cursor: grabbing;
+}
+
+.quickbar-item.dragging {
+  opacity: 0.48;
+  border-style: dashed;
+}
+
+.quickbar-item.drag-over {
+  border-color: rgba(138, 164, 248, 0.7);
+  background: rgba(138, 164, 248, 0.08);
+}
+
+.quickbar-item-new {
+  animation: quickbar-new 1.15s ease-out;
+}
+
+@keyframes quickbar-new {
+  0% {
+    border-color: #e5b15e;
+    box-shadow: 0 0 0 3px rgba(229, 177, 94, 0.15);
+  }
+  65% {
+    border-color: rgba(229, 177, 94, 0.45);
+    box-shadow: 0 0 0 1px rgba(229, 177, 94, 0.06);
+  }
+  100% {
+    border-color: var(--line);
+    box-shadow: none;
+  }
+}
+
+.quickbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 7px;
+}
+
+.quickbar-actions .quickbar-add {
+  margin-top: 0;
+}
+
+.quickbar-restore {
+  height: 29px;
+  min-height: 29px;
+  padding: 0 8px;
+  font-size: 10px;
 }
 
 .quickbar-label-input,
@@ -1913,7 +1988,11 @@ body[data-page="settings"] .settings-content > .admin-only {
 
 @media (max-width: 880px) {
   .quickbar-item-main {
-    grid-template-columns: minmax(100px, 1fr) 105px minmax(120px, 1fr);
+    grid-template-columns: 22px minmax(100px, 1fr) 105px;
+  }
+
+  .quickbar-value-select {
+    grid-column: 2 / 4;
   }
 
   .quickbar-item-actions {
