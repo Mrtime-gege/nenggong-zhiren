@@ -1,6 +1,6 @@
 # 部署
 
-> 只想尽快跑起来？先看 [quickstart.md](quickstart.md)。
+> 快速启动和常见运行问题见 [quickstart.md](quickstart.md)。
 
 ## 目标形态
 

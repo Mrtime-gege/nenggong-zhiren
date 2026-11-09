@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Mrtime-gege/nenggong-zhiren/releases"><img alt="version" src="https://img.shields.io/badge/version-0.6.3-6ea8fe" /></a>
+  <a href="https://github.com/Mrtime-gege/nenggong-zhiren/releases"><img alt="version" src="https://img.shields.io/badge/version-0.6.4-6ea8fe" /></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-9ad7b4" /></a>
   <a href="https://nodejs.org/"><img alt="node" src="https://img.shields.io/badge/node-%3E%3D20-5fa04e" /></a>
   <img alt="dependencies" src="https://img.shields.io/badge/runtime_dependencies-0-c28a5a" />
@@ -236,7 +236,7 @@ npm start             # 启动服务
 
 ## 发布
 
-最新版本：**0.6.3**。发布说明和下载见 [GitHub Releases](https://github.com/Mrtime-gege/nenggong-zhiren/releases)。
+最新版本：**0.6.4**。发布说明和下载见 [GitHub Releases](https://github.com/Mrtime-gege/nenggong-zhiren/releases)。
 
 ## License
 

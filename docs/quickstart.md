@@ -1,7 +1,6 @@
 # 启动与运行
 
-本文只回答一件事：**怎么把能工智人跑起来、确认它正常、再安全地停掉或重开**。
-架构、协议和安全细节见 [README](../README.md) 与 [deployment.md](deployment.md)。
+本文覆盖启动、健康检查、正常停止和重启操作。架构、协议和安全细节见 [README](../README.md) 与 [deployment.md](deployment.md)。
 
 ## 1. 先决条件
 
@@ -41,7 +40,7 @@ npm start
 启动成功时终端会显示：
 
 ```text
-能工智人 (nenggong-zhiren) v0.6.3 listening on 0.0.0.0:7355
+能工智人 (nenggong-zhiren) v0.6.4 listening on 0.0.0.0:7355
   login       http://127.0.0.1:7355/login
   console     http://127.0.0.1:7355/console
   LAN         http://<LAN-IP>:7355/login
