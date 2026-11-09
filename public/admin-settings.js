@@ -344,8 +344,6 @@ function fillSettings(data) {
   $("mfaSetupBtn").classList.toggle("hidden", latest.mfaEnabled);
   const ro = data.readonly;
   const pairs = [
-    ["监听地址", `${ro.host}:${ro.port}`],
-    ["HTTPS", ro.tls_enabled ? "已启用" : "未启用"],
     ["登录 Cookie", ro.cookie_secure],
     ["模型", ro.models.join(", ")],
     ["受信 Host", ro.trusted_hosts.join(", ") || "自动"],
@@ -680,8 +678,7 @@ function settingsTabForCard(card) {
   if (title.startsWith("功能设置")) return "features";
   if (title.startsWith("AI 辅助")) return "ai";
   if (title.includes("MFA")) return "security";
-  if (title.startsWith("只读启动配置")) return "system";
-  if (title.startsWith("服务控制")) return "system";
+  if (title.startsWith("系统信息")) return "system";
   return "";
 }
 

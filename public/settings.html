@@ -39,7 +39,7 @@
           <span>安全</span><small>管理员 MFA</small>
         </button>
         <button class="settings-nav-item" type="button" data-settings-tab="system">
-          <span>系统信息</span><small>只读启动配置</small>
+          <span>系统信息</span><small>运行状态与服务</small>
         </button>
       </aside>
       <section class="settings-content">
@@ -143,8 +143,9 @@
         </div>
 
         <div class="admin-card" data-system-control>
-          <div class="admin-card-title">服务控制 <span class="admin-hint">管理员</span></div>
-          <p class="admin-card-desc">查看当前进程状态，或在本机安全地重启、结束服务。重启会短暂中断连接；结束服务不会自动拉起进程。</p>
+          <div class="admin-card-title">系统信息 <span class="admin-hint">管理员</span></div>
+          <p class="admin-card-desc">运行状态来自当前进程，启动配置来自 config.jsonc。重启会短暂中断连接；结束服务不会自动拉起进程。</p>
+          <div class="settings-subhead">运行状态</div>
           <div id="systemRuntime" class="readonly-grid"><div class="admin-hint">正在读取运行状态…</div></div>
           <div class="form-actions system-control-actions">
             <button id="systemRefresh" class="btn" type="button">刷新状态</button>
@@ -153,11 +154,7 @@
             <button id="systemShutdown" class="btn danger" type="button">结束服务</button>
           </div>
           <p id="systemHint" class="admin-hint">重启会重新加载代码和配置；结束服务后需要手动或由系统服务管理器重新启动。</p>
-        </div>
-
-        <div class="admin-card">
-          <div class="admin-card-title">只读启动配置</div>
-          <p class="admin-card-desc">这些值来自 config.jsonc，修改后需要重启服务。密钥、账号和状态文件路径见配置。</p>
+          <div class="settings-subhead">启动配置 <span class="admin-hint">只读</span></div>
           <div id="readonly" class="readonly-grid"></div>
         </div>
       </div>
