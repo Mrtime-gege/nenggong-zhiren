@@ -15,7 +15,7 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import fs, { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -97,6 +97,7 @@ const config = Object.freeze({
   trustedHosts: PUBLIC_CONFIG.server.trustedHosts,
   trustedProxies: PUBLIC_CONFIG.server.trustedProxies,
   corsOrigins: PUBLIC_CONFIG.server.corsOrigins,
+  metricsToken: PUBLIC_CONFIG.server.metricsToken,
   queueTimeoutMs: PUBLIC_CONFIG.queue.waitTimeoutMs,
   responseTimeoutMs: PUBLIC_CONFIG.queue.responseTimeoutMs,
   streamDelayMs: PUBLIC_CONFIG.queue.streamDelayMs,
@@ -4558,6 +4559,14 @@ async function route(req, res) {
     }
 
     if (pathname === "/metrics" && req.method === "GET") {
+      const session = auth.getSession(req);
+      const bearer = /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization || ""))?.[1] || "";
+      const expected = config.metricsToken;
+      const tokenOk = Boolean(expected) && bearer.length === expected.length &&
+        timingSafeEqual(Buffer.from(bearer), Buffer.from(expected));
+      if (!tokenOk && session?.role !== "admin") {
+        throw new ApiError(401, "Metrics authentication required.", "authentication_error", "metrics_auth_required");
+      }
       res.writeHead(200, {
         "Content-Type": "text/plain; version=0.0.4; charset=utf-8",
         "Cache-Control": "no-store",

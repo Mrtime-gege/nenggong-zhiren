@@ -46,6 +46,7 @@ function writeConfig(project, { port, usersFile, apiKeysFile, waitMs = 3000, res
       cookieSecure: "auto",
       trustedHosts: [],
       corsOrigins: ["*"],
+      metricsToken: "test-metrics-token",
     },
     storage: {
       usersFile,
@@ -1884,7 +1885,11 @@ test("metrics, global history search and archive CSV are available", async () =>
   await finishJson(adminSession, ticket.id, { text: `archived-${tag}`, finishReason: "stop" });
   assert.equal((await pending).status, 200);
 
-  const metrics = await fetch(`${BASE}/metrics`);
+  const metricsUnauth = await fetch(`${BASE}/metrics`);
+  assert.equal(metricsUnauth.status, 401);
+  const metricsToken = await fetch(`${BASE}/metrics`, { headers: { Authorization: "Bearer test-metrics-token" } });
+  assert.equal(metricsToken.status, 200);
+  const metrics = await fetch(`${BASE}/metrics`, { headers: { Cookie: adminSession.cookie } });
   assert.equal(metrics.status, 200);
   const text = await metrics.text();
   assert.match(text, /ngzr_up 1/);

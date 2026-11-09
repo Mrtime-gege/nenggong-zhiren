@@ -286,12 +286,15 @@ DSH 会热重载。然后在模型选择器里选 Human 1（或 Human 1 Fast）�
 curl -fsS http://127.0.0.1:7355/healthz
 ```
 
-`/healthz` 只返回服务名、版本、uptime，不泄露队列、用户或 key。`/metrics` 返回 Prometheus 聚合指标：
+`/healthz` 只返回服务名、版本、uptime，不泄露队列、用户或 key。`/metrics` 默认仅管理员会话可读；配置 `server.metricsToken` 后可用 `Authorization: Bearer <token>` 供 Prometheus 抓取。指标包括：
 服务状态、运行时间、内存、票据状态计数、请求/完成/失败、累计等待、最老等待、会话数和版本。
 指标不包含聊天内容或密钥；建议只在反向代理/内网限制访问。
 
 ```bash
-curl -fsS http://127.0.0.1:7355/metrics
+# 管理员 Cookie 会话
+curl -fsS -b 'ngzr_session=<session>' http://127.0.0.1:7355/metrics
+# 或使用配置的 metricsToken
+curl -fsS -H 'Authorization: Bearer <metrics-token>' http://127.0.0.1:7355/metrics
 ```
 
 队列告警在 `config.jsonc` 的 `alerts` 中配置：

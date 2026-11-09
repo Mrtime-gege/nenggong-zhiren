@@ -232,7 +232,7 @@ curl -fsS http://127.0.0.1:7355/v1/models \
   -H 'Authorization: Bearer <CALLER_KEY>'
 
 # 5. 监控指标可读
-curl -fsS http://127.0.0.1:7355/metrics | head
+curl -fsS -H "Authorization: Bearer <metrics-token>" http://127.0.0.1:7355/metrics | head
 ```
 
 然后在浏览器打开 `http://<LAN-IP>:7355/login`，管理员登录后默认进入概览 Hub；坐席、概览、记录、管理和设置从顶部导航进入，教程在帮助入口。

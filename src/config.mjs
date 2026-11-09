@@ -298,7 +298,8 @@ export function loadConfig(file = CONFIG_FILE) {
         item.toLowerCase(),
       ),
       trustedProxies: stringArrayAt(server, "trustedProxies", "server.trustedProxies", []),
-      corsOrigins: stringArrayAt(server, "corsOrigins", "server.corsOrigins", ["*"]),
+      corsOrigins: stringArrayAt(server, "corsOrigins", "server.corsOrigins", []),
+      metricsToken: stringAt(server, "metricsToken", "server.metricsToken", "", { allowEmpty: true }),
     }),
     storage: Object.freeze({ usersFile, apiKeysFile, stateFile, usageFile, settingsFile, auditFile, modelsFile, attachmentsDir, templatesFile, aiSecretsFile, historyFile, stateDb }),
     auth: Object.freeze({

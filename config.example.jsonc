@@ -34,10 +34,12 @@
     "trustedProxies": [],
 
     // 浏览器跨域读取接口的允许来源。
-    //   ["*"] = 允许任意来源读取（方便接入，安全边界仍靠调用密钥）
-    //   []    = 不允许跨域读取
+    //   []    = 不允许跨域浏览器读取（默认，推荐）
     //   ["https://app.example.internal"] = 只允许列出的来源
-    "corsOrigins": ["*"]
+    //   ["*"] = 允许任意来源读取（仅用于受控调试；安全边界仍靠调用密钥）
+    "corsOrigins": [],
+    // Prometheus /metrics 的 Bearer token。留空时仅管理员会话可读取。
+    "metricsToken": ""
   },
 
   "storage": {

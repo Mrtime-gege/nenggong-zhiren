@@ -176,7 +176,7 @@
 
 ## 监控与历史
 
-- `/metrics` 是公开聚合指标端点；不包含聊天内容、用户名、密钥或票据 ID。生产环境建议通过反向代理限制来源。
+- `/metrics` 默认需要管理员会话，或在 `server.metricsToken` 配置 Bearer token；不包含聊天内容、用户名、密钥或票据 ID。生产环境仍建议通过反向代理限制来源。
 - `/op/api/operators` 必须携带当前回复员可见的 `ticket`，只返回该票据模型可接单的账号，不返回 `allowedModels`。
 - `/console/records?tab=history` 仅管理员可访问；旧 `/console/history` 会兼容跳转；检索结果来自 `state.db` / `history.db`，受模型权限和管理员角色保护。
 - 历史 CSV 导出由管理员主动触发，不写入临时文件；所有字段复用公式前缀防护，避免 CSV/Excel 公式注入。
