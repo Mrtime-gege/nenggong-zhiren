@@ -3480,8 +3480,7 @@ body.compact-ui .context-pane .context-body {
   transition: opacity 0.14s ease;
 }
 
-.thread-body:hover ~ .thread-minimap.hover-ready,
-.thread-minimap.hover-ready:hover,
+.thread-minimap:hover,
 .thread-minimap.visible,
 .thread-minimap.dragging,
 .thread-minimap:focus-visible {
@@ -3510,8 +3509,7 @@ body.compact-ui .context-pane .context-body {
   will-change: opacity;
 }
 
-.thread-body:hover ~ .thread-minimap.hover-ready,
-.thread-minimap.hover-ready:hover,
+.thread-minimap:hover,
 .thread-minimap.visible,
 .thread-minimap.dragging,
 .thread-minimap:focus-visible {
@@ -3525,7 +3523,7 @@ body.compact-ui .context-pane .context-body {
   transition: opacity 80ms ease, visibility 0s linear 80ms;
 }
 
-.thread-minimap.hover-ready:hover,
+.thread-minimap:hover,
 .thread-minimap.dragging,
 .thread-minimap.visible,
 .thread-minimap:focus-visible {
@@ -3600,8 +3598,10 @@ body.compact-ui .context-pane .context-body {
 }
 
 .thread-minimap {
-  /* Keep it focusable for keyboard users; opacity still hides it until focus. */
+  /* The invisible right gutter is the hover target; opacity still hides the
+     miniature until the pointer enters it, the thread scrolls, or it is focused. */
   visibility: visible;
+  pointer-events: auto;
 }
 
 .thread-minimap:focus-visible {

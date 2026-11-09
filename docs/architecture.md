@@ -59,7 +59,7 @@
 - `test/data-units.test.mjs`：API key、用量配额、设置、模型、审计、附件和 JSONC。
 - `test/ai-helpers.test.mjs`、`test/attachment-branches.test.mjs`、`test/core-helpers.test.mjs`：上下文裁剪、附件分支、文本工具和状态快照。
 - `test/ai-errors.test.mjs`：AI 配置/上游/工具契约错误分支。
-- 两类测试共享 `npm test`，当前共 118 个用例。
+- 两类测试共享 `npm test`，当前共 119 个用例。
 
 ## 请求生命周期
 

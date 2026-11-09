@@ -753,7 +753,10 @@ function applyPendingAiHelp(ticket) {
     finishReason: pending.finishReason || "",
     usage: pending.usage || null,
   });
+  clearAiLoadingTimer(detail);
   detail.els.aiPanel.classList.add("hidden");
+  detail.els.aiPanel.classList.remove("expanded");
+  detail.els.aiPanelBody.textContent = "";
   addAiCard(ticket, detail, {
     id: pending.cardId || "",
     reasoning: pending.reasoning || "",

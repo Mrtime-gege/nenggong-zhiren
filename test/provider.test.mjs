@@ -2916,7 +2916,7 @@ test("request inspection is dry-run and ticket snapshots keep the raw protocol b
   assert.equal(page.status, 200);
   assert.match(await page.text(), /id="requestFilters"/);
   const listed = await opJson(adminSession, "/op/api/tickets?compact=1&limit=200");
-  assert.ok(listed.tickets.every((ticket) => "requestBytes" in ticket && "requestCaptured" in ticket));
+  assert.ok(listed.tickets.every((ticket) => "requestBytes" in ticket && "requestCaptured" in ticket && "messageCount" in ticket && "inputChars" in ticket));
 
   const tag = marker("REQUEST-INSPECTION");
   const pending = startChat({ model: "human-1", messages: [{ role: "user", content: tag }] });

@@ -41,6 +41,16 @@ test("settings and console do not expose removed AI limit fields", () => {
   assert.doesNotMatch(consoleJs, /aiLimitBar|ai-card-double|doubleLimits/);
 });
 
+test("minimap stays hidden until the right gutter is hovered", () => {
+  const css = fs.readFileSync(path.join(ROOT, "public/console.css"), "utf8");
+  assert.doesNotMatch(css, /\.thread-body:hover\s*~\s*\.thread-minimap/);
+  assert.match(css, /\.thread-minimap:hover/);
+  assert.match(css, /pointer-events:\s*auto/);
+  const cards = fs.readFileSync(path.join(ROOT, "public/console-ai-cards.js"), "utf8");
+  assert.match(cards, /messageCount/);
+  assert.match(cards, /inputChars/);
+});
+
 test("settings exposes admin service controls", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/settings.html"), "utf8");
   const script = fs.readFileSync(path.join(ROOT, "public/admin-settings.js"), "utf8");

@@ -6,7 +6,11 @@ function aiInputSummary(ticket) {
   for (const message of messages) {
     if (typeof message?.content === "string") chars += message.content.length;
   }
-  return `${messages.length} 条消息 · ${chars} 字符`;
+  // The queue summary does not carry full messages, but it now carries the
+  // counts. Prefer the full ticket when it is loaded, then fall back.
+  const count = messages.length || Number(ticket?.messageCount) || 0;
+  if (!messages.length) chars = Number(ticket?.inputChars) || 0;
+  return `${count} 条消息 · ${chars.toLocaleString("zh-CN")} 字符`;
 }
 
 
