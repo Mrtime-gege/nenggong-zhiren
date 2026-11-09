@@ -4657,3 +4657,15 @@ body[data-page="workbench"] .qitem-foot {
   justify-content: center;
   text-decoration: none;
 }
+
+/*
+ * The conversation minimap is an always-visible overview for scrollable
+ * conversations. It only disappears when the thread has nothing to scroll;
+ * pointer movement must not hide it.
+ */
+.thread-minimap:not(.hidden) {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: none;
+}

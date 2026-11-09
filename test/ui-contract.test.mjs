@@ -41,10 +41,10 @@ test("settings and console do not expose removed AI limit fields", () => {
   assert.doesNotMatch(consoleJs, /aiLimitBar|ai-card-double|doubleLimits/);
 });
 
-test("minimap stays hidden until the right gutter is hovered", () => {
+test("minimap stays visible for scrollable conversations", () => {
   const css = fs.readFileSync(path.join(ROOT, "public/console.css"), "utf8");
+  assert.match(css, /\.thread-minimap:not\(\.hidden\)\s*\{[^}]*opacity:\s*1/s);
   assert.doesNotMatch(css, /\.thread-body:hover\s*~\s*\.thread-minimap/);
-  assert.match(css, /\.thread-minimap:hover/);
   assert.match(css, /pointer-events:\s*auto/);
   const cards = fs.readFileSync(path.join(ROOT, "public/console-ai-cards.js"), "utf8");
   assert.match(cards, /messageCount/);
