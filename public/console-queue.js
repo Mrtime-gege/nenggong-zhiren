@@ -208,8 +208,9 @@ function renderQueue() {
     const head = el("div", "queue-group-head");
     head.append(el("span", "", state.tickets.length ? "没有匹配" : "队列为空"));
     empty.append(head);
-    empty.append(el("div", "qitem-preview", state.tickets.length ? "换一个搜索词或筛选条件。" : "等待调用方请求…"));
+    empty.append(el("div", "qitem-preview", state.tickets.length ? "换一个搜索词或筛选条件。" : "等待调用方请求。"));
     els.queue.replaceChildren(empty);
+    els.queue.dataset.signature = signature;
     return;
   }
 
@@ -246,15 +247,6 @@ function renderQueue() {
   }
   els.queue.replaceChildren(fragment);
   els.queue.scrollTop = scrollTop;
-  els.queue.dataset.signature = JSON.stringify({
-    selected: state.selectedId,
-    query: state.queueQuery,
-    filter: state.queueFilter,
-    tickets: state.tickets.map((ticket) => [
-      ticket.id, ticket.state, ticket.sessionId, ticket.sessionTurn, ticket.claimedBy,
-      ticket.preferredOperator, ticket.priority, ticket.noteCount, ticket.queueWaitMs,
-      ticket.tags || [], ticket.preview || "",
-    ]),
-  });
+  els.queue.dataset.signature = signature;
 }
 

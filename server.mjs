@@ -1858,8 +1858,28 @@ function abandonTicket(ticket) {
 /* Operator-facing ticket view                                        */
 /* ------------------------------------------------------------------ */
 
+const ticketInputStatsCache = new WeakMap();
+
+function ticketInputStats(ticket) {
+  const messages = Array.isArray(ticket.messages) ? ticket.messages : [];
+  const cached = ticketInputStatsCache.get(ticket);
+  if (cached?.messages === messages && cached.count === messages.length) return cached;
+  let chars = 0;
+  let hasImages = false;
+  for (const message of messages) {
+    if (typeof message?.content === "string") chars += message.content.length;
+    if (!hasImages && Array.isArray(message?.parts)) {
+      hasImages = message.parts.some((part) => part?.type === "image");
+    }
+  }
+  const stats = { messages, count: messages.length, chars, hasImages };
+  ticketInputStatsCache.set(ticket, stats);
+  return stats;
+}
+
 function publicTicket(ticket) {
   const end = ticket.finishedAt || Date.now();
+  const input = ticketInputStats(ticket);
   return {
     id: ticket.id,
     protocol: ticket.protocol || OPENAI_PROTOCOL,
@@ -1900,8 +1920,8 @@ function publicTicket(ticket) {
     maxTokens: ticket.maxTokens,
     stops: ticket.stops,
     promptTokens: ticket.promptTokens,
-    messageCount: (ticket.messages || []).length,
-    inputChars: (ticket.messages || []).reduce((sum, message) => sum + (typeof message?.content === "string" ? message.content.length : 0), 0),
+    messageCount: input.count,
+    inputChars: input.chars,
     completionTokens: ticket.usage?.completion_tokens ?? countTokens(ticket.text),
     elapsedMs: end - ticket.created,
     queueWaitMs: ticket.claimedAt ? ticket.claimedAt - ticket.created : null,
@@ -1953,7 +1973,7 @@ function ticketSummarySignature(ticket) {
     ticket.finishReason,
     ticket.usage?.completion_tokens ?? null,
     ticket.messages?.length || 0,
-    (ticket.messages || []).reduce((sum, message) => sum + (typeof message?.content === "string" ? message.content.length : 0), 0),
+    ticketInputStats(ticket).chars,
     ticket.toolCalls?.length || 0,
     ticket.aiPending?.status || "",
     ticket.aiPending?.createdAt || 0,
@@ -1995,6 +2015,7 @@ function publicTicketSummary(ticket) {
     return cached.value;
   }
   const end = ticket.finishedAt || Date.now();
+  const input = ticketInputStats(ticket);
   const summary = {
     id: ticket.id,
     protocol: ticket.protocol,
@@ -2031,8 +2052,8 @@ function publicTicketSummary(ticket) {
     maxTokens: ticket.maxTokens,
     stops: ticket.stops,
     promptTokens: ticket.promptTokens,
-    messageCount: (ticket.messages || []).length,
-    inputChars: (ticket.messages || []).reduce((sum, message) => sum + (typeof message?.content === "string" ? message.content.length : 0), 0),
+    messageCount: input.count,
+    inputChars: input.chars,
     completionTokens: ticket.usage?.completion_tokens ?? countTokens(ticket.text),
     tags: Array.isArray(ticket.tags) ? ticket.tags : [],
     priority: Number.isInteger(ticket.priority) ? ticket.priority : 1,
@@ -2045,9 +2066,7 @@ function publicTicketSummary(ticket) {
     noteCount: (ticket.notes || []).length,
     toolCount: (ticket.tools || []).length,
     attachmentCount: (ticket.attachments || []).length,
-    hasImages: (ticket.messages || []).some((message) =>
-      Array.isArray(message?.parts) && message.parts.some((part) => part?.type === "image"),
-    ),
+    hasImages: input.hasImages,
     requestBytes: ticket.requestInspection?.raw?.length || 0,
     requestCaptured: Boolean(ticket.requestInspection),
     requestTruncated: ticket.requestInspection?.truncated === true,
@@ -2307,22 +2326,43 @@ function parseHistoryFilters(url) {
   };
 }
 
+let historyArchiveCache = { key: "", records: [] };
+let historyIndexSyncKey = null;
+
+function historyArchiveRecords() {
+  const archived = stateStore.tickets.filter((ticket) => ticket && ARCHIVE_STATES.has(ticket.state));
+  const key = archived.map((ticket) => [
+    ticket.id,
+    Number(ticket.finishedAt) || 0,
+    ticket.state,
+    ticket.claimedBy || "",
+    ticket.text?.length || 0,
+    ticket.messages?.length || 0,
+    (ticket.tags || []).join("\u0000"),
+  ].join(":" )).join("|");
+  if (historyArchiveCache.key === key) return historyArchiveCache.records;
+  const records = archived.map((ticket) => ({
+    id: ticket.id,
+    finishedAt: Number(ticket.finishedAt) || Number(ticket.createdAt) || Number(ticket.created) || 0,
+    model: String(ticket.model || ""),
+    state: String(ticket.state || ""),
+    caller: String(ticket.callerLabel || ""),
+    operator: String(ticket.claimedBy || ""),
+    sessionId: String(ticket.sessionId || ""),
+    searchText: historySearchText(ticket),
+    summaryJson: JSON.stringify(historySummary(ticket)),
+  }));
+  historyArchiveCache = { key, records };
+  return records;
+}
+
 function historyRows(url, { all = false } = {}) {
   const filters = parseHistoryFilters(url);
-  const indexedRecords = stateStore.tickets
-    .filter((ticket) => ticket && ARCHIVE_STATES.has(ticket.state))
-    .map((ticket) => ({
-      id: ticket.id,
-      finishedAt: Number(ticket.finishedAt) || Number(ticket.createdAt) || Number(ticket.created) || 0,
-      model: String(ticket.model || ""),
-      state: String(ticket.state || ""),
-      caller: String(ticket.callerLabel || ""),
-      operator: String(ticket.claimedBy || ""),
-      sessionId: String(ticket.sessionId || ""),
-      searchText: historySearchText(ticket),
-      summaryJson: JSON.stringify(historySummary(ticket)),
-    }));
-  historyIndex.sync(indexedRecords);
+  const indexedRecords = historyArchiveRecords();
+  if (historyIndexSyncKey !== historyArchiveCache.key) {
+    historyIndex.sync(indexedRecords);
+    historyIndexSyncKey = historyArchiveCache.key;
+  }
   const indexed = historyIndex.query(filters, { all });
   if (indexed) return { filters, ...indexed };
   const rows = stateStore.tickets

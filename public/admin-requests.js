@@ -319,6 +319,22 @@ function renderRows() {
   const body = $("requestRows");
   const rows = visibleTickets();
   $("requestCount").textContent = `${rows.length} / ${tickets.length} 条`;
+  // Auto-refresh runs every few seconds; avoid rebuilding an unchanged table.
+  const rowSignature = JSON.stringify([
+    selectedId,
+    rows.map((ticket) => [
+      ticket.id, ticket.state, ticket.model, ticket.sessionId, ticket.sessionTurn,
+      ticket.claimedBy, ticket.requestBytes, ticket.toolCount, ticket.hasImages,
+      ticket.requestCaptured, ticket.requestTruncated,
+    ]),
+  ]);
+  if (body.dataset.signature === rowSignature) {
+    if (relatedOnly && selectedTicket?.sessionId) {
+      $("requestRelatedHint").textContent = `同会话 ${relatedTickets(selectedTicket).length} 张`;
+    }
+    return;
+  }
+  body.dataset.signature = rowSignature;
   body.replaceChildren();
   for (const ticket of rows) {
     const tr = el("tr", `request-row${ticket.id === selectedId ? " selected" : ""}`);
