@@ -162,7 +162,24 @@ function buildDetail(ticket) {
   infoDetails.body.append(infoExtra);
   const infoSession = contextSection("相关会话", "同会话轮次");
   infoSession.body.append(sessionBar);
-  infoSection.append(infoOverview.section, infoDetails.section, infoSession.section);
+  const requestSection = contextSection("请求检查", "原始 / 归一化");
+  const requestDetails = el("details", "request-inspector");
+  requestDetails.open = false;
+  requestDetails.addEventListener("toggle", () => { if (current) current.requestOpen = requestDetails.open; });
+  const requestSummary = el("summary", "request-inspector-summary", "查看请求格式");
+  const requestToolbar = el("div", "request-inspector-toolbar");
+  const requestRawButton = el("button", "request-inspector-toggle active", "原始请求");
+  const requestNormalizedButton = el("button", "request-inspector-toggle", "归一化请求");
+  const requestCopyButton = el("button", "btn ghost request-inspector-copy", "复制");
+  requestRawButton.type = "button";
+  requestNormalizedButton.type = "button";
+  requestCopyButton.type = "button";
+  requestToolbar.append(requestRawButton, requestNormalizedButton, requestCopyButton);
+  const requestHint = el("div", "request-inspector-hint", "请求快照最多保留 64 KB；不会进入调用方响应。");
+  const requestPre = el("pre", "request-inspector-pre", "展开后查看请求。");
+  requestDetails.append(requestSummary, requestToolbar, requestHint, requestPre);
+  requestSection.body.append(requestDetails);
+  infoSection.append(infoOverview.section, infoDetails.section, requestSection.section, infoSession.section);
   const sentSection = el("div", "inspector-tab-panel context-sent");
   const sentHead = el("div", "sent-panel-head");
   sentHead.append(el("span", "sent-panel-title", "当前发送"));
@@ -438,6 +455,12 @@ function buildDetail(ticket) {
     inspectorBody,
     infoSection,
     infoExtra,
+    requestDetails,
+    requestPre,
+    requestHint,
+    requestRawButton,
+    requestNormalizedButton,
+    requestCopyButton,
     infoSession: infoSession.section,
     sentSection,
     sentReasoning,
@@ -537,6 +560,17 @@ function buildDetail(ticket) {
     current.inspectorCollapsed = !current.inspectorCollapsed;
     try { localStorage.setItem(INSPECTOR_COLLAPSED_KEY, current.inspectorCollapsed ? "1" : "0"); } catch { /* optional */ }
     applyInspectorState(current);
+  });
+  current.els.requestRawButton.addEventListener("click", () => {
+    current.requestView = "raw";
+    renderRequestInspector(currentTicket(), current);
+  });
+  current.els.requestNormalizedButton.addEventListener("click", () => {
+    current.requestView = "normalized";
+    renderRequestInspector(currentTicket(), current);
+  });
+  current.els.requestCopyButton.addEventListener("click", () => {
+    copyMessageText(current.els.requestPre.textContent);
   });
   detail = current;
   threadBody.addEventListener("scroll", () => scheduleThreadMinimapUpdate(current), { passive: true });

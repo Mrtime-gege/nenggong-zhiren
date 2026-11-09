@@ -273,6 +273,37 @@ data: [DONE]
 }
 ```
 
+## 请求检查（dry-run）
+
+以下接口用于在不创建票据的情况下分析请求格式：
+
+```text
+POST /v1/inspect/openai
+POST /v1/inspect/anthropic
+```
+
+认证方式和普通调用方接口一致：OpenAI 使用 `Authorization: Bearer`，Anthropic 使用
+`x-api-key`。接口会完成协议校验、模型权限检查，然后返回：
+
+```json
+{
+  "ok": true,
+  "inspect": true,
+  "object": "request.inspection",
+  "protocol": "openai",
+  "endpoint": "/v1/chat/completions",
+  "raw": { "原始 JSON": "..." },
+  "rawChars": 123,
+  "normalized": { "model": "human-1", "messages": [] },
+  "notes": ["dry-run：不会创建票据、消耗配额或触发人工回复。"]
+}
+```
+
+- 不进入票据队列，不消耗调用配额，不触发人工回复；
+- 不持久化请求；
+- 适合学习 OpenAI / Anthropic 的 `messages`、`tools`、`tool_choice`、流式参数和错误结构；
+- 真实票据的「资料」页可查看保留的原始请求快照和归一化视图，快照最多 64 KB。
+
 ## 不做的事
 
 - 不实现 `/v1/responses`。

@@ -1257,6 +1257,19 @@ function startAiRelayForTicket(ticket, source, actor = "system") {
   });
 }
 
+const MAX_REQUEST_INSPECTION_CHARS = 64 * 1024;
+
+function captureRequestInspection(protocol, raw) {
+  const text = String(raw || "");
+  return {
+    protocol,
+    endpoint: protocol === ANTHROPIC_PROTOCOL ? "/v1/messages" : "/v1/chat/completions",
+    raw: text.slice(0, MAX_REQUEST_INSPECTION_CHARS),
+    truncated: text.length > MAX_REQUEST_INSPECTION_CHARS,
+    capturedAt: Date.now(),
+  };
+}
+
 function createTicket({ request, caller, releaseSlot, session }) {
   const created = Date.now();
   let resolveDone;
@@ -1295,6 +1308,7 @@ function createTicket({ request, caller, releaseSlot, session }) {
     priority: 1,
     notes: [],
     aiCards: [],
+    requestInspection: request.inspection || null,
     reasoning: "",
     reasoningDelivered: 0,
     effort: request.effort || "",
@@ -1882,6 +1896,7 @@ function publicTicket(ticket) {
     aiProposal: ticket.aiProposal || null,
     aiPending: ticket.aiPending || null,
     aiCards: Array.isArray(ticket.aiCards) ? ticket.aiCards : [],
+    requestInspection: ticket.requestInspection || null,
     maxTokens: ticket.maxTokens,
     stops: ticket.stops,
     promptTokens: ticket.promptTokens,
@@ -2578,6 +2593,43 @@ function resolveRequestAttachments(request, caller) {
   });
 }
 
+async function handleInspectRequest(req, res, protocol) {
+  res.ngzrProtocol = protocol;
+  const caller = authenticateCaller(req);
+  setRateLimitHeaders(res, caller);
+  const { body, raw } = await readJsonWithRaw(req);
+  let request;
+  try {
+    request = normalizeRequest(protocol, body, { models: MODELS });
+  } catch (error) {
+    throw protocolToApiError(error);
+  }
+  if (caller.allowedModels?.length && !caller.allowedModels.includes(request.model)) {
+    throw new ApiError(
+      403,
+      `This API key is not allowed to use model '${request.model}'.`,
+      "invalid_request_error",
+      "model_not_allowed",
+      "model",
+    );
+  }
+  const { rawBody: _rawBody, ...normalized } = request;
+  return sendJson(res, 200, {
+    ok: true,
+    inspect: true,
+    object: "request.inspection",
+    protocol,
+    endpoint: protocol === ANTHROPIC_PROTOCOL ? "/v1/messages" : "/v1/chat/completions",
+    raw: body,
+    rawChars: raw.length,
+    normalized,
+    notes: [
+      "dry-run：不会创建票据、消耗调用配额或触发人工回复。",
+      "raw 是本次请求 JSON；normalized 是进入票据队列前的归一化结构。",
+    ],
+  });
+}
+
 async function handleChatRequest(req, res, protocol) {
   res.ngzrProtocol = protocol;
   const caller = authenticateCaller(req);
@@ -2589,6 +2641,7 @@ async function handleChatRequest(req, res, protocol) {
   } catch (error) {
     throw protocolToApiError(error);
   }
+  request.inspection = captureRequestInspection(protocol, raw);
 
   if (caller.allowedModels?.length && !caller.allowedModels.includes(request.model)) {
     throw new ApiError(
@@ -4602,6 +4655,14 @@ async function route(req, res) {
         throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
       }
       return handleModels(req, res, url);
+    }
+
+    if (pathname === "/v1/inspect/openai" || pathname === "/v1/inspect/anthropic") {
+      applyCorsTo(req, res);
+      if (req.method !== "POST") {
+        throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      }
+      return handleInspectRequest(req, res, pathname.endsWith("/anthropic") ? ANTHROPIC_PROTOCOL : OPENAI_PROTOCOL);
     }
 
     if (pathname === "/v1/chat/completions") {

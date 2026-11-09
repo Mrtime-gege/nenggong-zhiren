@@ -46,7 +46,7 @@
 - `src/http/pages.mjs`：静态页面、登录壳和管理页鉴权服务。
 - `public/console-queue.js`：控制台队列选择、统计和渲染。
 - `public/console-shortcuts.js`：快捷键定义、持久化和编辑面板。
-- `public/console-detail.js`：票据详情工作区构建。
+- `public/console-detail.js`：票据详情工作区构建，包含原始/归一化请求检查面板。
 - `public/hub.html` + `navigation.js`：一级导航和概览/记录/管理 Hub；二级页面通过同源 iframe 复用。
 - `public/login.*`：登录页。
 - `public/settings.html`、`settings-operator.html`：设置页。
@@ -58,7 +58,7 @@
 - `test/data-units.test.mjs`：API key、用量配额、设置、模型、审计、附件和 JSONC。
 - `test/ai-helpers.test.mjs`、`test/attachment-branches.test.mjs`、`test/core-helpers.test.mjs`：上下文裁剪、附件分支、文本工具和状态快照。
 - `test/ai-errors.test.mjs`：AI 配置/上游/工具契约错误分支。
-- 两类测试共享 `npm test`，当前共 112 个用例。
+- 两类测试共享 `npm test`，当前共 114 个用例。
 
 ## 请求生命周期
 

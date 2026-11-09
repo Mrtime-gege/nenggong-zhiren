@@ -48,6 +48,7 @@ test("StateStore persists AI cards across a JSON restart", () => {
     messages: [],
     notes: [],
     aiCards: [{ id: "ai_unit", content: "persisted", source: "manual" }],
+    requestInspection: { protocol: "openai", raw: "{\"model\":\"human-1\"}", truncated: false },
   };
   const first = new StateStore({ file, dbFile, backend: "json", logger: { error() {} } }).init();
   try {
@@ -60,6 +61,7 @@ test("StateStore persists AI cards across a JSON restart", () => {
     const restored = second.restoreTickets();
     assert.equal(restored.length, 1);
     assert.equal(restored[0].aiCards[0].content, "persisted");
+    assert.equal(restored[0].requestInspection.raw, "{\"model\":\"human-1\"}");
   } finally {
     second.close();
     fs.rmSync(dir, { recursive: true, force: true });

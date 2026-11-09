@@ -17,7 +17,7 @@
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-9ad7b4" /></a>
   <a href="https://nodejs.org/"><img alt="node" src="https://img.shields.io/badge/node-%3E%3D20-5fa04e" /></a>
   <img alt="dependencies" src="https://img.shields.io/badge/runtime_dependencies-0-c28a5a" />
-  <img alt="tests" src="https://img.shields.io/badge/tests-112%20passing-b084f0" />
+  <img alt="tests" src="https://img.shields.io/badge/tests-114%20passing-b084f0" />
 </p>
 
 <p align="center">
@@ -104,6 +104,7 @@ OpenAI / Anthropic 请求
 | 管理能力 | 用户、模型、API 密钥、配额、审计、历史、环境检查 |
 | 可观测性 | 状态页、Prometheus `/metrics`、历史检索、审计、CSV |
 | 页面性能 | 静态资源 ETag 条件缓存；Hub 相邻/悬停预载 |
+| 请求检查 | `/v1/inspect/*` dry-run 分析原始/归一化请求；票据资料区可查看请求快照 |
 
 ## 架构
 
@@ -152,6 +153,33 @@ curl http://127.0.0.1:7355/v1/chat/completions \
 ```
 
 详细安装、工作台和首个真实请求见 [快速启动](docs/quickstart.md)。
+
+## 请求检查
+
+需要分析 OpenAI / Anthropic 请求格式时，不必拦截网络，也不需要创建票据：
+
+```bash
+curl -sS http://127.0.0.1:7355/v1/inspect/openai \
+  -H "Authorization: Bearer <key>" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"human-1","messages":[{"role":"user","content":"分析这个请求"}]}'
+
+curl -sS http://127.0.0.1:7355/v1/inspect/anthropic \
+  -H "x-api-key: <key>" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"human-1","max_tokens":256,"messages":[{"role":"user","content":"分析这个请求"}]}'
+```
+
+检查接口：
+
+- 不会进入票据队列；
+- 不会消耗调用配额；
+- 不会触发人工回复；
+- 不会持久化请求；
+- 返回 `raw`、`normalized` 和说明，适合对照协议字段和工具调用结构。
+
+真实票据在「资料 → 请求检查」中提供原始请求与归一化视图；原始快照最多保留 64 KB，只对有该票据模型权限的回复员可见。
 
 ## 文档导航
 

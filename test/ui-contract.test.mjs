@@ -41,6 +41,19 @@ test("settings and console do not expose removed AI limit fields", () => {
   assert.doesNotMatch(consoleJs, /aiLimitBar|ai-card-double|doubleLimits/);
 });
 
+test("ticket request inspector exposes raw and normalized views", () => {
+  const detail = fs.readFileSync(path.join(ROOT, "public/console-detail.js"), "utf8");
+  const consoleJs = fs.readFileSync(path.join(ROOT, "public/console.js"), "utf8");
+  assert.match(detail, /request-inspector/);
+  assert.match(detail, /原始请求/);
+  assert.match(detail, /归一化请求/);
+  assert.match(consoleJs, /function renderRequestInspector/);
+  assert.match(consoleJs, /requestInspection/);
+  const protocol = fs.readFileSync(path.join(ROOT, "docs/protocol.md"), "utf8");
+  assert.match(protocol, /\/v1\/inspect\/openai/);
+  assert.match(protocol, /\/v1\/inspect\/anthropic/);
+});
+
 test("hub markup keeps the frame stack and no legacy breadcrumb", () => {
   const hub = read("public/hub.html");
   assert.match(hub, /id="hubFrames"/);

@@ -2866,6 +2866,52 @@ trailer
   assert.equal((await pending).status, 200);
 });
 
+test("request inspection is dry-run and ticket snapshots keep the raw protocol body", async () => {
+  const before = await opJson(adminSession, "/op/api/tickets");
+  const openai = await fetch(`${BASE}/v1/inspect/openai`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${CALLER_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "human-1",
+      stream: true,
+      messages: [{ role: "user", content: "inspect me" }],
+      tools: [{ type: "function", function: { name: "lookup", parameters: { type: "object" } } }],
+    }),
+  });
+  assert.equal(openai.status, 200);
+  const inspected = await openai.json();
+  assert.equal(inspected.inspect, true);
+  assert.equal(inspected.protocol, "openai");
+  assert.equal(inspected.raw.messages[0].content, "inspect me");
+  assert.equal(inspected.normalized.messages[0].content, "inspect me");
+  assert.equal(inspected.normalized.stream, true);
+  assert.equal(inspected.normalized.tools[0].function.name, "lookup");
+  const anthropic = await fetch(`${BASE}/v1/inspect/anthropic`, {
+    method: "POST",
+    headers: { "x-api-key": CALLER_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "human-1", max_tokens: 20, messages: [{ role: "user", content: "hello inspect" }] }),
+  });
+  assert.equal(anthropic.status, 200);
+  const inspectedAnthropic = await anthropic.json();
+  assert.equal(inspectedAnthropic.protocol, "anthropic");
+  assert.equal(inspectedAnthropic.normalized.maxTokens, 20);
+  const after = await opJson(adminSession, "/op/api/tickets");
+  assert.equal(after.tickets.length, before.tickets.length, "inspect must not create a ticket");
+  const unauthorized = await fetch(`${BASE}/v1/inspect/openai`, { method: "POST", body: "{}" });
+  assert.equal(unauthorized.status, 401);
+
+  const tag = marker("REQUEST-INSPECTION");
+  const pending = startChat({ model: "human-1", messages: [{ role: "user", content: tag }] });
+  const ticket = await waitForTicket((item) => item.messages.some((message) => message.content.includes(tag)));
+  const detail = await opJson(adminSession, `/op/api/tickets/${ticket.id}`);
+  assert.equal(detail.ticket.requestInspection.protocol, "openai");
+  assert.match(detail.ticket.requestInspection.raw, new RegExp(tag));
+  assert.equal(detail.ticket.requestInspection.truncated, false);
+  await claim(adminSession, ticket.id);
+  await finishJson(adminSession, ticket.id, { text: "inspect ok", finishReason: "stop" });
+  assert.equal((await pending).status, 200);
+});
+
 test("brand icon and web manifest assets are served", async () => {
   const expected = new Map([
     ["/icon.svg", /image\/svg\+xml/],
