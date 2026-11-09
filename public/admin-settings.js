@@ -387,6 +387,7 @@ async function load() {
   fillPreferences(await api("/op/api/preferences"));
   if (role === "admin") {
     fillSettings(await api("/op/api/settings"));
+    await loadSystemInfo();
   }
   setStatus("已登录");
 }
@@ -680,6 +681,7 @@ function settingsTabForCard(card) {
   if (title.startsWith("AI 辅助")) return "ai";
   if (title.includes("MFA")) return "security";
   if (title.startsWith("只读启动配置")) return "system";
+  if (title.startsWith("服务控制")) return "system";
   return "";
 }
 
@@ -732,6 +734,100 @@ function initSettingsNavigation() {
   activate(initial, false);
 }
 
+let lastSystemInfo = null;
+
+function bytesText(value) {
+  const n = Number(value) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+function durationText(seconds) {
+  let value = Math.max(0, Math.round(Number(seconds) || 0));
+  const days = Math.floor(value / 86400);
+  value -= days * 86400;
+  const hours = Math.floor(value / 3600);
+  value -= hours * 3600;
+  const minutes = Math.floor(value / 60);
+  const parts = [];
+  if (days) parts.push(`${days} 天`);
+  if (hours || days) parts.push(`${hours} 小时`);
+  parts.push(`${minutes} 分`);
+  return parts.join(" ");
+}
+
+function renderSystemInfo(runtime) {
+  const box = $("systemRuntime");
+  if (!box) return;
+  const pairs = [
+    ["进程 PID", runtime.pid],
+    ["运行时长", durationText(runtime.uptimeSec)],
+    ["启动时间", new Date(runtime.startedAt).toLocaleString("zh-CN", { hour12: false })],
+    ["Node / 平台", `${runtime.node} · ${runtime.platform}/${runtime.arch}`],
+    ["监听", `${runtime.host}:${runtime.port}${runtime.tls ? " · HTTPS" : ""}`],
+    ["配置", runtime.configFile],
+    ["工作目录", runtime.cwd],
+    ["内存 RSS", bytesText(runtime.rssBytes)],
+    ["堆内存", `${bytesText(runtime.heapUsedBytes)} / ${bytesText(runtime.heapTotalBytes)}`],
+    ["票据", `${runtime.tickets} 张 · ${runtime.active} 活动 · ${runtime.queued} 排队`],
+  ];
+  box.replaceChildren();
+  for (const [label, value] of pairs) {
+    const cell = document.createElement("div");
+    cell.className = "readonly-item";
+    const key = document.createElement("span");
+    key.textContent = label;
+    const val = document.createElement("code");
+    val.textContent = String(value ?? "—");
+    cell.append(key, val);
+    box.append(cell);
+  }
+}
+
+async function loadSystemInfo() {
+  const data = await api("/op/api/system");
+  lastSystemInfo = data;
+  renderSystemInfo(data.runtime || {});
+  $("systemHint").textContent = "重启会重新加载代码和配置；结束服务后需要手动或由系统服务管理器重新启动。";
+  $("systemHint").classList.remove("err");
+}
+
+async function copySystemInfo() {
+  if (!lastSystemInfo) return;
+  const text = JSON.stringify(lastSystemInfo, null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    showSettingsToast("诊断信息已复制");
+  } catch {
+    showSettingsToast("复制失败，请检查浏览器权限", true);
+  }
+}
+
+async function controlService(action) {
+  const restart = action === "restart";
+  const label = restart ? "重启" : "结束";
+  if (!window.confirm(`${label}服务会中断当前连接。确定${label}吗？`)) return;
+  const button = $(restart ? "systemRestart" : "systemShutdown");
+  button.disabled = true;
+  $("systemHint").textContent = `正在${label}服务…`;
+  try {
+    await api(`/op/api/system/${action}`, {
+      method: "POST",
+      body: { confirm: restart ? "RESTART" : "SHUTDOWN" },
+    });
+    $("systemHint").textContent = restart
+      ? "服务正在重启；稍后刷新此页面。"
+      : "服务已请求结束；此页面将无法继续使用。";
+    if (restart) setTimeout(() => location.reload(), 2500);
+  } catch (error) {
+    $("systemHint").textContent = error.message;
+    $("systemHint").classList.add("err");
+    button.disabled = false;
+  }
+}
+
 async function init() {
   initSettingsNavigation();
   try {
@@ -749,6 +845,10 @@ async function init() {
       $("mfaEnableForm").addEventListener("submit", enableMfa);
       $("mfaDisableForm").addEventListener("submit", disableMfa);
       $("mfaCancelSetup").addEventListener("click", cancelMfaSetup);
+      $("systemRefresh").addEventListener("click", () => loadSystemInfo().catch((error) => setError("systemHint", error.message)));
+      $("systemCopy").addEventListener("click", copySystemInfo);
+      $("systemRestart").addEventListener("click", () => controlService("restart"));
+      $("systemShutdown").addEventListener("click", () => controlService("shutdown"));
     }
   } catch (error) {
     setStatus("加载失败", true);

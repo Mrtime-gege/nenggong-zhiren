@@ -11,6 +11,7 @@
 
 import http from "node:http";
 import https from "node:https";
+import { spawn } from "node:child_process";
 import os from "node:os";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -3211,6 +3212,71 @@ async function handleOperator(req, res, url, session) {
     throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
   }
 
+  if (pathname === "/op/api/system") {
+    requireAdmin(session);
+    if (req.method !== "GET") {
+      throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    }
+    const memory = process.memoryUsage();
+    const address = server.address();
+    return sendJson(res, 200, {
+      ok: true,
+      service: "nenggong-zhiren",
+      version: VERSION,
+      runtime: {
+        pid: process.pid,
+        node: process.version,
+        platform: process.platform,
+        arch: process.arch,
+        uptimeSec: Math.round(process.uptime()),
+        startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+        host: config.host,
+        port: address && typeof address === "object" ? address.port : config.port,
+        tls: config.tlsEnabled === true,
+        cwd: process.cwd(),
+        configFile: path.basename(config.configFile),
+        rssBytes: memory.rss,
+        heapUsedBytes: memory.heapUsed,
+        heapTotalBytes: memory.heapTotal,
+        tickets: tickets.size,
+        queued: [...tickets.values()].filter((ticket) => ticket.state === "queued").length,
+        active: [...tickets.values()].filter((ticket) => ["queued", "claimed", "streaming", "finishing"].includes(ticket.state)).length,
+      },
+    });
+  }
+
+  if (pathname === "/op/api/system/restart" || pathname === "/op/api/system/shutdown") {
+    requireAdmin(session);
+    if (req.method !== "POST") {
+      throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    }
+    const action = pathname.endsWith("/restart") ? "restart" : "shutdown";
+    const expected = action === "restart" ? "RESTART" : "SHUTDOWN";
+    if (body.confirm !== expected) {
+      throw new ApiError(400, `Type ${expected} to confirm this action.`, "invalid_request_error", "confirmation_required");
+    }
+    if (serviceActionPending) {
+      throw new ApiError(409, "A service lifecycle action is already pending.", "invalid_request_error", "action_pending");
+    }
+    serviceActionPending = true;
+    audit.append({
+      actor: session.username,
+      action: `system.${action}`,
+      target: "server",
+      ip: clientIp(req),
+      detail: `pid=${process.pid}`,
+    });
+    const payload = { ok: true, action, pid: process.pid };
+    sendJson(res, 200, payload);
+    log(`[system] ${action} requested by ${session.username} pid=${process.pid}`);
+    setTimeout(() => {
+      log(`[system] executing ${action}`);
+      if (action === "restart") restartRuntime();
+      else stopRuntime();
+    }, 300);
+    return;
+  }
+
   if (pathname === "/op/api/audit") {
     requireAdmin(session);
     if (req.method !== "GET") {
@@ -4781,7 +4847,8 @@ server.on("clientError", (error, socket) => {
   socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
 });
 
-server.listen(config.port, config.host, () => {
+function startListening() {
+  server.listen(config.port, config.host, () => {
   const address = server.address();
   const localHost = config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host;
   const base = `${scheme}://${localHost}:${address.port}`;
@@ -4809,16 +4876,47 @@ server.listen(config.port, config.host, () => {
   log(`  users file  ${relativeUsers && !relativeUsers.startsWith("..") ? relativeUsers : "<external users file>"}`);
   if (configuredKeys.length === 0) log("  WARNING     no API keys configured; add one in the admin console");
   log(`  timeouts    queue=${live.queue.waitTimeoutMs}ms response=${live.queue.responseTimeoutMs}ms`);
-});
+  });
+}
+
+const restartDelayMs = Math.min(10_000, Math.max(0, Number(process.env.NGZR_RESTART_DELAY_MS) || 0));
+if (restartDelayMs > 0) setTimeout(startListening, restartDelayMs);
+else startListening();
+
+let serviceActionPending = false;
+
+function closeRuntimeStores() {
+  try { stateStore.close(); } catch { /* already closed */ }
+  try { usageStore.close(); } catch { /* already closed */ }
+  try { apiKeys.close(); } catch { /* already closed */ }
+  try { auth.close(); } catch { /* already closed */ }
+}
+
+function stopRuntime() {
+  closeRuntimeStores();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 3_000).unref();
+}
+
+function restartRuntime() {
+  log(`[system] restartRuntime pid=${process.pid}`);
+  closeRuntimeStores();
+  // The replacement waits for the old listener to release the port. Spawning a
+  // second process that binds immediately would race with EADDRINUSE.
+  const child = spawn(process.execPath, process.argv.slice(1), {
+    cwd: process.cwd(),
+    env: { ...process.env, NGZR_RESTART_DELAY_MS: "1500" },
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+  try { server.close(); } catch { /* already closed */ }
+  setTimeout(() => process.exit(0), 300);
+}
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
     log(`received ${signal}, shutting down`);
-    stateStore.close();
-    usageStore.close();
-    apiKeys.close();
-    auth.close();
-    server.close(() => process.exit(0));
-    setTimeout(() => process.exit(0), 3_000).unref();
+    stopRuntime();
   });
 }

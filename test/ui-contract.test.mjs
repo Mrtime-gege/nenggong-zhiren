@@ -41,6 +41,16 @@ test("settings and console do not expose removed AI limit fields", () => {
   assert.doesNotMatch(consoleJs, /aiLimitBar|ai-card-double|doubleLimits/);
 });
 
+test("settings exposes admin service controls", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/settings.html"), "utf8");
+  const script = fs.readFileSync(path.join(ROOT, "public/admin-settings.js"), "utf8");
+  assert.match(html, /id="systemRuntime"/);
+  assert.match(html, /id="systemRestart"/);
+  assert.match(html, /id="systemShutdown"/);
+  assert.match(script, /loadSystemInfo/);
+  assert.match(script, /controlService/);
+});
+
 test("standalone request inspector supports composite filters and related sessions", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/requests.html"), "utf8");
   const script = fs.readFileSync(path.join(ROOT, "public/admin-requests.js"), "utf8");

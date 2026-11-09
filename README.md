@@ -17,7 +17,7 @@
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-9ad7b4" /></a>
   <a href="https://nodejs.org/"><img alt="node" src="https://img.shields.io/badge/node-%3E%3D20-5fa04e" /></a>
   <img alt="dependencies" src="https://img.shields.io/badge/runtime_dependencies-0-c28a5a" />
-  <img alt="tests" src="https://img.shields.io/badge/tests-116%20passing-b084f0" />
+  <img alt="tests" src="https://img.shields.io/badge/tests-118%20passing-b084f0" />
 </p>
 
 <p align="center">
@@ -105,6 +105,7 @@ OpenAI / Anthropic 请求
 | 可观测性 | 状态页、Prometheus `/metrics`、历史检索、审计、CSV |
 | 页面性能 | 静态资源 ETag 条件缓存；Hub 相邻/悬停预载 |
 | 请求检查 | `/v1/inspect/*` dry-run；独立检查页支持多条件筛选、原始/归一化对照和同会话关联 |
+| 服务控制 | 设置中查看 PID、运行时长、内存和监听状态；管理员可重启或结束服务并复制诊断信息 |
 
 ## 架构
 
@@ -180,6 +181,17 @@ curl -sS http://127.0.0.1:7355/v1/inspect/anthropic \
 - 返回 `raw`、`normalized` 和说明，适合对照协议字段和工具调用结构。
 
 真实票据会在「资料 → 请求检查」中提供原始请求与归一化视图；独立页面「记录 → 请求检查」支持按协议、模型、状态、会话、工具、图片、调用方、回复员和日期组合筛选。原始快照按请求体上限保留（默认 2 MB），只对有权查看该票据模型的人员可见。
+
+## 服务控制
+
+管理员在「设置 → 系统信息」可以看到当前进程的 PID、运行时长、Node 版本、监听地址、内存和票据状态，并执行：
+
+- 刷新运行状态；
+- 复制诊断信息；
+- 重启服务：重新加载代码和配置，短暂中断连接；
+- 结束服务：停止当前进程，不会自动拉起，需要由 systemd、容器编排器或其他进程管理器重新启动。
+
+这些操作只对管理员开放，并写入审计日志。生产环境建议由 systemd 或容器编排器托管进程，而不是只依赖页面上的重启按钮。
 
 ## 文档导航
 

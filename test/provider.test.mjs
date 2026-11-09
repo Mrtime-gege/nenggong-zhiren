@@ -2866,6 +2866,19 @@ trailer
   assert.equal((await pending).status, 200);
 });
 
+test("system info is exposed to admins and lifecycle actions require confirmation", async () => {
+  const info = await opJson(adminSession, "/op/api/system");
+  assert.equal(info.service, "nenggong-zhiren");
+  assert.equal(info.runtime.pid, child.pid);
+  assert.ok(info.runtime.uptimeSec >= 0);
+  assert.ok(info.runtime.rssBytes > 0);
+  assert.ok("tickets" in info.runtime);
+  const invalid = await op(adminSession, "/op/api/system/restart", { method: "POST", body: { confirm: "NO" } });
+  assert.equal(invalid.status, 400);
+  const forbidden = await op(aliceSession, "/op/api/system");
+  assert.equal(forbidden.status, 403);
+});
+
 test("request inspection is dry-run and ticket snapshots keep the raw protocol body", async () => {
   const before = await opJson(adminSession, "/op/api/tickets");
   const openai = await fetch(`${BASE}/v1/inspect/openai`, {
