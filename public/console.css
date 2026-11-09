@@ -4651,88 +4651,50 @@ body[data-page="workbench"] .qitem-foot {
   }
 }
 
-/* Ticket request inspector: raw protocol body vs normalized queue shape. */
-.request-inspector {
+/* Compact request summary in the ticket detail inspector. */
+.request-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+}
+
+.request-summary-item {
+  min-width: 0;
+  padding: 6px 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: rgba(255, 255, 255, 0.015);
 }
 
-.request-inspector-summary {
-  padding: 9px 10px;
-  color: var(--text-dim);
-  font-size: 11px;
-  cursor: pointer;
-  user-select: none;
+.request-summary-label,
+.request-summary-value {
+  display: block;
 }
 
-.request-inspector[open] .request-inspector-summary {
-  border-bottom: 1px solid var(--line);
-}
-
-.request-inspector-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 8px 8px 0;
-  flex-wrap: wrap;
-}
-
-.request-inspector-toggle {
-  height: 25px;
-  padding: 0 8px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: transparent;
+.request-summary-label {
+  margin-bottom: 2px;
   color: var(--muted);
-  font: inherit;
+  font-size: 9px;
+}
+
+.request-summary-value {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-family: var(--mono);
   font-size: 9.5px;
-  cursor: pointer;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.request-inspector-toggle:hover:not(:disabled) {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.request-inspector-toggle.active {
-  border-color: rgba(138, 164, 248, 0.22);
-  background: rgba(138, 164, 248, 0.12);
-  color: var(--text);
-}
-
-.request-inspector-toggle:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.request-inspector-copy {
-  margin-left: auto;
-  height: 25px;
-  min-height: 25px;
-  padding: 0 8px;
-  font-size: 9.5px;
-}
-
-.request-inspector-hint {
-  padding: 6px 10px;
+.request-summary-hint {
+  margin: 7px 0;
   color: var(--muted);
   font-size: 9px;
   line-height: 1.5;
 }
 
-.request-inspector-pre {
-  max-height: 320px;
-  margin: 0 8px 8px;
-  padding: 9px;
-  overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.16);
-  color: var(--text-dim);
-  font-family: var(--mono);
-  font-size: 9.5px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.request-open-link {
+  width: 100%;
+  justify-content: center;
+  text-decoration: none;
 }

@@ -989,49 +989,36 @@ function renderInfoExtra(ticket, d) {
   d.els.infoExtra.replaceChildren(fragment);
 }
 
-function prettyRequestJson(raw) {
-  const text = String(raw || "");
-  try { return JSON.stringify(JSON.parse(text), null, 2); }
-  catch { return text; }
+function requestSizeText(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function renderRequestInspector(ticket, d) {
-  if (!d?.els?.requestPre) return;
+function renderRequestSummary(ticket, d) {
+  if (!d?.els?.requestSummary) return;
   const inspection = ticket.requestInspection;
-  const protocol = ticket.protocol === "anthropic" ? "anthropic" : "openai";
-  const normalized = {
-    protocol,
-    model: ticket.model,
-    stream: ticket.stream,
-    messages: ticket.messages || [],
-    tools: ticket.tools || [],
-    toolChoice: ticket.toolChoice,
-    parallelToolCalls: ticket.parallelToolCalls !== false,
-    responseFormat: ticket.responseFormat || null,
-    maxTokens: ticket.maxTokens ?? null,
-    stops: ticket.stops || [],
-    includeUsage: ticket.includeUsage === true,
-    effort: ticket.effort || "",
-    clientUser: ticket.clientUser || null,
-  };
-  const hasRaw = Boolean(inspection?.raw);
-  // Do not persist the fallback normalized choice: a compact ticket initially
-  // has no raw snapshot, but the full detail arrives moments later.
-  const view = d.requestView === "normalized" || (!hasRaw && d.requestView !== "raw") ? "normalized" : "raw";
-  d.els.requestRawButton.classList.toggle("active", view === "raw");
-  d.els.requestNormalizedButton.classList.toggle("active", view === "normalized");
-  d.els.requestRawButton.disabled = !hasRaw;
-  d.els.requestRawButton.setAttribute("aria-pressed", view === "raw" ? "true" : "false");
-  d.els.requestNormalizedButton.setAttribute("aria-pressed", view === "normalized" ? "true" : "false");
-  d.els.requestPre.textContent = view === "raw"
-    ? (hasRaw ? prettyRequestJson(inspection.raw) : "这张票据没有原始请求快照。")
-    : JSON.stringify(normalized, null, 2);
-  d.els.requestHint.textContent = view === "raw" && inspection?.truncated
-    ? "原始请求超过请求体上限，已截断；归一化视图仍可查看结构。"
-    : view === "raw"
-      ? `收到请求时的原始 JSON 快照 · ${protocol === "anthropic" ? "Anthropic Messages" : "OpenAI Chat"}`
-      : "进入票据队列前的归一化结构；不包含原始字段别名和未知字段。";
-  d.els.requestCopyButton.disabled = !d.els.requestPre.textContent || d.els.requestPre.textContent === "展开后查看请求。";
+  const fields = [
+    ["协议", ticket.protocol === "anthropic" ? "Anthropic Messages" : "OpenAI Chat"],
+    ["模型", ticket.model || "—"],
+    ["模式", ticket.stream ? "流式" : "非流式"],
+    ["请求大小", requestSizeText(inspection?.raw?.length || 0)],
+    ["工具", String((ticket.tools || []).length)],
+    ["消息", String((ticket.messages || []).length)],
+    ["会话", ticket.sessionId ? String(ticket.sessionId).slice(0, 10) : "独立请求"],
+    ["快照", inspection ? (inspection.truncated ? "已截断" : "完整") : "无原始快照"],
+  ];
+  d.els.requestSummary.replaceChildren();
+  for (const [label, value] of fields) {
+    const item = el("div", "request-summary-item");
+    item.append(el("span", "request-summary-label", label), el("span", "request-summary-value", value));
+    d.els.requestSummary.append(item);
+  }
+  d.els.requestHint.textContent = inspection
+    ? "原始 JSON、字段折叠和请求结构图在独立的请求检查页面查看。"
+    : "此票据没有原始请求快照；仍可在请求检查页查看归一化结构。";
+  d.els.requestOpen.href = `/console/requests?ticket=${encodeURIComponent(ticket.id)}`;
 }
 
 function renderSentPanel(ticket, d) {
@@ -1069,7 +1056,7 @@ function updateDetail(ticket) {
   renderPurposeHint(ticket, d);
   renderSessionBar(ticket, d);
   renderInfoExtra(ticket, d);
-  renderRequestInspector(ticket, d);
+  renderRequestSummary(ticket, d);
   renderSentPanel(ticket, d);
   renderMessages(ticket, d);
   renderTranscript(ticket, d);

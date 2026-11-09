@@ -63,7 +63,7 @@
           </div>
           <div class="admin-table-wrap request-table-wrap">
             <table class="admin-table request-table">
-              <thead><tr><th>时间</th><th>协议</th><th>模型</th><th>状态</th><th>会话</th><th>调用方</th><th>回复员</th><th>大小</th><th>工具</th><th>快照</th></tr></thead>
+              <thead><tr><th>时间</th><th>协议 / 模型</th><th>状态</th><th>会话</th><th>调用方</th><th>大小</th><th>标记</th></tr></thead>
               <tbody id="requestRows"></tbody>
             </table>
           </div>
@@ -86,13 +86,21 @@
               <label class="request-related-toggle"><input id="requestRelatedOnly" type="checkbox" checked /> 自动筛选同会话相关请求</label>
               <span id="requestRelatedHint" class="admin-hint"></span>
             </div>
+            <div id="requestPacket" class="request-packet" aria-label="请求结构图"></div>
             <div class="request-view-toolbar">
               <button id="requestRawView" class="request-view-button active" type="button">原始请求</button>
               <button id="requestNormalizedView" class="request-view-button" type="button">归一化请求</button>
+              <button id="requestExpandAll" class="request-view-button" type="button">展开顶层</button>
+              <button id="requestCollapseAll" class="request-view-button" type="button">折叠顶层</button>
               <button id="requestCopy" class="btn ghost" type="button">复制</button>
             </div>
             <div id="requestViewHint" class="request-view-hint"></div>
-            <pre id="requestPayload" class="request-payload"></pre>
+            <div class="request-detail-grid">
+              <aside id="requestFields" class="request-fields" aria-label="请求字段列表"></aside>
+              <div class="request-code-pane">
+                <div id="requestPayload" class="request-payload"></div>
+              </div>
+            </div>
           </div>
         </aside>
       </div>

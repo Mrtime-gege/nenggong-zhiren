@@ -111,7 +111,18 @@
             <label class="field field-wide"><span class="field-label">OpenAI 兼容 Endpoint</span><input id="aiEndpoint" type="url" maxlength="500" placeholder="http://127.0.0.1:11434/v1" /></label>
             <label class="field"><span class="field-label">模型名</span><input id="aiModel" type="text" maxlength="200" placeholder="local-assist" /></label>
             <label class="field field-wide"><span class="field-label">API Key <em class="opt">留空不修改</em></span><input id="aiApiKey" type="password" maxlength="4096" autocomplete="new-password" placeholder="已配置则留空" /></label>
-            <div class="field"><span class="field-label">密钥状态</span><span id="aiKeyStatus" class="admin-hint">未配置</span><label class="inline-check"><input id="aiClearKey" type="checkbox" /><span>清除已保存 Key</span></label></div>
+            <div class="field field-wide ai-key-field">
+              <span class="field-label">密钥状态</span>
+              <span id="aiKeyStatus" class="admin-hint">未配置</span>
+              <button id="aiClearKey" class="btn danger ai-clear-key" type="button">清除已保存 Key</button>
+              <div id="aiClearKeyConfirm" class="secret-confirm hidden" role="alertdialog" aria-label="确认清除 AI API Key">
+                <p>这会删除本机保存的 AI API Key，现有 AI 辅助将无法调用上游，且操作不可撤销。</p>
+                <div class="form-actions">
+                  <button id="aiClearKeyConfirmBtn" class="btn danger" type="button">确认清除</button>
+                  <button id="aiClearKeyCancel" class="btn ghost" type="button">取消</button>
+                </div>
+              </div>
+            </div>
             <div class="settings-subhead">连接与并发</div>
             <label class="field"><span class="field-label">全局并发</span><input id="aiConcurrent" type="number" min="1" max="16" /><span class="field-hint">同时进行的 AI 请求数；范围 1–16。</span></label>
             <div class="form-actions"><span class="admin-hint">修改后立即自动保存；0 表示不限；数值超限会拒绝本次修改；API Key 不会返回浏览器。</span></div>

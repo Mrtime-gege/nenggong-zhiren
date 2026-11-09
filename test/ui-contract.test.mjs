@@ -44,6 +44,9 @@ test("settings and console do not expose removed AI limit fields", () => {
 test("settings exposes admin service controls", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/settings.html"), "utf8");
   const script = fs.readFileSync(path.join(ROOT, "public/admin-settings.js"), "utf8");
+  assert.match(html, /id="aiClearKey"/);
+  assert.match(html, /id="aiClearKeyConfirm"/);
+  assert.match(html, /id="aiClearKeyConfirmBtn"/);
   assert.match(html, /id="systemRuntime"/);
   assert.match(html, /id="readonly"/);
   assert.match(html, /系统信息/);
@@ -64,19 +67,23 @@ test("standalone request inspector supports composite filters and related sessio
   assert.match(script, /function matches\(/);
   assert.match(script, /requestInspection/);
   assert.match(script, /relatedOnly/);
+  assert.match(script, /function renderJsonTree/);
+  assert.match(script, /function renderFields/);
+  assert.match(html, /id="requestFields"/);
+  assert.match(html, /id="requestPacket"/);
   const assets = fs.readFileSync(path.join(ROOT, "src/http/public-assets.mjs"), "utf8");
   assert.match(assets, /"\/requests\.html"/);
   assert.match(assets, /"\/admin-requests\.js"/);
 });
 
-test("ticket request inspector exposes raw and normalized views", () => {
+test("ticket detail keeps a compact request summary with a deep link", () => {
   const detail = fs.readFileSync(path.join(ROOT, "public/console-detail.js"), "utf8");
   const consoleJs = fs.readFileSync(path.join(ROOT, "public/console.js"), "utf8");
-  assert.match(detail, /request-inspector/);
-  assert.match(detail, /原始请求/);
-  assert.match(detail, /归一化请求/);
-  assert.match(consoleJs, /function renderRequestInspector/);
-  assert.match(consoleJs, /requestInspection/);
+  assert.match(detail, /request-summary-grid/);
+  assert.match(detail, /在请求检查中打开/);
+  assert.doesNotMatch(detail, /request-inspector-pre/);
+  assert.match(consoleJs, /function renderRequestSummary/);
+  assert.match(consoleJs, /\/console\/requests\?ticket=/);
   const protocol = fs.readFileSync(path.join(ROOT, "docs/protocol.md"), "utf8");
   assert.match(protocol, /\/v1\/inspect\/openai/);
   assert.match(protocol, /\/v1\/inspect\/anthropic/);

@@ -333,9 +333,9 @@ function fillSettings(data) {
   $("aiModel").value = ai.model || "";
   $("aiConcurrent").value = ai.maxConcurrent ?? 2;
   $("aiApiKey").value = "";
-  $("aiClearKey").checked = false;
   const key = data.aiAssistKey || {};
   $("aiKeyStatus").textContent = key.configured ? `已配置 ${key.hint || ""}` : "未配置";
+  updateClearAiKeyState(key.configured === true);
   syncAutoClaimPreference(ai.enabled === true && ai.autoClaimEnabled === true);
   latest.mfaEnabled = data.mfaEnabled === true;
   $("mfaStatus").textContent = latest.mfaEnabled ? "已启用" : "未启用";
@@ -525,6 +525,44 @@ async function saveFeatures(version) {
   }
 }
 
+function updateClearAiKeyState(configured) {
+  const button = $("aiClearKey");
+  const panel = $("aiClearKeyConfirm");
+  if (!button) return;
+  button.disabled = !configured;
+  button.title = configured ? "清除本机保存的 AI API Key" : "当前没有已保存的 AI API Key";
+  if (!configured) panel?.classList.add("hidden");
+}
+
+function openClearAiKeyConfirm() {
+  if ($("aiClearKey").disabled) return;
+  $("aiClearKeyConfirm").classList.remove("hidden");
+  $("aiClearKeyConfirmBtn").focus();
+}
+
+function closeClearAiKeyConfirm() {
+  $("aiClearKeyConfirm").classList.add("hidden");
+}
+
+async function clearAiKey() {
+  const button = $("aiClearKeyConfirmBtn");
+  button.disabled = true;
+  setError("aiError");
+  try {
+    const data = await api("/op/api/settings", { method: "PATCH", body: { clearAiKey: true } });
+    const key = data.aiAssistKey || {};
+    $("aiKeyStatus").textContent = key.configured ? `已配置 ${key.hint || ""}` : "未配置";
+    $("aiApiKey").value = "";
+    updateClearAiKeyState(key.configured === true);
+    closeClearAiKeyConfirm();
+    flashSaved("已清除保存的 AI API Key");
+  } catch (error) {
+    setError("aiError", error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function saveAiAssist(version) {
   if (role !== "admin") return;
   setError("aiError");
@@ -540,7 +578,6 @@ async function saveAiAssist(version) {
       },
     };
     if ($("aiApiKey").value.trim()) body.apiKey = $("aiApiKey").value.trim();
-    if ($("aiClearKey").checked) body.clearAiKey = true;
     const data = await api("/op/api/settings", { method: "PATCH", body });
     if (!isCurrentSave("ai", version)) return;
     const savedAi = data.settings.aiAssist;
@@ -552,7 +589,7 @@ async function saveAiAssist(version) {
     const key = data.aiAssistKey || {};
     $("aiKeyStatus").textContent = key.configured ? `已配置 ${key.hint || ""}` : "未配置";
     $("aiApiKey").value = "";
-    $("aiClearKey").checked = false;
+    updateClearAiKeyState(key.configured === true);
     syncAutoClaimPreference(savedAi.enabled === true && savedAi.autoClaimEnabled === true);
     flashSaved("AI 设置已修改并生效");
   } catch (error) {
@@ -838,6 +875,9 @@ async function init() {
       bindAutoSave("runtimeForm", "runtime", saveRuntime);
       bindAutoSave("featureForm", "features", saveFeatures);
       bindAutoSave("aiAssistForm", "ai", saveAiAssist);
+      $("aiClearKey").addEventListener("click", openClearAiKeyConfirm);
+      $("aiClearKeyConfirmBtn").addEventListener("click", clearAiKey);
+      $("aiClearKeyCancel").addEventListener("click", closeClearAiKeyConfirm);
       $("mfaSetupBtn").addEventListener("click", setupMfa);
       $("mfaEnableForm").addEventListener("submit", enableMfa);
       $("mfaDisableForm").addEventListener("submit", disableMfa);
