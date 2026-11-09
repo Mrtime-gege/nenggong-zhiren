@@ -98,7 +98,8 @@ function makeJsonLeaf(key, value, path) {
   let text = value === null ? "null" : JSON.stringify(value);
   if (typeof text === "string" && text.length > 1800) text = `${text.slice(0, 1800)}… (${text.length} chars)`;
   const val = el("span", "json-value", text);
-  val.title = value === null ? "null" : String(JSON.stringify(value));
+  const full = value === null ? "null" : String(JSON.stringify(value));
+  if (full.length <= 300) val.title = full;
   row.append(val);
   return row;
 }
@@ -130,10 +131,8 @@ function makeJsonNode(key, value, path, depth) {
     // Let the browser lay out the newly inserted children before measuring.
   });
   fieldAnchors.set(path, node);
-  if (depth === 0) {
-    // Top-level fields stay folded but are rendered immediately for field jumps.
-    build();
-  }
+  // Build children lazily on first expansion. Large message arrays are common
+  // in real Agent traffic and should not create thousands of DOM nodes up front.
   return node;
 }
 

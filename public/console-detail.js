@@ -157,20 +157,17 @@ function buildDetail(ticket) {
   const infoSection = el("div", "inspector-tab-panel context-info");
   const infoOverview = contextSection("票据概览", "当前请求");
   infoOverview.body.append(meta, purposeHint);
-  const infoDetails = contextSection("请求详情", "协议 / 限制 / 客户端");
+  const infoDetails = contextSection("请求详情", "协议 / 限制 / 快照");
   const infoExtra = el("div", "info-extra");
-  infoDetails.body.append(infoExtra);
-  const infoSession = contextSection("相关会话", "同会话轮次");
-  infoSession.body.append(sessionBar);
-  const requestSection = contextSection("请求检查", "关键字段");
-  const requestSummary = el("div", "request-summary-grid");
   const requestHint = el("div", "request-summary-hint", "");
   const requestOpen = el("a", "btn ghost request-open-link", "在请求检查中打开");
   requestOpen.target = "_blank";
   requestOpen.rel = "noopener";
   if (state.role !== "admin") requestOpen.classList.add("hidden");
-  requestSection.body.append(requestSummary, requestHint, requestOpen);
-  infoSection.append(infoOverview.section, infoDetails.section, requestSection.section, infoSession.section);
+  infoDetails.body.append(infoExtra, requestHint, requestOpen);
+  const infoSession = contextSection("相关会话", "同会话轮次");
+  infoSession.body.append(sessionBar);
+  infoSection.append(infoOverview.section, infoDetails.section, infoSession.section);
   const sentSection = el("div", "inspector-tab-panel context-sent");
   const sentHead = el("div", "sent-panel-head");
   sentHead.append(el("span", "sent-panel-title", "当前发送"));
@@ -446,7 +443,6 @@ function buildDetail(ticket) {
     inspectorBody,
     infoSection,
     infoExtra,
-    requestSummary,
     requestHint,
     requestOpen,
     infoSession: infoSession.section,

@@ -4651,48 +4651,7 @@ body[data-page="workbench"] .qitem-foot {
   }
 }
 
-/* Compact request summary in the ticket detail inspector. */
-.request-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px 10px;
-}
-
-.request-summary-item {
-  min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.015);
-}
-
-.request-summary-label,
-.request-summary-value {
-  display: block;
-}
-
-.request-summary-label {
-  margin-bottom: 2px;
-  color: var(--muted);
-  font-size: 9px;
-}
-
-.request-summary-value {
-  overflow: hidden;
-  color: var(--text-dim);
-  font-family: var(--mono);
-  font-size: 9.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.request-summary-hint {
-  margin: 7px 0;
-  color: var(--muted);
-  font-size: 9px;
-  line-height: 1.5;
-}
-
+/* Request detail link; all request fields live in the single request card. */
 .request-open-link {
   width: 100%;
   justify-content: center;

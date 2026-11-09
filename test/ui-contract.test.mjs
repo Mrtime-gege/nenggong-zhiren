@@ -79,11 +79,13 @@ test("standalone request inspector supports composite filters and related sessio
 test("ticket detail keeps a compact request summary with a deep link", () => {
   const detail = fs.readFileSync(path.join(ROOT, "public/console-detail.js"), "utf8");
   const consoleJs = fs.readFileSync(path.join(ROOT, "public/console.js"), "utf8");
-  assert.match(detail, /request-summary-grid/);
+  assert.match(detail, /请求详情/);
   assert.match(detail, /在请求检查中打开/);
+  assert.doesNotMatch(detail, /request-summary-grid/);
   assert.doesNotMatch(detail, /request-inspector-pre/);
   assert.match(consoleJs, /function renderRequestSummary/);
   assert.match(consoleJs, /\/console\/requests\?ticket=/);
+  assert.match(consoleJs, /请求大小/);
   const protocol = fs.readFileSync(path.join(ROOT, "docs/protocol.md"), "utf8");
   assert.match(protocol, /\/v1\/inspect\/openai/);
   assert.match(protocol, /\/v1\/inspect\/anthropic/);

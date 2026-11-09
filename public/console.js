@@ -965,6 +965,9 @@ function renderInfoExtra(ticket, d) {
     ["工具", `${(ticket.tools || []).length} 个 · ${toolChoice}${ticket.parallelToolCalls === false ? " · 禁止并行" : ""}`],
     ["输出格式", ticket.responseFormat?.type || "文本"],
     ["附件", `${(ticket.attachments || []).length} 个`],
+    ["消息", `${(ticket.messages || []).length} 条`],
+    ["请求大小", requestSizeText(ticket.requestInspection?.raw?.length || 0)],
+    ["快照", ticket.requestInspection ? (ticket.requestInspection.truncated ? "已截断" : "完整") : "无原始快照"],
     ["输出上限", ticket.maxTokens ? `${ticket.maxTokens} tokens` : "模型默认"],
     ["停止词", `${(ticket.stops || []).length} 个`],
     ["usage", ticket.includeUsage ? "返回给调用方" : "不返回"],
@@ -997,26 +1000,10 @@ function requestSizeText(bytes) {
 }
 
 function renderRequestSummary(ticket, d) {
-  if (!d?.els?.requestSummary) return;
+  if (!d?.els?.requestHint) return;
   const inspection = ticket.requestInspection;
-  const fields = [
-    ["协议", ticket.protocol === "anthropic" ? "Anthropic Messages" : "OpenAI Chat"],
-    ["模型", ticket.model || "—"],
-    ["模式", ticket.stream ? "流式" : "非流式"],
-    ["请求大小", requestSizeText(inspection?.raw?.length || 0)],
-    ["工具", String((ticket.tools || []).length)],
-    ["消息", String((ticket.messages || []).length)],
-    ["会话", ticket.sessionId ? String(ticket.sessionId).slice(0, 10) : "独立请求"],
-    ["快照", inspection ? (inspection.truncated ? "已截断" : "完整") : "无原始快照"],
-  ];
-  d.els.requestSummary.replaceChildren();
-  for (const [label, value] of fields) {
-    const item = el("div", "request-summary-item");
-    item.append(el("span", "request-summary-label", label), el("span", "request-summary-value", value));
-    d.els.requestSummary.append(item);
-  }
   d.els.requestHint.textContent = inspection
-    ? "原始 JSON、字段折叠和请求结构图在独立的请求检查页面查看。"
+    ? "完整请求、JSON 折叠和结构图在独立请求检查页查看。"
     : "此票据没有原始请求快照；仍可在请求检查页查看归一化结构。";
   d.els.requestOpen.href = `/console/requests?ticket=${encodeURIComponent(ticket.id)}`;
 }
