@@ -87,7 +87,7 @@ python3 -c "import PIL"
 ```
 
 缺少 worker、Python 或 Pillow 时，上传仍可用，但图片不会被重新编码，服务端会记录跳过原因。
-发布包默认不包含 Python worker 脚本；需要该能力时请从源码目录复制脚本或配置外部路径。
+Python worker 脚本需从源码目录复制或配置外部路径。
 
 ### PDF 页图
 
@@ -333,29 +333,7 @@ journalctl -u nenggong-zhiren -f
 - 登录会话、CSRF token 和限速计数仍在内存，重启后需重新登录；
 - 恢复账号/密钥文件后重启，或让用户文件热重载生效（会清空受影响账号的会话）。
 
-## 8. 0.6.3 发布准备
-
-发布前按顺序执行：
-
-```bash
-npm run test:ci
-npm run test:coverage
-node scripts/build-release.mjs --check
-node scripts/build-release.mjs --out /tmp/nenggong-zhiren-0.6.3.tar.gz
-```
-
-检查：
-
-- 测试 111 / 111 通过；
-- 发布白名单 91 个文件，运行时导入闭包通过；
-- 压缩包不包含 `config.jsonc`、`users.json`、`api-keys.json`、数据库、日志、附件和测试；
-- 启动压缩包内服务后 `/healthz` 返回 `0.6.3`；
-- 浏览器按架构文档的回归清单完成最后检查；
-- 确认管理员密码、API 密钥和 TLS 配置不在仓库或发布包中。
-
-发布操作（推送、tag、GitHub Release）需维护者明确执行；本阶段只准备产物。
-
-## 9. 端口与网络
+## 8. 端口与网络
 
 | 端口 | 用途 | 暴露建议 |
 | --- | --- | --- |

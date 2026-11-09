@@ -16,8 +16,8 @@
 - 清理工作台旧用户/密钥弹窗、失效的 relay 预算裁剪函数、未使用的协议解析函数和旧分栏辅助代码，两批共减少约 900 行历史死代码。
 - 移除只写不读的 AI 用量文件子系统；清理未使用的旧布局 CSS；旧 `/ai/suggest` 仅保留兼容并返回废弃提示头，新集成使用 `/ai/relay`。
 - 开始模块拆分：抽出 `src/ai/cards.mjs`、`src/text.mjs`、`src/http/public-assets.mjs`、`src/http/pages.mjs`、前端 `public/console-utils.js`、`public/console-ai-cards.js`、`public/console-queue.js`、`public/console-shortcuts.js` 和 `public/console-detail.js`，减少 `server.mjs` / `console.js` 的职责。
-- 静态资源增加服务端 mtime/ETag 缓存；发布脚本增加运行时相对导入闭包检查，避免新增模块漏进发布包。
-- 测试拆分为 `test/provider.test.mjs` 与 `test/ai-relay.test.mjs`；旧 `/ai/suggest` 记录 0.7.0 移除窗口。
+- 静态资源增加服务端 mtime/ETag 缓存；发布构建增加运行时导入检查，降低模块遗漏风险。
+- 测试拆分为 `test/provider.test.mjs` 与 `test/ai-relay.test.mjs`；旧 `/ai/suggest` 保留兼容提示，新集成使用 `/ai/relay`。
 - 发布前浏览器回归清单写入架构文档，覆盖导航、AI 卡片、刷新/重启和 pageerror。
 - 自动化测试扩充到 112 个：API key、用量配额、附件、设置、模型、审计、JSONC、AI 上下文、状态快照和 UI 契约；新增 `test:ci`、`test:coverage` 和 GitHub Actions Node 20/24 矩阵。
 - 自动化测试 112 / 112 通过。
@@ -40,7 +40,7 @@
 本版本聚焦工作台可用性、AI 结果流程、快捷栏个人化和发布前的安全加固。默认仍是单进程本地/局域网部署；不提供公开注册或自动申请 API Key。
 
 - README 精简为入口页，安装、协议、部署、安全和架构说明分别保留在核心文档中。
-- 历史方案、旧测试报告、发布材料和内部流程文档移出公开文档树，保留在本机归档；公开 `docs/` 只保留 6 个核心文档。
+- 公开文档收敛为核心文档，减少重复说明。
 - README 图标改用独立的 PNG 资源，避免 README 反复引用带滤镜的 SVG。
 - 坐席页改为会话中心布局：左侧队列、中间单一会话时间线、底部回复编辑区、右侧上下文（资料 / 工具 / AI / 备注）。
 - 已发送内容直接进入时间线，不再拆成独立区块；回复编辑区高度可拖动调整，并支持一键清空草稿、AI 建议和待发送工具。

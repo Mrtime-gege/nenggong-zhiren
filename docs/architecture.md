@@ -31,12 +31,12 @@
 
 ## 进程与模块
 
-- `server.mjs`：HTTP 路由、票据状态机、SSE、协议校验、安全中间件和操作接口。当前仍是单入口大文件，后续可按 public / operator / ai / static 路由拆分。
+- `server.mjs`：HTTP 路由、票据状态机、SSE、协议校验、安全中间件和操作接口。
 - `src/auth.mjs`：用户文件、scrypt 哈希、内存会话、CSRF、TOTP MFA、登录失败限速、热重载。
 - `src/schema.mjs`：零依赖 JSON Schema 子集校验器。
 - `src/protocol/`：OpenAI / Anthropic 请求归一化、响应与流式增量。
 - `src/data/`：模型、密钥、用量、状态、设置、审计、附件、模板和历史存储。
-- `src/ai/`：旧 suggest/native 路径和当前 relay；relay 是工作台主路径。旧 `/ai/suggest` 仅保留兼容，并返回废弃提示头，新集成必须使用 `/ai/relay`。计划在 0.7.0 移除 suggest/native 路径；0.6.x 期间只修安全问题和致命缺陷。AI 卡片持久化已拆到 `src/ai/cards.mjs`。
+- `src/ai/`：旧 suggest/native 路径和当前 relay；relay 是工作台主路径。旧 `/ai/suggest` 仅保留兼容，并返回废弃提示头，新集成必须使用 `/ai/relay`；后续版本可能移除 suggest/native。AI 卡片持久化由 `src/ai/cards.mjs` 提供。
 - `src/media/`：隔离的图片重编码和 PDF 页渲染 worker 适配。
 - `public/console.js`：网页工作台核心状态、操作和编辑流程（无构建步骤的原生 JavaScript）。
 - `public/console-utils.js`：控制台纯展示格式化工具（短 ID、耗时、JSON、预览文本）。
@@ -156,7 +156,7 @@ npm run test:coverage # 生成 Node 原生覆盖率报告
 - `state.db`：当前票据、活动状态、SSE 日志、认领状态和幂等记录的 SQLite 状态库；没有 `node:sqlite` 时回退旧 JSON/journal；
 - `state.json` / `state.json.journal`：旧版状态快照和 journal；SQLite 可用时只作为首次迁移来源；
 - `history.db`：已完成票据的 SQLite/FTS5 索引；历史页和 CSV 导出优先走索引，Node 不支持 `node:sqlite` 时回退到内存筛选；
-- 外部 Python worker（默认参考 `scripts/normalize-image.py` 和 `scripts/render-pdf-page.py`）：由 `config.jsonc → workers` 指定绝对/相对路径；仅检测配置路径，发布包默认不携带脚本；图片 worker 负责临时重编码并剥离 EXIF，PDF worker 负责按需渲染单页；
+- 外部 Python worker（默认参考 `scripts/normalize-image.py` 和 `scripts/render-pdf-page.py`）：由 `config.jsonc → workers` 指定绝对/相对路径；仅检测配置路径，脚本需从源码目录提供或配置外部路径；图片 worker 负责临时重编码并剥离 EXIF，PDF worker 负责按需渲染单页；
 - `usage.json`：分钟/日/月计数和每日历史；
 - `settings.json`：设置页覆盖值；
 - `audit.log`：登录、账号、密钥、设置和票据事件；
