@@ -2751,10 +2751,15 @@ test("an unclaimed ticket exposes persisted auto AI cards", async () => {
   }
 });
 
-test("SQLite history index supports full-text recall and filters", async () => {
+test("SQLite history index supports full-text recall and filters", async (t) => {
   const { HistoryIndex } = await import("../src/data/history-index.mjs");
   const dir = mkdtempSync(path.join(os.tmpdir(), "ngzr-history-"));
   const index = new HistoryIndex({ file: path.join(dir, "history.db") }).init();
+  if (!index.available) {
+    index.close();
+    t.skip("node:sqlite/FTS5 unavailable in this Node runtime");
+    return;
+  }
   try {
     assert.equal(index.available, true);
     index.sync([{
