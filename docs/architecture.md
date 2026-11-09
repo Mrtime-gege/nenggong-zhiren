@@ -49,8 +49,8 @@
 - `public/console-detail.js`：票据详情工作区构建；资料页展示请求关键字段并跳转到独立请求检查页。
 - `public/requests.html`、`public/admin-requests.js`：独立请求检查页，支持多条件筛选、原始/归一化对照和同会话关联。
 - `public/hub.html` + `navigation.js`：一级导航和概览/记录/管理 Hub；二级页面通过同源 iframe 复用。
-- `public/login.*`：登录页。
-- `public/settings.html`、`settings-operator.html`：设置页。
+- `public/login.*`：双栏登录页；TOTP 输入过滤/进度、Caps Lock 提示、加载态、指针光晕和 `Ctrl/Cmd+Enter` 提交。
+- `public/settings.html`、`settings-operator.html`：设置页；快捷栏支持拖动手柄/方向键排序、新增项底部提示和恢复默认。
 - `public/status.html`、`environment.html`、`usage.html`、`history.html`、`audit.html`、`users.html`、`models.html`、`keys.html`：旧管理页面，保留为 Hub 的嵌入页面和兼容入口。
 - `scripts/user.mjs`：账号 CLI。
 - `src/environment.mjs`：管理员环境页的受限能力探测，只检查配置路径和已知 Python 模块。
@@ -117,6 +117,12 @@ queued ──claim──► claimed ──chunk/finish──► streaming ──
 - AI relay 请求上游时使用流式响应，但不再暴露应用级输入/输出/每日配额和首包等待设置；程序完全独立运行，不读取 DSH。请求超时等内部默认值固化在项目代码中，管理员仍可管理 AI 开关、Endpoint、模型、API Key 和全局并发。上游失败时审计只记录错误阶段、错误码和状态，不记录正文或密钥。
 - 自动 AI 只负责预生成，仍受账号权限、票据锁和全局并发保护，不进入调用方响应。
 - 快捷栏是每账号的偏好设置，最多 15 项；服务端按角色过滤管理员专用动作/链接，前端只负责显示。
+
+## 运行时缓存
+
+- `ticketInputStats` 按票据缓存消息数、输入字符和图片标记，队列摘要与详情共享，避免长会话重复扫描。
+- 历史归档记录按票据关键字段签名缓存；未变化时不重复构建索引记录。
+- 前端队列/请求检查表在轮询和自动刷新时比较签名，数据未变化不重建 DOM。
 
 ## 页面加载与缓存
 

@@ -36,6 +36,12 @@ mounts, explicit command approval, egress restrictions, snapshots, and audit
 review. Never expose production hosts, root/admin credentials, SSH keys, cloud
 tokens, customer data, or unrestricted home directories to an unisolated Agent.
 
+## Monitoring and browser origin defaults
+
+`/metrics` requires an administrator session or the configured
+`server.metricsToken` bearer token. `server.corsOrigins` defaults to an empty
+list; explicitly configure trusted origins for browser clients.
+
 ## Not a security boundary
 
 - The default HTTP mode does not encrypt passwords in transit. Use TLS.

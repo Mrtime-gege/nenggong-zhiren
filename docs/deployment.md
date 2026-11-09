@@ -58,6 +58,8 @@ Restart-Service iphlpsvc
 }
 ```
 
+浏览器跨域调用 `/v1` 时，必须按实际前端 Origin 配置 `server.corsOrigins`；默认空数组不授权跨域读取。远程 Prometheus 抓取 `/metrics` 时配置 `server.metricsToken`。
+
 局域网入口是 Windows 的 `7355`，WSL 内部监听 `7356`。
 不要同时让 WSL 监听 `7355`，否则 Windows portproxy 无法绑定该端口。
 

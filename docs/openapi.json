@@ -21,9 +21,12 @@
     "/metrics": {
       "get": {
         "summary": "Prometheus 聚合指标",
-        "description": "不含聊天内容、调用方名称或密钥；适合内网 Prometheus 抓取。",
-        "security": [],
-        "responses": { "200": { "description": "Prometheus text format", "content": { "text/plain": { "schema": { "type": "string" } } } } }
+        "description": "需要管理员会话或 server.metricsToken 的 Bearer token；不含聊天内容、调用方名称或密钥。",
+        "security": [{ "metricsTokenAuth": [] }],
+        "responses": {
+          "200": { "description": "Prometheus text format", "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "401": { "description": "需要管理员会话或有效的 metrics token" }
+        }
       }
     },
     "/provider": {
@@ -112,7 +115,8 @@
   "components": {
     "securitySchemes": {
       "bearerAuth": { "type": "http", "scheme": "bearer" },
-      "apiKeyAuth": { "type": "apiKey", "in": "header", "name": "x-api-key" }
+      "apiKeyAuth": { "type": "apiKey", "in": "header", "name": "x-api-key" },
+      "metricsTokenAuth": { "type": "http", "scheme": "bearer", "description": "server.metricsToken；也可使用管理员会话 Cookie" }
     },
     "schemas": {
       "ChatRequest": {
