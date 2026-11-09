@@ -1257,15 +1257,14 @@ function startAiRelayForTicket(ticket, source, actor = "system") {
   });
 }
 
-const MAX_REQUEST_INSPECTION_CHARS = 64 * 1024;
-
-function captureRequestInspection(protocol, raw) {
+function captureRequestInspection(protocol, raw, maxChars = 2 * 1024 * 1024) {
   const text = String(raw || "");
+  const limit = Math.max(1024, Number(maxChars) || 2 * 1024 * 1024);
   return {
     protocol,
     endpoint: protocol === ANTHROPIC_PROTOCOL ? "/v1/messages" : "/v1/chat/completions",
-    raw: text.slice(0, MAX_REQUEST_INSPECTION_CHARS),
-    truncated: text.length > MAX_REQUEST_INSPECTION_CHARS,
+    raw: text.slice(0, limit),
+    truncated: text.length > limit,
     capturedAt: Date.now(),
   };
 }
@@ -2038,6 +2037,14 @@ function publicTicketSummary(ticket) {
     preview: ticketPreview(ticket),
     purpose: ticketPurpose(ticket),
     noteCount: (ticket.notes || []).length,
+    toolCount: (ticket.tools || []).length,
+    attachmentCount: (ticket.attachments || []).length,
+    hasImages: (ticket.messages || []).some((message) =>
+      Array.isArray(message?.parts) && message.parts.some((part) => part?.type === "image"),
+    ),
+    requestBytes: ticket.requestInspection?.raw?.length || 0,
+    requestCaptured: Boolean(ticket.requestInspection),
+    requestTruncated: ticket.requestInspection?.truncated === true,
     searchText: ticketSearchText(ticket),
   };
   ticket._summaryCache = { signature, value: summary };
@@ -2641,7 +2648,7 @@ async function handleChatRequest(req, res, protocol) {
   } catch (error) {
     throw protocolToApiError(error);
   }
-  request.inspection = captureRequestInspection(protocol, raw);
+  request.inspection = captureRequestInspection(protocol, raw, live.limits.bodyLimitBytes);
 
   if (caller.allowedModels?.length && !caller.allowedModels.includes(request.model)) {
     throw new ApiError(
@@ -3604,6 +3611,8 @@ async function handleOperator(req, res, url, session) {
       ticket.aiPending?.error || "",
       (ticket.aiCards || []).length,
       ticket.aiCards?.at(-1)?.id || "",
+      ticket.requestInspection?.raw?.length || 0,
+      ticket.requestInspection?.truncated ? 1 : 0,
       ticket.sseLog?.length || 0,
       ticket.anthLog?.length || 0,
     ]);
@@ -3625,10 +3634,11 @@ async function handleOperator(req, res, url, session) {
       .filter((ticket) => activeStates.has(ticket.state))
       .sort((a, b) => a.created - b.created)
       .map(serialize);
+    const recentLimit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit")) || 30));
     const recent = all
       .filter((ticket) => !activeStates.has(ticket.state))
       .sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0))
-      .slice(0, 30)
+      .slice(0, recentLimit)
       .map(serialize);
     const payload = { ok: true, tickets: [...active, ...recent], stats };
     return sendJsonBody(res, 200, JSON.stringify(payload), { ETag: etag });
@@ -4530,6 +4540,13 @@ async function route(req, res) {
         return;
       }
       return serveConsole(req, res);
+    }
+
+    if (pathname === "/console/requests" || pathname === "/console/requests/") {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+      }
+      return serveAdminPage(req, res, "requests.html");
     }
 
     if (pathname === "/console/overview" || pathname === "/console/overview/" ||

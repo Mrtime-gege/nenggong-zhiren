@@ -68,6 +68,7 @@ public/theme.css
 public/admin.css
 public/admin-audit.js
 public/admin-history.js
+public/admin-requests.js
 public/admin-keys.js
 public/admin-models.js
 public/admin-settings.js
@@ -75,6 +76,7 @@ public/admin-status.js
 public/admin-usage.js
 public/admin-users.js
 public/audit.html
+public/requests.html
 public/environment.html
 public/admin-environment.js
 public/guide.css

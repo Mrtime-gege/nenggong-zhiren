@@ -175,7 +175,7 @@ function buildDetail(ticket) {
   requestNormalizedButton.type = "button";
   requestCopyButton.type = "button";
   requestToolbar.append(requestRawButton, requestNormalizedButton, requestCopyButton);
-  const requestHint = el("div", "request-inspector-hint", "请求快照最多保留 64 KB；不会进入调用方响应。");
+  const requestHint = el("div", "request-inspector-hint", "请求快照按请求体上限保留；不会进入调用方响应。");
   const requestPre = el("pre", "request-inspector-pre", "展开后查看请求。");
   requestDetails.append(requestSummary, requestToolbar, requestHint, requestPre);
   requestSection.body.append(requestDetails);

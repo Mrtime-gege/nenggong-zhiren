@@ -41,6 +41,22 @@ test("settings and console do not expose removed AI limit fields", () => {
   assert.doesNotMatch(consoleJs, /aiLimitBar|ai-card-double|doubleLimits/);
 });
 
+test("standalone request inspector supports composite filters and related sessions", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/requests.html"), "utf8");
+  const script = fs.readFileSync(path.join(ROOT, "public/admin-requests.js"), "utf8");
+  assert.match(html, /id="requestFilters"/);
+  assert.match(html, /id="requestProtocol"/);
+  assert.match(html, /id="requestTools"/);
+  assert.match(html, /id="requestSession"/);
+  assert.match(html, /id="requestRows"/);
+  assert.match(script, /function matches\(/);
+  assert.match(script, /requestInspection/);
+  assert.match(script, /relatedOnly/);
+  const assets = fs.readFileSync(path.join(ROOT, "src/http/public-assets.mjs"), "utf8");
+  assert.match(assets, /"\/requests\.html"/);
+  assert.match(assets, /"\/admin-requests\.js"/);
+});
+
 test("ticket request inspector exposes raw and normalized views", () => {
   const detail = fs.readFileSync(path.join(ROOT, "public/console-detail.js"), "utf8");
   const consoleJs = fs.readFileSync(path.join(ROOT, "public/console.js"), "utf8");

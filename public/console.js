@@ -1027,7 +1027,7 @@ function renderRequestInspector(ticket, d) {
     ? (hasRaw ? prettyRequestJson(inspection.raw) : "这张票据没有原始请求快照。")
     : JSON.stringify(normalized, null, 2);
   d.els.requestHint.textContent = view === "raw" && inspection?.truncated
-    ? "原始请求超过 64 KB，已截断；归一化视图仍可查看结构。"
+    ? "原始请求超过请求体上限，已截断；归一化视图仍可查看结构。"
     : view === "raw"
       ? `收到请求时的原始 JSON 快照 · ${protocol === "anthropic" ? "Anthropic Messages" : "OpenAI Chat"}`
       : "进入票据队列前的归一化结构；不包含原始字段别名和未知字段。";

@@ -17,7 +17,7 @@
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-9ad7b4" /></a>
   <a href="https://nodejs.org/"><img alt="node" src="https://img.shields.io/badge/node-%3E%3D20-5fa04e" /></a>
   <img alt="dependencies" src="https://img.shields.io/badge/runtime_dependencies-0-c28a5a" />
-  <img alt="tests" src="https://img.shields.io/badge/tests-114%20passing-b084f0" />
+  <img alt="tests" src="https://img.shields.io/badge/tests-116%20passing-b084f0" />
 </p>
 
 <p align="center">
@@ -104,7 +104,7 @@ OpenAI / Anthropic 请求
 | 管理能力 | 用户、模型、API 密钥、配额、审计、历史、环境检查 |
 | 可观测性 | 状态页、Prometheus `/metrics`、历史检索、审计、CSV |
 | 页面性能 | 静态资源 ETag 条件缓存；Hub 相邻/悬停预载 |
-| 请求检查 | `/v1/inspect/*` dry-run 分析原始/归一化请求；票据资料区可查看请求快照 |
+| 请求检查 | `/v1/inspect/*` dry-run；独立检查页支持多条件筛选、原始/归一化对照和同会话关联 |
 
 ## 架构
 
@@ -179,7 +179,7 @@ curl -sS http://127.0.0.1:7355/v1/inspect/anthropic \
 - 不会持久化请求；
 - 返回 `raw`、`normalized` 和说明，适合对照协议字段和工具调用结构。
 
-真实票据在「资料 → 请求检查」中提供原始请求与归一化视图；原始快照最多保留 64 KB，只对有该票据模型权限的回复员可见。
+真实票据会在「资料 → 请求检查」中提供原始请求与归一化视图；独立页面「记录 → 请求检查」支持按协议、模型、状态、会话、工具、图片、调用方、回复员和日期组合筛选。原始快照按请求体上限保留（默认 2 MB），只对有权查看该票据模型的人员可见。
 
 ## 文档导航
 

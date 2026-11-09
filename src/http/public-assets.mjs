@@ -32,4 +32,6 @@ export const PUBLIC_FILES = new Map([
   ["/icon-512.png", { file: "icon-512.png", type: "image/png" }],
   ["/apple-touch-icon.png", { file: "apple-touch-icon.png", type: "image/png" }],
   ["/manifest.webmanifest", { file: "manifest.webmanifest", type: "application/manifest+json" }],
+  ["/requests.html", { file: "requests.html", type: "text/html; charset=utf-8" }],
+  ["/admin-requests.js", { file: "admin-requests.js", type: "text/javascript; charset=utf-8" }],
 ]);

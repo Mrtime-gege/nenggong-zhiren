@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0e13" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>能工智人 · 请求检查</title>
+    <link rel="stylesheet" href="/console.css" />
+    <link rel="stylesheet" href="/admin.css" />
+    <link rel="stylesheet" href="/theme.css" />
+  </head>
+  <body data-page="requests">
+    <header class="topbar">
+      <div class="brand"><span class="brand-icon-wrap"><img class="brand-icon" src="/icon.svg" alt="" /><span class="status-dot ok"></span></span><span class="brand-name">能工智人</span><span class="brand-sub">请求检查</span></div>
+      <nav id="topnav" class="topnav" aria-label="主导航"></nav>
+      <div class="conn"><span id="userLabel" class="user-label">正在加载…</span><button id="logout" class="btn ghost" type="button">退出</button><span id="status" class="conn-status">连接中…</span></div>
+    </header>
+
+    <main class="admin-main request-inspector-main">
+      <div class="admin-head request-head">
+        <div>
+          <span class="status-kicker">INSPECTOR / REQUESTS</span>
+          <h1>请求检查</h1>
+          <p>像查看协议帧一样检查请求：组合筛选、选择票据、对照原始 JSON 和归一化结构。</p>
+        </div>
+        <div class="request-head-actions">
+          <span id="requestSummary" class="admin-hint">—</span>
+          <label class="request-auto-refresh"><input id="requestAutoRefresh" type="checkbox" checked /> 自动刷新</label>
+          <button id="requestRefresh" class="btn" type="button">刷新</button>
+        </div>
+      </div>
+
+      <form id="requestFilters" class="admin-card request-filters">
+        <label class="field request-search"><span class="field-label">搜索</span><input id="requestQ" type="search" placeholder="内容 / 票据 ID / 调用方 / 工具" autocomplete="off" /></label>
+        <label class="field"><span class="field-label">协议</span><select id="requestProtocol"><option value="">全部协议</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select></label>
+        <label class="field"><span class="field-label">状态</span><select id="requestState"><option value="">全部状态</option><option value="queued">待认领</option><option value="claimed">已认领</option><option value="streaming">流式中</option><option value="finishing">收尾中</option><option value="done">已完成</option><option value="failed">失败</option><option value="cancelled">已取消</option></select></label>
+        <label class="field"><span class="field-label">模型</span><select id="requestModel"><option value="">全部模型</option></select></label>
+        <label class="field"><span class="field-label">调用方</span><input id="requestCaller" type="text" placeholder="调用方名称" autocomplete="off" /></label>
+        <label class="field"><span class="field-label">回复员</span><input id="requestOperator" type="text" placeholder="用户名" autocomplete="off" /></label>
+        <label class="field"><span class="field-label">会话</span><input id="requestSession" type="text" placeholder="session id" autocomplete="off" /></label>
+        <label class="field"><span class="field-label">流式</span><select id="requestStream"><option value="">全部</option><option value="1">流式</option><option value="0">非流式</option></select></label>
+        <label class="field"><span class="field-label">工具</span><select id="requestTools"><option value="">全部</option><option value="1">有工具</option><option value="0">无工具</option></select></label>
+        <label class="field"><span class="field-label">图片</span><select id="requestImages"><option value="">全部</option><option value="1">有图片</option><option value="0">无图片</option></select></label>
+        <label class="field"><span class="field-label">原始快照</span><select id="requestCapture"><option value="">全部</option><option value="1">已捕获</option><option value="0">未捕获</option></select></label>
+        <label class="field"><span class="field-label">开始日期</span><input id="requestFrom" type="date" /></label>
+        <label class="field"><span class="field-label">结束日期</span><input id="requestTo" type="date" /></label>
+        <div class="form-actions request-filter-actions">
+          <button class="btn primary" type="submit">应用筛选</button>
+          <button id="requestReset" class="btn ghost" type="button">重置</button>
+          <button id="requestRelatedClear" class="btn ghost hidden" type="button">清除关联筛选</button>
+        </div>
+      </form>
+
+      <div class="request-workspace">
+        <section class="admin-card request-list-card">
+          <div class="request-list-head">
+            <div class="admin-card-title">请求 <span id="requestCount" class="admin-hint">—</span></div>
+            <span class="admin-hint">显示活动票据和最近 200 条结束票据</span>
+          </div>
+          <div class="admin-table-wrap request-table-wrap">
+            <table class="admin-table request-table">
+              <thead><tr><th>时间</th><th>协议</th><th>模型</th><th>状态</th><th>会话</th><th>调用方</th><th>回复员</th><th>大小</th><th>工具</th><th>快照</th></tr></thead>
+              <tbody id="requestRows"></tbody>
+            </table>
+          </div>
+          <div id="requestEmpty" class="admin-empty hidden">没有匹配的请求。</div>
+        </section>
+
+        <aside class="admin-card request-detail-card">
+          <div id="requestDetailEmpty" class="request-detail-empty">
+            <span class="request-empty-glyph">⌁</span>
+            <strong>选择一张票据</strong>
+            <span>查看原始请求、归一化结构和相关请求。</span>
+          </div>
+          <div id="requestDetail" class="request-detail hidden">
+            <div class="request-detail-head">
+              <div><span class="status-kicker">SELECTED REQUEST</span><h2 id="requestDetailTitle">—</h2></div>
+              <button id="requestDetailClose" class="btn ghost" type="button">清除</button>
+            </div>
+            <div id="requestDetailMeta" class="request-meta"></div>
+            <div class="request-related-line">
+              <label class="request-related-toggle"><input id="requestRelatedOnly" type="checkbox" checked /> 自动筛选同会话相关请求</label>
+              <span id="requestRelatedHint" class="admin-hint"></span>
+            </div>
+            <div class="request-view-toolbar">
+              <button id="requestRawView" class="request-view-button active" type="button">原始请求</button>
+              <button id="requestNormalizedView" class="request-view-button" type="button">归一化请求</button>
+              <button id="requestCopy" class="btn ghost" type="button">复制</button>
+            </div>
+            <div id="requestViewHint" class="request-view-hint"></div>
+            <pre id="requestPayload" class="request-payload"></pre>
+          </div>
+        </aside>
+      </div>
+    </main>
+    <script src="/navigation.js"></script>
+    <script src="/admin-requests.js"></script>
+  </body>
+</html>

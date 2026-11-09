@@ -20,6 +20,7 @@
     usage: "overview",
     history: "records",
     audit: "records",
+    requests: "records",
     users: "admin",
     models: "admin",
     keys: "admin",
@@ -39,6 +40,7 @@
       tabs: [
         { key: "history", label: "历史票据", href: "/console/history" },
         { key: "audit", label: "审计日志", href: "/console/audit" },
+        { key: "requests", label: "请求检查", href: "/console/requests" },
       ],
     },
     admin: {

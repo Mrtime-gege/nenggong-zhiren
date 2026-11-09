@@ -2899,6 +2899,11 @@ test("request inspection is dry-run and ticket snapshots keep the raw protocol b
   assert.equal(after.tickets.length, before.tickets.length, "inspect must not create a ticket");
   const unauthorized = await fetch(`${BASE}/v1/inspect/openai`, { method: "POST", body: "{}" });
   assert.equal(unauthorized.status, 401);
+  const page = await fetch(`${BASE}/console/requests`, { headers: { Cookie: adminSession.cookie } });
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /id="requestFilters"/);
+  const listed = await opJson(adminSession, "/op/api/tickets?compact=1&limit=200");
+  assert.ok(listed.tickets.every((ticket) => "requestBytes" in ticket && "requestCaptured" in ticket));
 
   const tag = marker("REQUEST-INSPECTION");
   const pending = startChat({ model: "human-1", messages: [{ role: "user", content: tag }] });
@@ -2909,6 +2914,18 @@ test("request inspection is dry-run and ticket snapshots keep the raw protocol b
   assert.equal(detail.ticket.requestInspection.truncated, false);
   await claim(adminSession, ticket.id);
   await finishJson(adminSession, ticket.id, { text: "inspect ok", finishReason: "stop" });
+  assert.equal((await pending).status, 200);
+});
+
+test("request snapshots keep payloads above the old 64 KB boundary", async () => {
+  const large = "L".repeat(70 * 1024);
+  const pending = startChat({ model: "human-1", messages: [{ role: "user", content: large }] });
+  const ticket = await waitForTicket((item) => item.messages.some((message) => message.content.startsWith("LLLL")));
+  const detail = await opJson(adminSession, `/op/api/tickets/${ticket.id}`);
+  assert.ok(detail.ticket.requestInspection.raw.length > 64 * 1024);
+  assert.equal(detail.ticket.requestInspection.truncated, false);
+  await claim(adminSession, ticket.id);
+  await finishJson(adminSession, ticket.id, { text: "large request ok", finishReason: "stop" });
   assert.equal((await pending).status, 200);
 });
 
