@@ -54,7 +54,7 @@ import { validateJsonSchema, formatSchemaErrors } from "./src/schema.mjs";
 import { probeEnvironment } from "./src/environment.mjs";
 
 const PUBLIC_DIR = path.join(ROOT, "public");
-const VERSION = "0.6.4";
+const VERSION = "0.6.5";
 const PUBLIC_CONFIG = (() => {
   try {
     return loadConfig();

@@ -40,7 +40,7 @@ npm start
 启动成功时终端会显示：
 
 ```text
-能工智人 (nenggong-zhiren) v0.6.4 listening on 0.0.0.0:7355
+能工智人 (nenggong-zhiren) v0.6.5 listening on 0.0.0.0:7355
   login       http://127.0.0.1:7355/login
   console     http://127.0.0.1:7355/console
   LAN         http://<LAN-IP>:7355/login

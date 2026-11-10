@@ -1,0 +1,35 @@
+name: Publish v0.6.5 release
+
+on:
+  push:
+    tags: ["v0.6.5"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify release tests
+        run: npm run test:ci
+      - name: Build whitelist archive
+        run: |
+          node scripts/build-release.mjs --out /tmp/nenggong-zhiren-0.6.5.tar.gz
+          (cd /tmp && sha256sum nenggong-zhiren-0.6.5.tar.gz > nenggong-zhiren-0.6.5.tar.gz.sha256)
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title "能工智人 0.6.5" \
+            --generate-notes \
+            /tmp/nenggong-zhiren-0.6.5.tar.gz \
+            /tmp/nenggong-zhiren-0.6.5.tar.gz.sha256

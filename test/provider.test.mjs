@@ -1405,7 +1405,7 @@ test("admin settings, usage, audit and status APIs", async () => {
   const audit = await opJson(adminSession, "/op/api/audit");
   assert.ok(audit.events.some((event) => event.action === "settings.update"));
   const status = await opJson(adminSession, "/op/api/status");
-  assert.equal(status.version, "0.6.4");
+  assert.equal(status.version, "0.6.5");
   assert.ok(status.storage.users.exists);
   assert.ok(Array.isArray(status.audit));
 });
@@ -1921,7 +1921,7 @@ test("metrics, global history search and archive CSV are available", async () =>
   const text = await metrics.text();
   assert.match(text, /ngzr_up 1/);
   assert.match(text, /ngzr_tickets_state\{state="queued"\}/);
-  assert.match(text, /ngzr_build_info\{version="0\.6\.4"\}/);
+  assert.match(text, /ngzr_build_info\{version="0\.6\.5"\}/);
 
   const history = await opJson(adminSession, `/op/api/history?q=${encodeURIComponent(tag)}`);
   assert.equal(history.total, 1);
