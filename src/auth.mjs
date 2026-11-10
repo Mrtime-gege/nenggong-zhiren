@@ -314,6 +314,7 @@ export class AuthService {
         features: normalizeUserFeatures(raw.features),
         preferences: normalizePreferences(raw.preferences, DEFAULT_PREFERENCES, raw.role),
         totpSecret: typeof raw.totpSecret === "string" ? raw.totpSecret : "",
+        pendingTotpSecret: typeof raw.pendingTotpSecret === "string" ? raw.pendingTotpSecret : "",
         mfaEnabled: raw.mfaEnabled === true && typeof raw.totpSecret === "string" && raw.totpSecret.length > 0,
       });
     }
@@ -333,6 +334,7 @@ export class AuthService {
         features: normalizeUserFeatures(user.features),
         preferences: normalizePreferences(user.preferences, DEFAULT_PREFERENCES, user.role),
         totpSecret: user.totpSecret || undefined,
+        pendingTotpSecret: user.pendingTotpSecret || undefined,
         mfaEnabled: user.mfaEnabled === true,
       })),
     };
@@ -368,8 +370,10 @@ export class AuthService {
     const normalized = normalizeUsername(username);
     const user = this.users.get(normalized);
     if (!user) throw new AuthError("用户不存在。", "user_not_found", 404);
-    user.totpSecret = String(secret || "");
-    user.mfaEnabled = false;
+    // Stage the new secret. Keep the active TOTP secret and mfaEnabled flag
+    // untouched until the caller proves possession of the new secret in
+    // enableMfa(). This prevents setup from silently downgrading MFA.
+    user.pendingTotpSecret = String(secret || "");
     this.users.set(normalized, user);
     this.persistUsers();
   }
@@ -377,7 +381,10 @@ export class AuthService {
   enableMfa(username) {
     const normalized = normalizeUsername(username);
     const user = this.users.get(normalized);
-    if (!user || !user.totpSecret) throw new AuthError("请先生成 MFA 密钥。", "mfa_not_setup");
+    const secret = user?.pendingTotpSecret || user?.totpSecret;
+    if (!user || !secret) throw new AuthError("请先生成 MFA 密钥。", "mfa_not_setup");
+    user.totpSecret = secret;
+    user.pendingTotpSecret = "";
     user.mfaEnabled = true;
     this.users.set(normalized, user);
     this.persistUsers();
@@ -389,14 +396,16 @@ export class AuthService {
     if (!user) throw new AuthError("用户不存在。", "user_not_found", 404);
     user.mfaEnabled = false;
     user.totpSecret = "";
+    user.pendingTotpSecret = "";
     this.users.set(normalized, user);
     this.persistUsers();
   }
 
   verifyMfaSetup(username, code, at = this.now()) {
     const user = this.users.get(normalizeUsername(username));
-    if (!user?.totpSecret) return false;
-    return verifyTotp(user.totpSecret, code, at, 1);
+    const secret = user?.pendingTotpSecret || user?.totpSecret;
+    if (!secret) return false;
+    return verifyTotp(secret, code, at, 1);
   }
 
   verifyMfa(username, code, at = this.now()) {

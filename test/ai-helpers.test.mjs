@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { AI_TASKS, AiAssistError, buildTicketContext } from "../src/ai/assist.mjs";
+import { AI_TASKS, AiAssistError, buildTicketContext, redactSensitiveText } from "../src/ai/assist.mjs";
 
 test("AI task catalog and error metadata are stable", () => {
   assert.deepEqual([...AI_TASKS], ["summary", "translate", "reply"]);
@@ -10,6 +10,13 @@ test("AI task catalog and error metadata are stable", () => {
   assert.equal(error.code, "ai_test");
   assert.equal(error.status, 503);
   assert.equal(error.retryAfterMs, 1500);
+});
+
+test("AI relay redaction helper removes common credentials", () => {
+  const text = redactSensitiveText("Authorization: Bearer abcdefgh12345678\ncookie: sid=secret\nsk-ngzr-abcdefgh1234");
+  assert.doesNotMatch(text, /abcdefgh12345678/);
+  assert.doesNotMatch(text, /sid=secret/);
+  assert.match(text, /REDACTED/);
 });
 
 test("AI context keeps tool names and redacts secrets", () => {

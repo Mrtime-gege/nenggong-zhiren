@@ -19,7 +19,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { readFile } from "node:fs/promises";
 import fs, { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { AuthError, AuthService } from "./src/auth.mjs";
+import { AuthError, AuthService, normalizeUsername } from "./src/auth.mjs";
 import { ROOT, loadConfig } from "./src/config.mjs";
 import { countTokens, capToTokens, applyStop, splitForStream } from "./src/text.mjs";
 import { PUBLIC_FILES } from "./src/http/public-assets.mjs";
@@ -131,7 +131,6 @@ const settingsStore = new SettingsStore({
       model: "",
       maxConcurrent: 4,
       autoReplyOnReceive: false,
-      autoReplyAfterSeconds: 0,
       autoClaimEnabled: false,
     },
   },
@@ -314,19 +313,19 @@ function isResOpen(res) {
 
 function corsHeaders(req) {
   const configured = config.corsOrigins;
-  let origin = "null";
+  let origin = "";
   if (configured.includes("*")) origin = "*";
   else {
     const requestOrigin = String(req?.headers?.origin || "");
     if (requestOrigin && configured.includes(requestOrigin)) origin = requestOrigin;
   }
   const headers = {
-    "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Headers": "Authorization,Content-Type,Idempotency-Key,X-Api-Key,X-Filename,X-File-Name,X-Upload-Filename,X-Session-Id,X-NGZR-Session-Id,X-Session-Affinity,Anthropic-Version,Anthropic-Beta",
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     "Access-Control-Max-Age": "86400",
   };
-  if (origin !== "*") headers.Vary = "Origin";
+  if (origin) headers["Access-Control-Allow-Origin"] = origin;
+  if (origin && origin !== "*") headers.Vary = "Origin";
   return headers;
 }
 
@@ -2483,6 +2482,7 @@ async function handleFileUpload(req, res) {
     try {
       const normalized = await normalizeImageBuffer(content, {
         script: config.workers.imageWorker,
+        python: config.workers.python,
         maxBytes: config.attachments.maxBytes,
       });
       const stem = filename.replace(/\.[^.]+$/, "") || "image";
@@ -2553,6 +2553,12 @@ function handleFileApi(req, res, url) {
     throw attachmentError(error);
   }
   if (match[2]) {
+    audit.append({
+      actor: `key:${caller.label}`,
+      action: "attachment.download",
+      target: record.id,
+      detail: `${record.bytes}B`,
+    });
     res.writeHead(200, {
       "Content-Type": "application/octet-stream",
       "Content-Disposition": attachmentDisposition(record.filename),
@@ -2972,6 +2978,7 @@ async function handleOperator(req, res, url, session) {
       try {
         rendered = await renderPdfPageBuffer(attachments.readBlob(fileId).buffer, page, {
           script: config.workers.pdfWorker,
+          python: config.workers.python,
         });
       } catch (error) {
         throw new ApiError(503, "PDF 页图预览不可用，请下载原文件或查看文字预览。", "server_error", "pdf_preview_unavailable");
@@ -3023,6 +3030,9 @@ async function handleOperator(req, res, url, session) {
   if (pathname === "/op/api/mfa/setup") {
     requireAdmin(session);
     if (req.method !== "POST") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    if (!auth.verifyCredentials(session.username, body.password)) {
+      throw new ApiError(403, "密码不正确。", "invalid_request_error", "invalid_password");
+    }
     const secret = generateSecret();
     auth.setMfaSecret(session.username, secret);
     audit.append({ actor: session.username, action: "mfa.setup", ip: clientIp(req) });
@@ -3030,7 +3040,7 @@ async function handleOperator(req, res, url, session) {
       ok: true,
       secret,
       otpauth: otpauthUrl({ secret, username: session.username }),
-      enabled: false,
+      enabled: auth.mfaEnabled(session.username),
     });
   }
 
@@ -3325,6 +3335,7 @@ async function handleOperator(req, res, url, session) {
 
   if (pathname === "/op/api/audit") {
     requireAdmin(session);
+    if (!live.features.auditLog) throw new ApiError(404, "Audit log is disabled.", "invalid_request_error", "audit_disabled");
     if (req.method !== "GET") {
       throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
     }
@@ -3340,6 +3351,7 @@ async function handleOperator(req, res, url, session) {
 
   if (pathname === "/op/api/usage") {
     requireAdmin(session);
+    if (!live.features.usageDashboard) throw new ApiError(404, "Usage dashboard is disabled.", "invalid_request_error", "usage_disabled");
     if (req.method !== "GET") {
       throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
     }
@@ -3616,7 +3628,7 @@ async function handleOperator(req, res, url, session) {
   const userMatch = /^\/op\/api\/users\/([^/]+)$/.exec(pathname);
   if (userMatch) {
     requireAdmin(session);
-    const target = decodePathParam(userMatch[1]);
+    const target = normalizeUsername(decodePathParam(userMatch[1]));
     if (req.method === "PATCH") {
       let user;
       if (body.password !== undefined) {
@@ -3880,26 +3892,13 @@ async function handleOperator(req, res, url, session) {
     const startedAt = Date.now();
     try {
       let result;
-      if (task === "reply" && live.aiAssist.replyMode !== "structured") {
-        try {
-          result = await suggestNative({
-            settings: live.aiAssist,
-            apiKey: secrets.get("aiApiKey"),
-            ticket: aiTicket,
-            instruction,
-          });
-        } catch (error) {
-          if (live.aiAssist.replyMode !== "hybrid") throw error;
-          result = await suggestWithAi({
-            settings: live.aiAssist,
-            apiKey: secrets.get("aiApiKey"),
-            ticket: aiTicket,
-            task,
-            selection,
-            instruction,
-            targetLanguage,
-          });
-        }
+      if (task === "reply") {
+        result = await suggestNative({
+          settings: live.aiAssist,
+          apiKey: secrets.get("aiApiKey"),
+          ticket: aiTicket,
+          instruction,
+        });
       } else {
         result = await suggestWithAi({
           settings: live.aiAssist,
@@ -4511,6 +4510,7 @@ async function handleMe(req, res) {
     },
     csrfToken: session.csrf,
     preferences: auth.getPreferences(session.username),
+    features: live.features,
     expiresAt: session.expiresAt,
     version: VERSION,
     models: visibleModelsFor(session),
@@ -4562,8 +4562,10 @@ async function route(req, res) {
       const session = auth.getSession(req);
       const bearer = /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization || ""))?.[1] || "";
       const expected = config.metricsToken;
-      const tokenOk = Boolean(expected) && bearer.length === expected.length &&
-        timingSafeEqual(Buffer.from(bearer), Buffer.from(expected));
+      const bearerBytes = Buffer.from(bearer);
+      const expectedBytes = Buffer.from(expected);
+      const tokenOk = Boolean(expected) && bearerBytes.length === expectedBytes.length &&
+        timingSafeEqual(bearerBytes, expectedBytes);
       if (!tokenOk && session?.role !== "admin") {
         throw new ApiError(401, "Metrics authentication required.", "authentication_error", "metrics_auth_required");
       }

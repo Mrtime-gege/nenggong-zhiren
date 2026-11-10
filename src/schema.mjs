@@ -144,19 +144,19 @@ function validateInternal(value, schema, path, errors, depth) {
       schema.properties && typeof schema.properties === "object" ? schema.properties : {};
     if (Array.isArray(schema.required)) {
       for (const key of schema.required) {
-        if (!(key in value)) addError(errors, path, `missing required property '${key}'`);
+        if (!Object.prototype.hasOwnProperty.call(value, key)) addError(errors, path, `missing required property '${key}'`);
       }
     }
     for (const [key, sub] of Object.entries(properties)) {
-      if (key in value) validateInternal(value[key], sub, pathJoin(path, key), errors, depth + 1);
+      if (Object.prototype.hasOwnProperty.call(value, key)) validateInternal(value[key], sub, pathJoin(path, key), errors, depth + 1);
     }
     if (schema.additionalProperties === false) {
       for (const key of Object.keys(value)) {
-        if (!(key in properties)) addError(errors, pathJoin(path, key), "additional property is not allowed");
+        if (!Object.prototype.hasOwnProperty.call(properties, key)) addError(errors, pathJoin(path, key), "additional property is not allowed");
       }
     } else if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
       for (const key of Object.keys(value)) {
-        if (!(key in properties)) {
+        if (!Object.prototype.hasOwnProperty.call(properties, key)) {
           validateInternal(value[key], schema.additionalProperties, pathJoin(path, key), errors, depth + 1);
         }
       }

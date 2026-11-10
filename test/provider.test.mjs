@@ -1108,10 +1108,31 @@ test("admin user management API and role checks", async () => {
 
   const selfDelete = await op(adminSession, `/op/api/users/${ADMIN}`, { method: "DELETE" });
   assert.equal(selfDelete.status, 409);
+  const caseSelfRole = await op(adminSession, `/op/api/users/${ADMIN.toUpperCase()}`, {
+    method: "PATCH",
+    body: { role: "operator" },
+  });
+  assert.equal(caseSelfRole.status, 409);
+  const caseSelfDelete = await op(adminSession, `/op/api/users/${ADMIN.toUpperCase()}`, { method: "DELETE" });
+  assert.equal(caseSelfDelete.status, 409);
 
   const removed = await op(adminSession, `/op/api/users/${webUser}`, { method: "DELETE" });
   assert.equal(removed.status, 200);
   assert.equal((await login(webUser, newPassword)).status, 401);
+});
+
+test("MFA setup requires a password and cannot silently disable MFA", async () => {
+  const noPassword = await op(adminSession, "/op/api/mfa/setup", { method: "POST", body: {} });
+  assert.equal(noPassword.status, 403);
+  const wrongPassword = await op(adminSession, "/op/api/mfa/setup", { method: "POST", body: { password: "wrong-password" } });
+  assert.equal(wrongPassword.status, 403);
+  const setup = await op(adminSession, "/op/api/mfa/setup", { method: "POST", body: { password: ADMIN_PASSWORD } });
+  assert.equal(setup.status, 200);
+  const secret = await setup.json();
+  assert.equal(secret.enabled, false);
+  assert.ok(secret.secret);
+  const clean = await op(adminSession, "/op/api/mfa/disable", { method: "POST", body: { password: ADMIN_PASSWORD } });
+  assert.equal(clean.status, 200);
 });
 
 test("managed models constrain API keys and can be deleted safely", async () => {
@@ -1366,6 +1387,8 @@ test("admin settings, usage, audit and status APIs", async () => {
     body: { features: { usageDashboard: false } },
   });
   assert.equal(updated.settings.features.usageDashboard, false);
+  const usageDisabled = await op(adminSession, "/op/api/usage");
+  assert.equal(usageDisabled.status, 404);
   const restored = await opJson(adminSession, "/op/api/settings", {
     method: "PATCH",
     body: { features: { usageDashboard: true } },
@@ -1889,6 +1912,10 @@ test("metrics, global history search and archive CSV are available", async () =>
   assert.equal(metricsUnauth.status, 401);
   const metricsToken = await fetch(`${BASE}/metrics`, { headers: { Authorization: "Bearer test-metrics-token" } });
   assert.equal(metricsToken.status, 200);
+  const malformedMetrics = await fetch(`${BASE}/metrics`, {
+    headers: { Authorization: `Bearer ${"é".repeat(18)}` },
+  });
+  assert.equal(malformedMetrics.status, 401);
   const metrics = await fetch(`${BASE}/metrics`, { headers: { Cookie: adminSession.cookie } });
   assert.equal(metrics.status, 200);
   const text = await metrics.text();
@@ -2071,6 +2098,12 @@ test("secure attachments: text, CSV, image and PDF previews with ownership check
   assert.equal(text.response.status, 201, JSON.stringify(text.data));
   assert.equal(text.data.filename, "secret.txt");
   const textId = text.data.id;
+  const downloaded = await fetch(`${BASE}/v1/files/${encodeURIComponent(textId)}/content`, {
+    headers: { Authorization: `Bearer ${CALLER_KEY}` },
+  });
+  assert.equal(downloaded.status, 200);
+  const audit = await opJson(adminSession, "/op/api/audit?action=attachment.download");
+  assert.ok(audit.events.some((event) => event.action === "attachment.download" && event.target === textId));
 
   const csv = await uploadAttachment(Buffer.from("name,value\na,1\nb,2\n", "utf8"), {
     filename: "rows.csv",

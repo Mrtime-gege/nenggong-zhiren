@@ -36,6 +36,22 @@
         "responses": { "200": { "description": "服务信息、模型卡与限制" } }
       }
     },
+    "/v1/inspect/openai": {
+      "post": {
+        "summary": "OpenAI 请求 dry-run 检查",
+        "description": "校验 OpenAI 请求并返回原始/归一化结构；不创建票据、不消耗配额、不持久化。",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChatRequest" } } } },
+        "responses": { "200": { "description": "raw/normalized 检查结果" }, "400": { "description": "请求格式错误" }, "401": { "description": "调用密钥无效" } }
+      }
+    },
+    "/v1/inspect/anthropic": {
+      "post": {
+        "summary": "Anthropic 请求 dry-run 检查",
+        "description": "校验 Anthropic 请求并返回原始/归一化结构；不创建票据、不消耗配额、不持久化。",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AnthropicRequest" } } } },
+        "responses": { "200": { "description": "raw/normalized 检查结果" }, "400": { "description": "请求格式错误" }, "401": { "description": "调用密钥无效" } }
+      }
+    },
     "/v1/files": {
       "post": {
         "summary": "上传附件",

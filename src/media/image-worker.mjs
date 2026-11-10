@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile);
 
 export async function normalizeImageBuffer(buffer, {
   script = path.join(process.cwd(), "scripts", "normalize-image.py"),
+  python = "python3",
   maxBytes = 10 * 1024 * 1024,
   timeoutMs = 8000,
   maxDimension = 4096,
@@ -19,7 +20,7 @@ export async function normalizeImageBuffer(buffer, {
   const output = path.join(dir, "output.bin");
   try {
     fs.writeFileSync(input, buffer, { mode: 0o600 });
-    const { stdout } = await execFileAsync("python3", [script, input, output, String(maxBytes), String(maxDimension)], {
+    const { stdout } = await execFileAsync(python || "python3", [script, input, output, String(maxBytes), String(maxDimension)], {
       timeout: timeoutMs,
       killSignal: "SIGKILL",
       maxBuffer: 64 * 1024,

@@ -408,6 +408,7 @@ function fillSettings(data) {
   $("mfaDisableBox").classList.toggle("hidden", !latest.mfaEnabled);
   $("mfaSetupBox").classList.add("hidden");
   $("mfaSetupBtn").classList.toggle("hidden", latest.mfaEnabled);
+  if ($("mfaSetupPassword")) $("mfaSetupPassword").value = "";
   const ro = data.readonly;
   const pairs = [
     ["登录 Cookie", ro.cookie_secure],
@@ -718,8 +719,15 @@ async function requestPermission() {
 async function setupMfa() {
   if (role !== "admin") return;
   setError("mfaError");
+  const password = $("mfaSetupPassword").value;
+  if (!password) {
+    setError("mfaError", "请输入当前密码。");
+    $("mfaSetupPassword").focus();
+    return;
+  }
   try {
-    const data = await api("/op/api/mfa/setup", { method: "POST" });
+    const data = await api("/op/api/mfa/setup", { method: "POST", body: { password } });
+    $("mfaSetupPassword").value = "";
     $("mfaSecret").textContent = data.secret;
     $("mfaUri").textContent = data.otpauth;
     $("mfaSetupBox").classList.remove("hidden");
@@ -739,6 +747,7 @@ async function enableMfa(event) {
     $("mfaSetupBox").classList.add("hidden");
     $("mfaDisableBox").classList.remove("hidden");
     $("mfaStatus").textContent = "已启用";
+    if ($("mfaSetupPassword")) $("mfaSetupPassword").value = "";
     $("mfaSetupBtn").classList.add("hidden");
   } catch (error) { setError("mfaError", error.message); }
   finally { $("mfaEnableBtn").disabled = false; }

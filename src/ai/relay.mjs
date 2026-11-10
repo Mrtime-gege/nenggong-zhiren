@@ -1,6 +1,6 @@
 /** Operator-only AI relay: forward the caller request and hold the native reply. */
 
-import { AiAssistError } from "./assist.mjs";
+import { AiAssistError, redactSensitiveText } from "./assist.mjs";
 
 // Some OpenAI-compatible gateways reject requests above 256 messages. Reserve
 // one entry so an operator instruction can still be appended after compaction.
@@ -20,9 +20,10 @@ export function sanitizeToolAnnotations(value) {
 function contentForMessage(message) {
   const parts = Array.isArray(message.parts) ? message.parts : [];
   const images = parts.filter((part) => part.type === "image" && part.url);
-  if (!images.length) return sanitizeToolAnnotations(message.content);
+  const redacted = redactSensitiveText(message.content);
+  if (!images.length) return sanitizeToolAnnotations(redacted);
   const content = [];
-  const text = sanitizeToolAnnotations(message.content);
+  const text = sanitizeToolAnnotations(redacted);
   if (text) content.push({ type: "text", text });
   for (const image of images.slice(0, 8)) {
     content.push({ type: "image_url", image_url: { url: image.url, detail: image.detail || "auto" } });

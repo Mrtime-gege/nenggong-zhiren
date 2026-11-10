@@ -89,7 +89,6 @@ export class SettingsStore {
         maxConcurrent: int(raw.aiAssist?.maxConcurrent ?? defaults.aiAssist.maxConcurrent, "aiAssist.maxConcurrent", 1, 16),
         autoReplyOnReceive: bool(raw.aiAssist?.autoReplyOnReceive ?? defaults.aiAssist.autoReplyOnReceive, "aiAssist.autoReplyOnReceive"),
         autoClaimEnabled: bool(raw.aiAssist?.autoClaimEnabled ?? defaults.aiAssist.autoClaimEnabled, "aiAssist.autoClaimEnabled"),
-        autoReplyAfterSeconds: int(raw.aiAssist?.autoReplyAfterSeconds ?? defaults.aiAssist.autoReplyAfterSeconds, "aiAssist.autoReplyAfterSeconds", 0, 86_400),
       },
     };
   }

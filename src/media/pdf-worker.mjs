@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile);
 
 export async function renderPdfPageBuffer(buffer, page, {
   script = path.join(process.cwd(), "scripts", "render-pdf-page.py"),
+  python = "python3",
   maxBytes = 4 * 1024 * 1024,
   timeoutMs = 12000,
 } = {}) {
@@ -19,7 +20,7 @@ export async function renderPdfPageBuffer(buffer, page, {
   try {
     fs.writeFileSync(input, buffer, { mode: 0o600 });
     const { stdout } = await execFileAsync(
-      "python3",
+      python || "python3",
       [script, input, output, String(page), String(maxBytes)],
       {
         timeout: timeoutMs,

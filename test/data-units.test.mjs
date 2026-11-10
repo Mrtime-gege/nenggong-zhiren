@@ -116,6 +116,13 @@ test("UsageStore persists counters across reload", () => {
   }
 });
 
+test("JSON Schema does not accept prototype-named required keys", () => {
+  const requiredToString = validateJsonSchema({}, { type: "object", properties: {}, additionalProperties: false, required: ["toString"] });
+  assert.equal(requiredToString.ok, false);
+  const prototypeKey = validateJsonSchema({ constructor: 1 }, { type: "object", properties: {}, additionalProperties: false });
+  assert.equal(prototypeKey.ok, false);
+});
+
 test("JSON Schema validates nested objects, arrays and combinators", () => {
   const schema = {
     type: "object",
@@ -162,7 +169,7 @@ test("SettingsStore validates, serializes and drops legacy AI limit fields", () 
     queue: { waitTimeoutMs: 1000, responseTimeoutMs: 2000, retentionMs: 10_000, streamDelayMs: 1 },
     limits: { maxConcurrentPerKey: 4, bodyLimitBytes: 1024 },
     features: { auditLog: true, usageDashboard: true, publicGuide: true },
-    aiAssist: { enabled: false, endpoint: "", model: "", maxConcurrent: 2, autoReplyOnReceive: false, autoClaimEnabled: false, autoReplyAfterSeconds: 0 },
+    aiAssist: { enabled: false, endpoint: "", model: "", maxConcurrent: 2, autoReplyOnReceive: false, autoClaimEnabled: false },
   };
   const store = new SettingsStore({ file: file("settings.json"), defaults, logger: { error() {} } }).init();
   try {

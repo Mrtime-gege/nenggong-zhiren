@@ -3,7 +3,8 @@
  *
  * The service is configured only by `config.jsonc` in the project root.
  * Comments are part of the format and explain allowed values and effects.
- * No environment variables or command-line options are used for runtime data.
+ * Runtime data is not configured through environment variables or command-line options;
+ * a few internal process-control variables (for example restart delay) are read by server.mjs.
  */
 
 import fs from "node:fs";

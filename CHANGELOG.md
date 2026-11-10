@@ -1,5 +1,15 @@
 # 更新记录
 
+## 未发布
+
+- 修复 MFA 设置流程：生成/更换密钥要求当前密码，新密钥暂存，启用前不关闭现有 MFA。
+- 用户管理路径用户名统一规范化，修复大小写变体绕过自我保护检查。
+- AI relay/native 主路径统一执行敏感信息脱敏；附件下载增加审计。
+- 媒体 worker 使用配置的 `workers.python`；JSON Schema 改用自有属性检查。
+- 修复禁用功能开关后 API 仍可访问、metrics token 非 ASCII 长度异常、CORS null 来源。
+- 移除不可达的 AI replyMode 分支和未使用配置。
+- 自动化测试 123 / 123 通过。
+
 ## 0.6.4 — 2026-11-09
 
 - 新增请求检查混合方案：`/v1/inspect/openai`、`/v1/inspect/anthropic` dry-run 接口；检查接口不排队、不消耗配额、不持久化；票据快照按请求体上限保留（默认 2 MB）。

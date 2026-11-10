@@ -42,7 +42,7 @@ const TASK_PROMPTS = {
   reply: "根据当前对话生成一条完整回复。正文和工具调用必须放在同一个 JSON 对象中；不要拆成两次回复。需要调用工具时生成 tool_calls 建议，但不要声称已经执行。text 要直接可发送，不要编造事实。",
 };
 
-function redact(text) {
+export function redactSensitiveText(text) {
   return String(text || "")
     .replace(/-----BEGIN [^-]+ KEY-----[\s\S]*?-----END [^-]+ KEY-----/g, "[REDACTED PRIVATE KEY]")
     .replace(/\b(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, "$1[REDACTED]")
@@ -105,7 +105,7 @@ export function buildTicketContext(ticket, { maxChars = 12_000, selection = "", 
   const recentToAdd = messages.length > 1 && recent[0] === messages[0] ? recent.slice(1) : recent;
   lines.push(...recentToAdd);
   if (selection) lines.push(`[选中文本]\n${selection.slice(0, 4_000)}`);
-  return redact(lines.join("\n")).slice(0, maxChars);
+  return redactSensitiveText(lines.join("\n")).slice(0, maxChars);
 }
 
 function endpointUrl(endpoint) {

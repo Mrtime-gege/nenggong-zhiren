@@ -5,7 +5,7 @@
 - **配置层**：`src/config.mjs` 只读取根目录 `config.jsonc`；不读取环境变量，也不接受运行参数。可选的 `workers` 段只声明 Python worker 路径。
 - **数据层**：`src/data/models.mjs` 维护运行时模型注册表；`src/data/api-keys.mjs` 管理调用密钥、配额和模型范围；`src/data/usage.mjs` 保存分钟/日/月用量和每日历史；`src/data/state.mjs` 保存完成请求和幂等快照；`src/data/settings.mjs` 保存设置页覆盖值；`src/data/audit.mjs` 追加审计事件；`src/auth.mjs` 负责账号、模型权限、会话、MFA 和登录限速；`src/totp.mjs` 提供 TOTP。
 - **协议层**：`src/protocol/common.mjs` 把不同接口的消息统一成 `{role, content, parts}`，新增消息类型只需增加 part 归一化/序列化逻辑；`openai.mjs` 和 `anthropic.mjs` 只负责各自协议。
-- **业务层**：`server.mjs` 维护等待列表、接单、流式发送、票据动作授权和操作接口，不直接理解两种协议的原始字段。
+- **业务层**：`server.mjs` 维护等待列表、接单、流式发送、票据动作授权和操作接口，不直接理解两种协议的原始字段；AI relay/native 在构建上游消息时执行敏感信息脱敏。
 
 ## 一句话
 
@@ -59,7 +59,7 @@
 - `test/data-units.test.mjs`：API key、用量配额、设置、模型、审计、附件和 JSONC。
 - `test/ai-helpers.test.mjs`、`test/attachment-branches.test.mjs`、`test/core-helpers.test.mjs`：上下文裁剪、附件分支、文本工具和状态快照。
 - `test/ai-errors.test.mjs`：AI 配置/上游/工具契约错误分支。
-- 两类测试共享 `npm test`，当前共 120 个用例。
+- 两类测试共享 `npm test`，当前共 123 个用例。
 
 ## 请求生命周期
 

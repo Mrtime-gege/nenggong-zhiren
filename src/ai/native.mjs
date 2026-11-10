@@ -1,7 +1,7 @@
 /** Native OpenAI-compatible assistant pass-through for operator-side AI help. */
 
 import { validateJsonSchema } from "../schema.mjs";
-import { AiAssistError } from "./assist.mjs";
+import { AiAssistError, redactSensitiveText } from "./assist.mjs";
 
 const ASSIST_SYSTEM_PROMPT = `你是人工回复员的辅助模型，不是自动回复机器人。
 根据完整对话生成给回复员的建议；不会直接发送给调用方，也不会执行任何工具。
@@ -14,9 +14,10 @@ const ASSIST_SYSTEM_PROMPT = `你是人工回复员的辅助模型，不是自�
 function contentForMessage(message) {
   const parts = Array.isArray(message.parts) ? message.parts : [];
   const images = parts.filter((part) => part.type === "image" && part.url);
-  if (!images.length) return String(message.content || "");
+  const redacted = redactSensitiveText(message.content);
+  if (!images.length) return redacted;
   const content = [];
-  const text = String(message.content || "");
+  const text = redacted;
   if (text) content.push({ type: "text", text });
   for (const image of images.slice(0, 8)) {
     content.push({ type: "image_url", image_url: { url: image.url, detail: image.detail || "auto" } });
