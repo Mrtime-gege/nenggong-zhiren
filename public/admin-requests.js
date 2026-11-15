@@ -602,7 +602,7 @@ async function loadCompatibility() {
       const section = el("section", "request-compat-protocol");
       const title = el("div", "request-compat-title");
       title.append(
-        el("strong", "", protocol.protocol === "anthropic-messages" ? "Anthropic Messages" : "OpenAI Chat"),
+        el("strong", "", protocol.protocol === "anthropic" ? "Anthropic Messages" : "OpenAI Chat"),
         el("span", "admin-hint", `支持 ${protocol.counts.supported} · 未使用 ${protocol.counts.ignored} · 不支持 ${protocol.counts.unsupported}`),
       );
       section.append(title);

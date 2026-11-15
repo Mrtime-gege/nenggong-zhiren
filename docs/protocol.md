@@ -149,6 +149,13 @@ Token 数是基于字符的估算（CJK 按 1，其他按约 4 字符/token）�
 
 思考内容不计入 `content`。客户端不支持该字段时可以忽略。
 
+Anthropic Messages 的思考块：
+
+- 非流式：`content[0] = {"type":"thinking","thinking":"..."}`，正文在后；
+- 流式：`content_block_start`（`content_block.type=thinking`）→ `content_block_delta`（`delta.type=thinking_delta`）→ `content_block_stop`；
+- 思考必须在正文之前发送；正文开始后再发思考返回 409 `reasoning_after_text`；
+- 输入中的 `thinking` / `redacted_thinking` block 会作为上下文解析，不会当作正文回复。
+
 ## SSE 流
 
 正常事件顺序：

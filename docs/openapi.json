@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "能工智人 API",
-    "version": "0.7.0",
-    "description": "人工回复服务。响应由登录后的人工回复员产生，不是训练出来的模型。支持 OpenAI Chat Completions 和 Anthropic Messages 两种请求格式。0.7.0 起提供逐字段参数说明、报告导出、重放校验与兼容性矩阵。",
+    "version": "0.6.6",
+    "description": "人工回复服务。响应由登录后的人工回复员产生，不是训练出来的模型。支持 OpenAI Chat Completions 和 Anthropic Messages 两种请求格式。0.6.6 起提供逐字段参数说明、报告导出、重放校验与兼容性矩阵。",
     "license": { "name": "MIT" }
   },
   "servers": [

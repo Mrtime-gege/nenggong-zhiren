@@ -31,6 +31,7 @@ export function startAnthropicStream(ticket) {
   ticket.anthStarted = true;
   ticket.anthBlockIndex = 0;
   ticket.anthTextOpen = false;
+  ticket.anthThinkingOpen = false;
   ticket.anthClosedBlocks = new Set();
   ticket.anthLog = [];
   writeEvent(ticket, "message_start", {
@@ -48,8 +49,40 @@ export function startAnthropicStream(ticket) {
   });
 }
 
+export function openAnthropicThinking(ticket) {
+  if (ticket.anthThinkingOpen) return;
+  closeAnthropicText(ticket);
+  ticket.anthThinkingIndex = nextIndex(ticket);
+  ticket.anthThinkingOpen = true;
+  writeEvent(ticket, "content_block_start", {
+    type: "content_block_start",
+    index: ticket.anthThinkingIndex,
+    content_block: { type: "thinking", thinking: "" },
+  });
+}
+
+export function closeAnthropicThinking(ticket) {
+  if (!ticket.anthThinkingOpen) return;
+  writeEvent(ticket, "content_block_stop", {
+    type: "content_block_stop",
+    index: ticket.anthThinkingIndex,
+  });
+  ticket.anthThinkingOpen = false;
+}
+
+export function appendAnthropicThinking(ticket, text) {
+  if (!text) return;
+  openAnthropicThinking(ticket);
+  writeEvent(ticket, "content_block_delta", {
+    type: "content_block_delta",
+    index: ticket.anthThinkingIndex,
+    delta: { type: "thinking_delta", thinking: String(text) },
+  });
+}
+
 export function openAnthropicText(ticket) {
   if (ticket.anthTextOpen) return;
+  closeAnthropicThinking(ticket);
   ticket.anthTextIndex = nextIndex(ticket);
   ticket.anthTextOpen = true;
   writeEvent(ticket, "content_block_start", {
@@ -81,6 +114,7 @@ export function appendAnthropicText(ticket, text) {
 export function appendAnthropicToolCalls(ticket) {
   const blocks = anthropicToolBlocks(ticket);
   if (!blocks.length) return;
+  closeAnthropicThinking(ticket);
   closeAnthropicText(ticket);
   for (const block of blocks) {
     const index = nextIndex(ticket);
@@ -104,6 +138,7 @@ export function appendAnthropicToolCalls(ticket) {
 
 export function finishAnthropicStream(ticket, usage) {
   if (!ticket.anthStarted) startAnthropicStream(ticket);
+  closeAnthropicThinking(ticket);
   if (!ticket.anthTextOpen && !ticket.anthBlockIndex) {
     openAnthropicText(ticket);
   }

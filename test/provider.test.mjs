@@ -1611,7 +1611,7 @@ test("admin settings, usage, audit and status APIs", async () => {
   const audit = await opJson(adminSession, "/op/api/audit");
   assert.ok(audit.events.some((event) => event.action === "settings.update"));
   const status = await opJson(adminSession, "/op/api/status");
-  assert.equal(status.version, "0.7.0");
+  assert.equal(status.version, "0.6.6");
   assert.ok(status.storage.users.exists);
   assert.ok(Array.isArray(status.audit));
 });
@@ -1716,6 +1716,55 @@ test("Anthropic Messages: stream events and tool_use", async () => {
   assert.equal(events[0].event, "message_start");
   assert.ok(events.some((event) => event.event === "content_block_delta" && event.data.delta.text === "Hello"));
   assert.equal(events.at(-1).event, "message_stop");
+
+  const thinkMarker = marker("ANTHROPIC-THINK");
+  const thinkPending = startMessages({
+    model: "human-1",
+    max_tokens: 64,
+    stream: true,
+    messages: [{ role: "user", content: thinkMarker }],
+  });
+  const thinkTicket = await waitForTicket((item) => item.messages.some((message) => message.content.includes(thinkMarker)));
+  await claim(adminSession, thinkTicket.id);
+  const thinking = await opJson(adminSession, `/op/api/tickets/${thinkTicket.id}/reasoning`, {
+    method: "POST",
+    body: { text: "先分析一下" },
+  });
+  assert.equal(thinking.reasoningLength > 0, true);
+  await opJson(adminSession, `/op/api/tickets/${thinkTicket.id}/chunk`, {
+    method: "POST",
+    body: { text: "答案" },
+  });
+  const lateThinking = await op(adminSession, `/op/api/tickets/${thinkTicket.id}/reasoning`, {
+    method: "POST",
+    body: { text: "太晚了" },
+  });
+  assert.equal(lateThinking.status, 409);
+  await finishJson(adminSession, thinkTicket.id, { text: "完成", finishReason: "stop" });
+  const thinkEvents = await collectAnthropicSse(await thinkPending);
+  assert.ok(thinkEvents.some((event) => event.event === "content_block_start" && event.data.content_block?.type === "thinking"));
+  assert.ok(thinkEvents.some((event) => event.event === "content_block_delta" && event.data.delta?.thinking === "先分析一下"));
+  assert.ok(thinkEvents.some((event) => event.event === "content_block_delta" && event.data.delta?.text === "答案"));
+  assert.equal(thinkEvents.at(-1).event, "message_stop");
+
+  const nonStreamMarker = marker("ANTHROPIC-THINK-JSON");
+  const nonStreamPending = startMessages({
+    model: "human-1",
+    max_tokens: 64,
+    messages: [{ role: "user", content: nonStreamMarker }],
+  });
+  const nonStreamTicket = await waitForTicket((item) => item.messages.some((message) => message.content.includes(nonStreamMarker)));
+  await claim(adminSession, nonStreamTicket.id);
+  await opJson(adminSession, `/op/api/tickets/${nonStreamTicket.id}/reasoning`, {
+    method: "POST",
+    body: { text: "先思考" },
+  });
+  await finishJson(adminSession, nonStreamTicket.id, { text: "最终答案", finishReason: "stop" });
+  const nonStreamBody = await (await nonStreamPending).json();
+  assert.equal(nonStreamBody.content[0].type, "thinking");
+  assert.equal(nonStreamBody.content[0].thinking, "先思考");
+  assert.equal(nonStreamBody.content[1].type, "text");
+  assert.equal(nonStreamBody.content[1].text, "最终答案");
 
   const toolMarker = marker("ANTHROPIC-TOOL");
   const toolPending = startMessages({
@@ -2129,7 +2178,7 @@ test("metrics, global history search and archive CSV are available", async () =>
   const text = await metrics.text();
   assert.match(text, /ngzr_up 1/);
   assert.match(text, /ngzr_tickets_state\{state="queued"\}/);
-  assert.match(text, /ngzr_build_info\{version="0\.7\.0"\}/);
+  assert.match(text, /ngzr_build_info\{version="0\.6\.6"\}/);
   assert.match(text, /ngzr_request_inspections_total \d+/);
   assert.match(text, /ngzr_request_param_flags\{kind="unknown"\} \d+/);
 

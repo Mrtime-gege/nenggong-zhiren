@@ -953,7 +953,7 @@ function renderInfoExtra(ticket, d) {
     : ticket.toolChoice?.name ? `指定 ${ticket.toolChoice.name}` : "auto";
   const rows = [
     ["票据 ID", ticket.id],
-    ["协议", ticket.protocol === "anthropic-messages" ? "Anthropic Messages" : "OpenAI Chat"],
+    ["协议", ticket.protocol === "anthropic" ? "Anthropic Messages" : "OpenAI Chat"],
     ["模型", ticket.model || "—"],
     ["请求模式", ticket.stream ? "流式" : "非流式"],
     ["当前状态", STATE_LABELS[ticket.state] || ticket.state],
@@ -3496,11 +3496,6 @@ async function doAction(name) {
   closeCommandMenu();
   const ticket = state.tickets.find((item) => item.id === state.selectedId);
   if (!ticket || state.busy) return;
-  if (name === "think" && ticket.protocol === "anthropic-messages") {
-    toast("Anthropic 路径暂不支持流式 thinking。");
-    return;
-  }
-
   const draft = detail && detail.id === ticket.id ? detail.els.draft.value : "";
   if ((name === "push" || name === "think") && !draft.trim()) {
     toast(name === "think" ? "先输入内容，再作为思考发送。" : "先输入正文，再推送片段。");
@@ -3601,9 +3596,9 @@ function syncCommandbar() {
   els.cmdTemplates.disabled = state.busy || !ticket || !detail || detail.els.draft.disabled;
   els.cmdTransfer.disabled =
     state.busy || !ticket || ticket.state !== "claimed" || !(mine || state.role === "admin");
-  els.cmdThink.disabled = state.busy || !editable || !ticket || ticket.protocol === "anthropic-messages";
+  els.cmdThink.disabled = state.busy || !editable || !ticket || (ticket.text?.length || 0) > 0;
   els.cmdThink.title =
-    ticket?.protocol === "anthropic-messages" ? "Anthropic 路径暂不支持流式 thinking" : "";
+    ticket && (ticket.text?.length || 0) > 0 ? "思考内容必须在正文之前发送" : "";
   els.cmdPush.disabled = state.busy || !editable;
   els.cmdFinish.disabled = state.busy || !editable || (toolRequired && pending.length === 0);
   els.cmdFinish.title =

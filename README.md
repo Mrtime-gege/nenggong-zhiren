@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Mrtime-gege/nenggong-zhiren/releases"><img alt="version" src="https://img.shields.io/badge/version-0.7.0-6ea8fe" /></a>
+  <a href="https://github.com/Mrtime-gege/nenggong-zhiren/releases"><img alt="version" src="https://img.shields.io/badge/version-0.6.6-6ea8fe" /></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-9ad7b4" /></a>
   <a href="https://nodejs.org/"><img alt="node" src="https://img.shields.io/badge/node-%3E%3D20-5fa04e" /></a>
   <img alt="dependencies" src="https://img.shields.io/badge/runtime_dependencies-0-c28a5a" />
@@ -94,6 +94,7 @@ OpenAI / Anthropic 请求
 | --- | --- |
 | 聊天回复 | 非流式或流式 SSE |
 | 工具调用 | JSON Schema 参数校验；人工确认后返回 |
+| 思考内容 | OpenAI `reasoning_content`；Anthropic `thinking` 块与 `thinking_delta` 流式事件 |
 | 结构化输出 | `json_object` / `json_schema`，不合法不发送 |
 | 图片与附件 | 工作台预览；危险格式拒绝 |
 | 会话聚合 | 同一会话按轮次聚合，一个进行中轮次 |
@@ -238,7 +239,7 @@ npm start             # 启动服务
 
 ## 发布
 
-最新版本：**0.7.0**。发布说明和下载见 [GitHub Releases](https://github.com/Mrtime-gege/nenggong-zhiren/releases)。
+最新版本：**0.6.6**。发布说明和下载见 [GitHub Releases](https://github.com/Mrtime-gege/nenggong-zhiren/releases)。
 
 ## License
 

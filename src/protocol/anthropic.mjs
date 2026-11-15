@@ -256,6 +256,9 @@ export function anthropicUsage(usage) {
 
 export function anthropicMessageJson(ticket, usage) {
   const content = [];
+  if (ticket.reasoning && !ticket.refusal) {
+    content.push({ type: "thinking", thinking: ticket.reasoning });
+  }
   if (ticket.refusal) content.push({ type: "text", text: ticket.refusal });
   else if (ticket.text) content.push({ type: "text", text: ticket.text });
   content.push(...anthropicToolBlocks(ticket));

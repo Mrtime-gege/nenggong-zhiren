@@ -51,6 +51,7 @@ import {
   finishAnthropicStream,
   startAnthropicStream,
   appendAnthropicText,
+  appendAnthropicThinking,
   appendAnthropicToolCalls,
 } from "./src/protocol/stream.mjs";
 import { validateJsonSchema, formatSchemaErrors } from "./src/schema.mjs";
@@ -58,7 +59,7 @@ import { probeEnvironment } from "./src/environment.mjs";
 import { readRestartStatus, writeRestartStatus } from "./src/runtime-state.mjs";
 
 const PUBLIC_DIR = path.join(ROOT, "public");
-const VERSION = "0.7.0";
+const VERSION = "0.6.6";
 const MAX_TICKET_TEXT_CHARS = 1_000_000;
 const MAX_SSE_LOG_ENTRIES = 2_000;
 const INSPECT_BODY_LIMIT_BYTES = 256 * 1024;
@@ -1777,10 +1778,18 @@ function writeToolCallDeltas(ticket) {
 }
 
 function writeReasoning(ticket) {
-  if (!ticket.reasoning || ticket.protocol === ANTHROPIC_PROTOCOL) return;
+  if (!ticket.reasoning) return;
   const pending = ticket.reasoning.slice(ticket.reasoningDelivered || 0);
   if (!pending) return;
   ticket.reasoningSent = true;
+  if (ticket.protocol === ANTHROPIC_PROTOCOL) {
+    const chunkSize = 200;
+    for (let offset = 0; offset < pending.length; offset += chunkSize) {
+      appendAnthropicThinking(ticket, pending.slice(offset, offset + chunkSize));
+    }
+    ticket.reasoningDelivered = ticket.reasoning.length;
+    return;
+  }
   const parts = splitForStream(pending);
   for (const part of parts) {
     emitSse(ticket, chunkPayload(ticket, { reasoning_content: part }));
@@ -1807,6 +1816,11 @@ function writeStreamFinal(ticket, usage) {
     ticket.heartbeat = null;
   }
   if (ticket.protocol === ANTHROPIC_PROTOCOL) {
+    if (!ticket.refusal && ticket.reasoning && ticket.reasoning.length > (ticket.reasoningDelivered || 0)) {
+      const rest = ticket.reasoning.slice(ticket.reasoningDelivered || 0);
+      for (let offset = 0; offset < rest.length; offset += 200) appendAnthropicThinking(ticket, rest.slice(offset, offset + 200));
+      ticket.reasoningDelivered = ticket.reasoning.length;
+    }
     if (ticket.refusal) appendAnthropicText(ticket, ticket.refusal);
     else if (ticket.text.length > ticket.delivered) {
       appendAnthropicText(ticket, ticket.text.slice(ticket.delivered));
@@ -4894,9 +4908,12 @@ async function handleOperator(req, res, url, session) {
     if (ticket.reasoning.length + text.length > 100_000) {
       throw new ApiError(413, "Reasoning text is too long.", "invalid_request_error", "reasoning_too_long");
     }
+    if (ticket.delivered > 0 || ticket.text.length > 0) {
+      throw new ApiError(409, "Thinking must be streamed before reply text.", "invalid_request_error", "reasoning_after_text");
+    }
     ticket.reasoning += text;
     armResponseTimeout(ticket);
-    if (ticket.stream && ticket.protocol !== ANTHROPIC_PROTOCOL) {
+    if (ticket.stream) {
       if (!ticket.headersSent) beginStream(ticket);
       writeReasoning(ticket);
     }
@@ -5009,6 +5026,9 @@ async function handleOperator(req, res, url, session) {
     if (isJsonMode(ticket) && body.replaceText === true && ticket.delivered === 0) {
       ticket.text = "";
       ticket.forcedFinishReason = null;
+    }
+    if (reasoning && ticket.delivered > 0) {
+      throw new ApiError(409, "Thinking must be sent before reply text.", "invalid_request_error", "reasoning_after_text");
     }
     if (typeof body.text === "string" && body.text.length > 0) {
       appendText(ticket, body.text);
