@@ -67,7 +67,7 @@ Restart-Service iphlpsvc
 
 基础的上传、文字预览和图片预览不需要额外依赖。以下能力都是可选的，且**只探测
 `config.jsonc` 中明确配置的路径**，不扫描项目树或主机目录。管理员也可以在
-`/console/overview?tab=environment` 的「可选功能安装」卡片里查看状态、复制安装命令或直接安装 Python 依赖。
+`/console/overview?tab=environment` 的「可选功能」卡片里查看状态、复制安装/卸载命令或直接安装/卸载 Python 依赖。
 
 安装地址：
 
@@ -86,6 +86,15 @@ python3 -m venv /opt/nenggong-zhiren/.venv
 
 然后把 `workers.python` 改成 `/opt/nenggong-zhiren/.venv/bin/python`，或在 unit 中设置
 `PATH`/`PYTHONPATH`。安装来源遵循本机 pip 配置；生产环境应使用可信索引或离线镜像。
+
+需要移除可选能力时，可以在环境页点「卸载依赖」，或手工执行：
+
+```bash
+python3 -m pip uninstall -y Pillow
+python3 -m pip uninstall -y pypdfium2
+```
+
+卸载会影响使用同一 Python 环境的其他程序；生产环境优先用专用 venv，避免影响系统包。
 
 ```jsonc
 "workers": {

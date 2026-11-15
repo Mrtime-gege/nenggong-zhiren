@@ -1,5 +1,7 @@
 const $ = (id) => document.getElementById(id);
 let csrf = "";
+let probe = null;
+let busy = false;
 
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
@@ -20,117 +22,227 @@ async function api(path, options = {}) {
   return data;
 }
 
+function el(tag, className = "", text = "") {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text) node.textContent = text;
+  return node;
+}
+
+function link(label, url) {
+  const anchor = el("a", "optional-link", label);
+  anchor.href = url;
+  anchor.target = "_blank";
+  anchor.rel = "noopener noreferrer";
+  return anchor;
+}
+
 function setStatus(text, bad = false) {
-  const el = $("status");
-  el.textContent = text;
-  el.classList.toggle("err", bad);
+  const node = $("status");
+  node.textContent = text;
+  node.classList.toggle("err", bad);
+}
+
+function setOutput(text) {
+  const output = $("installOutput");
+  output.classList.remove("hidden");
+  output.textContent = text;
+}
+
+function clearOutput() {
+  const output = $("installOutput");
+  output.textContent = "";
+  output.classList.add("hidden");
+}
+
+async function copyText(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+    button.textContent = "已复制";
+  } catch {
+    button.textContent = "复制失败";
+  }
+  setTimeout(() => { button.textContent = "复制"; }, 1500);
 }
 
 function row(label, value, title = "") {
-  const item = document.createElement("div");
-  item.className = "runtime-item";
-  const labelEl = document.createElement("span");
-  labelEl.textContent = label;
-  const valueEl = document.createElement("code");
-  valueEl.textContent = value;
+  const item = el("div", "runtime-item");
+  const labelEl = el("span", "", label);
+  const valueEl = el("code", "", value);
   valueEl.title = title || value;
   item.append(labelEl, valueEl);
   return item;
 }
 
-function statusRow(label, available, detail, error = "") {
-  const item = document.createElement("div");
-  item.className = `vault-row${available ? "" : " missing"}`;
-  const head = document.createElement("div");
-  head.className = "vault-head";
-  const name = document.createElement("span");
-  name.textContent = label;
-  const state = document.createElement("span");
-  state.className = "admin-hint";
-  state.textContent = available ? "可用" : "不可用";
-  head.append(name, state);
-  const meta = document.createElement("div");
-  meta.className = "vault-meta";
-  const hint = document.createElement("span");
-  hint.className = "admin-hint";
-  hint.textContent = detail || (available ? "" : error || "未配置");
-  meta.append(hint);
-  item.append(head, meta);
-  return item;
+function badge(tone, label) {
+  return el("span", `optional-badge ${tone}`, label);
 }
 
-function link(label, url) {
-  const anchor = document.createElement("a");
-  anchor.className = "install-link";
-  anchor.href = url;
-  anchor.target = "_blank";
-  anchor.rel = "noopener noreferrer";
-  anchor.textContent = label;
-  return anchor;
+function capabilityState(worker, featureAvailable, python) {
+  if (!python.available) return { tone: "error", label: "Python 不可用" };
+  if (!worker.configured) return { tone: "muted", label: "未配置脚本" };
+  if (!worker.exists) return { tone: "warn", label: "脚本不存在" };
+  if (!worker.dependencyAvailable) return { tone: "warn", label: `缺少 ${worker.dependency}` };
+  if (!featureAvailable) return { tone: "warn", label: "不可用" };
+  return { tone: "ok", label: "可用" };
 }
 
-function installRow(label, component, info, available, detail = "") {
-  const item = document.createElement("div");
-  item.className = "vault-row";
-  const head = document.createElement("div");
-  head.className = "vault-head";
-  head.append(Object.assign(document.createElement("span"), { textContent: label }));
-  head.append(Object.assign(document.createElement("span"), {
-    className: "admin-hint",
-    textContent: available ? "已可用" : "未安装",
-  }));
-  const meta = document.createElement("div");
-  meta.className = "vault-meta";
-  const command = document.createElement("code");
-  command.textContent = info?.command || "";
-  meta.append(command);
-  const actions = document.createElement("div");
-  actions.className = "install-actions";
-  const copy = document.createElement("button");
-  copy.className = "btn ghost";
+function detail(label, value, tone = "") {
+  const line = el("div", "optional-detail");
+  line.append(el("span", "optional-detail-label", label), el("code", `optional-detail-value ${tone}`.trim(), value));
+  return line;
+}
+
+function commandLine(label, command, onCopy) {
+  const line = el("div", "optional-command");
+  line.append(el("span", "optional-command-label", label));
+  const code = el("code", "", command);
+  const copy = el("button", "btn ghost optional-copy", "复制");
   copy.type = "button";
-  copy.textContent = "复制命令";
-  copy.addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(info?.command || ""); copy.textContent = "已复制"; }
-    catch { copy.textContent = "复制失败"; }
-    setTimeout(() => { copy.textContent = "复制命令"; }, 1500);
-  });
-  const install = document.createElement("button");
-  install.className = "btn";
-  install.type = "button";
-  install.textContent = "安装依赖";
-  install.disabled = available;
-  install.addEventListener("click", () => installComponent(component, label, install));
-  actions.append(copy, install);
-  if (info?.pypi) actions.append(link("PyPI", info.pypi));
-  if (info?.script) actions.append(link("worker 脚本", info.script));
-  item.append(head, meta, actions);
-  if (detail) {
-    const hint = document.createElement("div");
-    hint.className = "vault-meta admin-hint";
-    hint.textContent = detail;
-    item.append(hint);
-  }
-  return item;
+  copy.addEventListener("click", () => onCopy(command, copy));
+  line.append(code, copy);
+  return line;
 }
 
-async function installComponent(component, label, button) {
-  if (!window.confirm(`安装 ${label} 的可选依赖？这会在服务器上运行 pip。`)) return;
-  const output = $("installOutput");
-  button.disabled = true;
-  output.classList.remove("hidden");
-  output.textContent = `正在安装 ${label}…`;
+function capabilityCard({ title, description, component, info, worker, featureAvailable, python }) {
+  const state = capabilityState(worker, featureAvailable, python);
+  const card = el("article", `optional-capability ${state.tone}`);
+  const head = el("div", "optional-capability-head");
+  head.append(el("h3", "", title), badge(state.tone, state.label));
+  card.append(head, el("p", "optional-capability-desc", description));
+
+  const details = el("div", "optional-details");
+  const dependency = worker.dependency || "—";
+  const dependencyVersion = worker.dependencyVersion ? ` ${worker.dependencyVersion}` : "";
+  details.append(
+    detail("Python", python.available ? (python.version || "可用") : "不可用", python.available ? "" : "error"),
+    detail("依赖", worker.dependencyAvailable ? `${dependency}${dependencyVersion}` : `${dependency} 未安装`, worker.dependencyAvailable ? "" : "warn"),
+    detail("worker", worker.exists ? worker.file : (worker.file || "未配置"), worker.exists ? "" : "warn"),
+  );
+  card.append(details);
+
+  if (worker.error || (python.error && !python.available)) {
+    card.append(el("p", "optional-error", worker.error || python.error));
+  }
+
+  if (info && component) {
+    card.append(commandLine("安装", info.command || "", copyText));
+    card.append(commandLine("卸载", info.uninstallCommand || "", copyText));
+
+    const actions = el("div", "optional-actions");
+    const install = el("button", "btn", featureAvailable ? "重新安装" : "安装依赖");
+    install.type = "button";
+    install.disabled = busy || !python.available;
+    install.addEventListener("click", () => runPip("install", component, title));
+    const uninstall = el("button", "btn ghost", "卸载依赖");
+    uninstall.type = "button";
+    uninstall.disabled = busy || !worker.dependencyAvailable;
+    uninstall.title = worker.dependencyAvailable ? `卸载 ${dependency}` : "当前环境未检测到该依赖";
+    uninstall.addEventListener("click", () => runPip("uninstall", component, title));
+    actions.append(install, uninstall);
+    if (info.pypi) actions.append(link("PyPI 页面", info.pypi));
+    if (info.script) actions.append(link("worker 脚本", info.script));
+    card.append(actions);
+  }
+
+  return card;
+}
+
+function historyCard(runtime, available) {
+  const card = el("article", `optional-capability ${available ? "ok" : "warn"}`);
+  const head = el("div", "optional-capability-head");
+  head.append(el("h3", "", "历史索引"), badge(available ? "ok" : "warn", available ? "可用" : "回退模式"));
+  card.append(head, el("p", "optional-capability-desc", "使用 Node 内置 SQLite 与 FTS5 提供历史检索和 CSV；不可用时回退到内存筛选，不需要安装额外依赖。"));
+  const details = el("div", "optional-details");
+  details.append(
+    detail("Node", runtime.node || "—"),
+    detail("SQLite", available ? "可用" : "不可用", available ? "" : "warn"),
+    detail("数据位置", "history.db"),
+  );
+  card.append(details);
+  return card;
+}
+
+function renderOptional(data) {
+  const runtime = data.runtime || {};
+  const workers = data.workers || {};
+  const features = data.features || {};
+  const install = data.install || {};
+  const python = workers.python || {};
+  const image = workers.image || {};
+  const pdf = workers.pdf || {};
+  const availableCount = [features.imageNormalization, features.pdfPagePreview, features.historyIndex].filter(Boolean).length;
+  const summary = $("optionalSummary");
+  summary.textContent = `${availableCount}/3 可用${python.available ? ` · ${python.executable || "python"}` : " · Python 不可用"}`;
+  summary.classList.toggle("err", availableCount === 0);
+
+  $("optionalGrid").replaceChildren(
+    capabilityCard({
+      title: "图片重编码",
+      description: "上传前用 Pillow 重编码图片并剥离 EXIF，降低图片解析风险。",
+      component: "pillow",
+      info: install.image,
+      worker: image,
+      featureAvailable: Boolean(features.imageNormalization),
+      python,
+    }),
+    capabilityCard({
+      title: "PDF 页图预览",
+      description: "按需把 PDF 单页渲染为图片，供工作台预览；文字抽取和下载不受影响。",
+      component: "pypdfium2",
+      info: install.pdf,
+      worker: pdf,
+      featureAvailable: Boolean(features.pdfPagePreview),
+      python,
+    }),
+    historyCard(runtime, Boolean(features.historyIndex)),
+  );
+
+  const links = $("workerLinks");
+  links.replaceChildren();
+  if (install.workers) {
+    links.append(
+      el("span", "", "worker 脚本："),
+      link("GitHub scripts", install.workers.scripts || ""),
+      el("span", "", " · "),
+      link("部署文档", install.workers.docs || ""),
+      el("span", "", " · 脚本不随发布包提供，下载后放到 config.jsonc 的 workers 路径。"),
+    );
+  }
+}
+
+async function runPip(action, component, label) {
+  if (busy) return;
+  const info = probe?.install?.[component === "pillow" ? "image" : "pdf"] || {};
+  const command = action === "install" ? info.command : info.uninstallCommand;
+  const verb = action === "install" ? "安装" : "卸载";
+  const warning = action === "install"
+    ? `安装 ${label} 的可选依赖？这会在服务器上运行 pip。`
+    : `从服务账号的 Python 环境卸载 ${label}？其他依赖它的程序可能受影响。`;
+  if (!window.confirm(warning)) return;
+  busy = true;
+  setStatus(`${verb}中…`);
+  setOutput(`$ ${command || ""}\n\n正在${verb} ${label}…`);
   try {
-    const data = await api("/op/api/environment/install", {
+    const data = await api(`/op/api/environment/${action}`, {
       method: "POST",
-      body: { component, confirm: "INSTALL" },
+      body: { component, confirm: action === "install" ? "INSTALL" : "UNINSTALL" },
     });
-    output.textContent = `${data.ok ? "安装完成" : "安装失败（退出码 " + data.exitCode + "）"}\n\n${data.stdout || ""}\n${data.stderr || ""}`.trim();
-    if (data.ok) await load();
+    setOutput([
+      data.ok ? `${verb}完成` : `${verb}失败（退出码 ${data.exitCode}）`,
+      "",
+      `$ ${command || ""}`,
+      data.stdout || "",
+      data.stderr || "",
+    ].join("\n").trim());
+    busy = false;
+    await load();
+    setStatus(data.ok ? "已同步" : `${verb}失败`, !data.ok);
   } catch (error) {
-    output.textContent = `安装失败：${error.message}`;
+    setOutput(`${verb}失败：${error.message}`);
+    setStatus(`${verb}失败`, true);
   } finally {
-    button.disabled = false;
+    busy = false;
   }
 }
 
@@ -145,41 +257,15 @@ async function load() {
       window.NGZRNAV?.render(me.user.role, me.features);
     }
     const data = await api("/op/api/environment");
+    probe = data;
     const runtime = data.runtime || {};
-    const workers = data.workers || {};
-    const features = data.features || {};
     $("runtimeGrid").replaceChildren(
       row("Node", runtime.node || "—"),
       row("平台", `${runtime.platform || "—"} / ${runtime.arch || "—"}`),
       row("SQLite", runtime.sqlite ? "可用" : "不可用"),
       row("检查时间", data.checkedAt ? new Date(data.checkedAt).toLocaleString("zh-CN", { hour12: false }) : "—"),
     );
-    const python = workers.python || {};
-    const image = workers.image || {};
-    const pdf = workers.pdf || {};
-    $("workerGrid").replaceChildren(
-      row("Python", python.executable || "—", python.error || ""),
-      row("图片 worker", image.file || "未配置", image.error || ""),
-      row("PDF worker", pdf.file || "未配置", pdf.error || ""),
-    );
-    $("featureList").replaceChildren(
-      statusRow("图片重编码", Boolean(features.imageNormalization), image.file || "", image.error),
-      statusRow("PDF 页图预览", Boolean(features.pdfPagePreview), pdf.file || "", pdf.error),
-      statusRow("历史索引", Boolean(features.historyIndex), runtime.sqlite ? "SQLite 可用" : "回退内存筛选"),
-    );
-    const installInfo = data.install || {};
-    $("installList").replaceChildren(
-      installRow("图片重编码依赖", "pillow", installInfo.image, Boolean(features.imageNormalization), features.imageNormalization ? "" : "需要 Pillow 和 normalize-image.py"),
-      installRow("PDF 页图依赖", "pypdfium2", installInfo.pdf, Boolean(features.pdfPagePreview), features.pdfPagePreview ? "" : "需要 pypdfium2 和 render-pdf-page.py"),
-    );
-    const workerHint = installInfo.workers;
-    if (workerHint) {
-      const hint = document.createElement("div");
-      hint.className = "vault-meta";
-      hint.append("worker 脚本地址：", link(workerHint.scripts || "", workerHint.scripts || ""), " ");
-      if (workerHint.docs) hint.append(link("部署文档", workerHint.docs));
-      $("installList").append(hint);
-    }
+    renderOptional(data);
     $("configHint").textContent = JSON.stringify({
       workers: {
         python: "python3",
@@ -191,13 +277,16 @@ async function load() {
     setStatus("已同步");
   } catch (error) {
     setStatus("探测失败", true);
-    $("featureList").replaceChildren(statusRow("环境探测", false, error.message));
+    $("optionalSummary").textContent = "探测失败";
+    $("optionalSummary").classList.add("err");
+    $("optionalGrid").replaceChildren(el("p", "optional-error", error.message));
   } finally {
     $("refresh").disabled = false;
   }
 }
 
 $("refresh").addEventListener("click", load);
+$("clearOutput").addEventListener("click", clearOutput);
 $("logout").addEventListener("click", async () => {
   try {
     await fetch("/auth/logout", {

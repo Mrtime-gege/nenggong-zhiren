@@ -3186,26 +3186,171 @@ body[data-page="settings"] .settings-content > .admin-only {
   font-size: 8.5px;
 }
 
-/* Optional dependency install rows. */
-.install-actions {
+/* Optional feature cards on the environment page. */
+.optional-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.optional-capability {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-top: 2px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.optional-capability.ok { border-top-color: rgba(131, 199, 164, 0.5); }
+.optional-capability.warn { border-top-color: rgba(215, 181, 138, 0.5); }
+.optional-capability.error { border-top-color: rgba(230, 154, 154, 0.5); }
+.optional-capability.muted { border-top-color: rgba(133, 141, 153, 0.35); }
+
+.optional-capability-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+}
+
+.optional-capability-head h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.optional-capability-desc {
+  min-height: 30px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.optional-badge {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.optional-badge.ok { color: var(--green); background: var(--green-soft); }
+.optional-badge.warn { color: var(--amber); background: var(--amber-soft); }
+.optional-badge.error { color: var(--red); background: var(--red-soft); }
+.optional-badge.muted { color: var(--muted); background: rgba(133, 141, 153, 0.1); }
+
+.optional-details {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.optional-detail {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  font-size: 8px;
+}
+
+.optional-detail-label { flex: none; color: var(--muted); }
+.optional-detail-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.optional-detail-value.warn { color: var(--amber); }
+.optional-detail-value.error { color: var(--red); }
+
+.optional-command {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.optional-command-label { flex: none; color: var(--muted); font-size: 8px; }
+.optional-command code {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.optional-copy { flex: none; padding: 2px 6px; font-size: 8px; }
+
+.optional-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex-wrap: wrap;
-  margin-top: 6px;
+  margin-top: auto;
 }
 
-.install-actions .btn {
+.optional-actions .btn { padding: 3px 8px; font-size: 9px; }
+.optional-link { color: var(--accent-strong); font-size: 8px; text-decoration: none; }
+.optional-link:hover { text-decoration: underline; }
+
+.optional-error {
+  margin: 0;
+  color: var(--red);
+  font-size: 8px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.optional-console {
+  margin-top: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.optional-console-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 9px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--muted);
   font-size: 9px;
-  padding: 3px 8px;
+}
+.optional-console-head .btn { padding: 2px 7px; font-size: 8px; }
+.optional-console .config-snippet { margin: 0; border: 0; background: transparent; }
+
+.optional-links {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 8px;
 }
 
-.install-link {
-  color: #aabaff;
-  font-size: 9px;
-  text-decoration: none;
+@media (max-width: 1100px) {
+  .optional-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-.install-link:hover {
-  text-decoration: underline;
+@media (max-width: 760px) {
+  .optional-grid { grid-template-columns: 1fr; }
 }

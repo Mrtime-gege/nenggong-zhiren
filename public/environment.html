@@ -34,22 +34,18 @@
         <div id="runtimeGrid" class="runtime-grid"></div>
       </section>
 
-      <section class="admin-card">
-        <div class="admin-card-title">可选 worker <span class="admin-hint">路径来自 config.jsonc → workers</span></div>
-        <p class="admin-card-desc">脚本存在且 Python 依赖可用时才启用对应功能；不可用不会影响主服务启动。修改路径后重启服务。</p>
-        <div id="workerGrid" class="runtime-grid"></div>
-      </section>
-
-      <section class="admin-card">
-        <div class="admin-card-title">功能可用性</div>
-        <div id="featureList" class="vault-list"></div>
-      </section>
-
-      <section class="admin-card">
-        <div class="admin-card-title">可选功能安装 <span class="admin-hint">按需</span></div>
-        <p class="admin-card-desc">图片重编码需要 Pillow 和 <code>normalize-image.py</code>；PDF 页图需要 pypdfium2 和 <code>render-pdf-page.py</code>。worker 脚本不随发布包提供，可从下方地址获取后放到 <code>workers.imageWorker</code> / <code>workers.pdfWorker</code> 配置的路径。</p>
-        <div id="installList" class="vault-list"></div>
-        <pre id="installOutput" class="config-snippet hidden"></pre>
+      <section class="admin-card" id="optionalCard">
+        <div class="admin-card-title">可选功能 <span id="optionalSummary" class="admin-hint">探测中…</span></div>
+        <p class="admin-card-desc">图片重编码和 PDF 页图需要 Python 依赖与 worker 脚本；历史索引使用 Node 内置 SQLite。安装/卸载以服务账号执行，并写入审计。</p>
+        <div id="optionalGrid" class="optional-grid"></div>
+        <div class="optional-console">
+          <div class="optional-console-head">
+            <span>安装输出</span>
+            <button id="clearOutput" class="btn ghost" type="button">清空</button>
+          </div>
+          <pre id="installOutput" class="config-snippet hidden"></pre>
+        </div>
+        <div id="workerLinks" class="optional-links"></div>
       </section>
 
       <section class="admin-card">

@@ -158,8 +158,10 @@
 - `/op/api/system/restart` 和 `/op/api/system/shutdown` 只允许管理员，并要求 CSRF 和明确的确认字符串；
 - 重启会创建新的服务进程；结束服务会退出当前进程，不会自动拉起；
 - 两种操作都写入审计日志，记录操作者、动作、时间和 PID；
-- 「环境检查 → 可选功能安装」只允许管理员，必须带 `confirm: "INSTALL"`，固定只安装 `Pillow` 或 `pypdfium2`，不执行任意命令，并写 `environment.install` 审计；
+- 「环境检查 → 可选功能」只允许管理员，必须带 `confirm: "INSTALL"`，固定只安装 `Pillow` 或 `pypdfium2`，不执行任意命令，并写 `environment.install` 审计；
+- 卸载接口 `POST /op/api/environment/uninstall` 同样只允许管理员，必须带 `confirm: "UNINSTALL"`，固定卸载上述两个包，并写 `environment.uninstall` 审计；
 - 安装会使用服务账号和本机 pip 配置访问包索引；生产环境应限制为可信索引/离线镜像，安装后按需重启服务使 worker 探测生效；
+- 卸载会影响同一 Python 环境的其他程序，生产环境应使用专用 venv，避免移除系统级依赖；
 - 生产环境应配合 systemd/容器重启策略和权限隔离，页面按钮不能替代进程管理器。
 
 ## 请求检查与原始请求快照

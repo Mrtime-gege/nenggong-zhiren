@@ -181,8 +181,11 @@ test("API key form exposes file concurrency limits", () => {
 test("environment page exposes optional dependency install controls", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/environment.html"), "utf8");
   const script = fs.readFileSync(path.join(ROOT, "public/admin-environment.js"), "utf8");
-  assert.match(html, /id="installList"/);
-  assert.match(html, /可选功能安装/);
-  assert.match(script, /environment\/install/);
+  assert.match(html, /id="optionalGrid"/);
+  assert.match(html, /可选功能/);
+  assert.match(script, /environment\/\$\{action\}/);
+  assert.match(script, /"install"/);
+  assert.match(script, /"uninstall"/);
+  assert.match(script, /卸载依赖/);
   assert.match(script, /pypi/);
 });

@@ -387,6 +387,7 @@ test("environment page and capability probe are served to admins", async () => {
   assert.equal(typeof probe.features.pdfPagePreview, "boolean");
   assert.equal(typeof probe.runtime.sqlite, "boolean");
   assert.match(probe.install.image.pypi, /pypi\.org\/project\/Pillow/);
+  assert.match(probe.install.image.uninstallCommand, /pip uninstall -y Pillow/);
   assert.match(probe.install.pdf.pypi, /pypi\.org\/project\/pypdfium2/);
   assert.match(probe.install.workers.scripts, /github\.com\/Mrtime-gege\/nenggong-zhiren/);
   const badComponent = await op(adminSession, "/op/api/environment/install", {
@@ -404,6 +405,21 @@ test("environment page and capability probe are served to admins", async () => {
     body: { component: "pillow", confirm: "INSTALL" },
   });
   assert.equal(forbidden.status, 403);
+  const badUninstall = await op(adminSession, "/op/api/environment/uninstall", {
+    method: "POST",
+    body: { component: "nope", confirm: "UNINSTALL" },
+  });
+  assert.equal(badUninstall.status, 400);
+  const uninstallNoConfirm = await op(adminSession, "/op/api/environment/uninstall", {
+    method: "POST",
+    body: { component: "pillow" },
+  });
+  assert.equal(uninstallNoConfirm.status, 400);
+  const uninstallForbidden = await op(aliceSession, "/op/api/environment/uninstall", {
+    method: "POST",
+    body: { component: "pillow", confirm: "UNINSTALL" },
+  });
+  assert.equal(uninstallForbidden.status, 403);
 });
 
 test("only embedded console pages allow same-origin framing", async () => {

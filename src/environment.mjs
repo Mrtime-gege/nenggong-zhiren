@@ -77,6 +77,7 @@ function installInfo(python) {
     image: {
       package: "Pillow",
       command: `${python} -m pip install --user Pillow`,
+      uninstallCommand: `${python} -m pip uninstall -y Pillow`,
       pypi: "https://pypi.org/project/Pillow/",
       script: `${REPO_URL}/blob/main/scripts/normalize-image.py`,
       scripts: `${REPO_URL}/tree/main/scripts`,
@@ -84,6 +85,7 @@ function installInfo(python) {
     pdf: {
       package: "pypdfium2",
       command: `${python} -m pip install --user pypdfium2`,
+      uninstallCommand: `${python} -m pip uninstall -y pypdfium2`,
       pypi: "https://pypi.org/project/pypdfium2/",
       script: `${REPO_URL}/blob/main/scripts/render-pdf-page.py`,
       scripts: `${REPO_URL}/tree/main/scripts`,
@@ -102,12 +104,14 @@ export async function probeEnvironment(config = {}) {
   const sqlite = sqliteAvailable();
   const image = fileState(config.imageWorker);
   const pdf = fileState(config.pdfWorker);
-  const pil = pythonInfo.ok && image.exists
+  // Probe modules even when the worker file is absent so the admin page can
+  // still report and uninstall an installed-but-unused dependency.
+  const pil = pythonInfo.ok
     ? await moduleProbe(python, "PIL", timeoutMs)
-    : { available: false, version: "", error: image.exists ? "" : "worker not configured" };
-  const pdfium = pythonInfo.ok && pdf.exists
+    : { available: false, version: "", error: "python unavailable" };
+  const pdfium = pythonInfo.ok
     ? await moduleProbe(python, "pypdfium2", timeoutMs)
-    : { available: false, version: "", error: pdf.exists ? "" : "worker not configured" };
+    : { available: false, version: "", error: "python unavailable" };
 
   return {
     ok: true,

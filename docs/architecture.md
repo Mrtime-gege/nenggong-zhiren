@@ -51,7 +51,7 @@
 - `src/protocol/request-parameters.mjs`：请求参数说明表；把原始字段映射到含义、处理方式、归一化字段、状态和字段级 diff，供检查接口、报告导出和票据详情复用。
 - `src/net/safe-fetch.mjs`：外链图片安全代理；DNS 解析后拒绝私网地址，不跟随重定向，限制类型、大小和超时。
 - `src/runtime-state.mjs`：重启状态文件读写；记录请求时间、旧/新 PID 和健康检查结果。
-- 管理员操作接口：`POST /op/api/environment/install` 只接受 `pillow` / `pypdfium2`，固定执行 pip，要求 `confirm: "INSTALL"`，写 `environment.install` 审计。
+- 管理员操作接口：`POST /op/api/environment/install` 只接受 `pillow` / `pypdfium2`，固定执行 pip，要求 `confirm: "INSTALL"`，写 `environment.install` 审计；`/environment/uninstall` 使用固定包名和 `confirm: "UNINSTALL"`，写 `environment.uninstall` 审计。
 - `public/hub.html` + `navigation.js`：一级导航和概览/记录/管理 Hub；二级页面通过同源 iframe 复用。
 - `public/login.*`：双栏登录页；TOTP 输入过滤/进度、Caps Lock 提示、加载态、指针光晕和 `Ctrl/Cmd+Enter` 提交。
 - `public/settings.html`、`settings-operator.html`：设置页；快捷栏支持拖动手柄/方向键排序、新增项底部提示和恢复默认。
