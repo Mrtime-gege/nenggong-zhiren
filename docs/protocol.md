@@ -295,9 +295,37 @@ POST /v1/inspect/anthropic
   "raw": { "原始 JSON": "..." },
   "rawChars": 123,
   "normalized": { "model": "human-1", "messages": [] },
+  "parameters": [
+    {
+      "path": "model",
+      "group": "请求",
+      "type": "string",
+      "meaning": "调用方选择的模型 ID。",
+      "effect": "必须存在于模型注册表，并满足调用密钥的模型白名单。",
+      "rawValue": "\"human-1\"",
+      "normalizedField": "model",
+      "normalizedValue": "\"human-1\"",
+      "status": "supported"
+    }
+  ],
   "notes": ["dry-run：不会创建票据、消耗配额或触发人工回复。"]
 }
 ```
+
+`parameters` 是逐字段说明，字段含义：
+
+| 字段 | 含义 |
+| --- | --- |
+| `path` | 原始请求中的字段路径；消息/工具会展开一层，例如 `messages[].role` |
+| `group` | 展示分组：请求、响应、生成、工具、客户端、归一化默认 |
+| `type` | 字段类型或形状，例如 `string`、`array(3)`、`object(5)` |
+| `meaning` | 这个参数是什么 |
+| `effect` | 服务端如何处理它，或当前流程是否消费 |
+| `rawValue` | 调用方原始值的短摘要，不展开完整正文 |
+| `normalizedField` / `normalizedValue` | 对应的归一化字段和值 |
+| `status` | `supported` / `ignored` / `unsupported` / `unknown` / `derived` / `nested` |
+
+票据详情接口 `/op/api/tickets/{id}` 也会返回同样的 `requestParameters`，用于工作台「资料」页的内联说明。
 
 - 不进入票据队列，不消耗调用配额，不触发人工回复；
 - 不持久化请求；

@@ -164,7 +164,17 @@ function buildDetail(ticket) {
   requestOpen.target = "_blank";
   requestOpen.rel = "noopener";
   if (state.role !== "admin") requestOpen.classList.add("hidden");
-  infoDetails.body.append(infoExtra, requestHint, requestOpen);
+  const requestParamsDetails = el("details", "request-params");
+  const requestParamsSummary = el("summary");
+  requestParamsSummary.append(
+    el("span", "", "请求参数说明"),
+    el("span", "admin-hint", "每个字段的含义与处理方式"),
+  );
+  const requestParamsCount = el("span", "request-params-count", "");
+  requestParamsSummary.append(requestParamsCount);
+  const requestParamsBody = el("div", "request-params-body");
+  requestParamsDetails.append(requestParamsSummary, requestParamsBody);
+  infoDetails.body.append(infoExtra, requestParamsDetails, requestHint, requestOpen);
   const infoSession = contextSection("相关会话", "同会话轮次");
   infoSession.body.append(sessionBar);
   infoSection.append(infoOverview.section, infoDetails.section, infoSession.section);
@@ -443,6 +453,8 @@ function buildDetail(ticket) {
     inspectorBody,
     infoSection,
     infoExtra,
+    requestParamsBody,
+    requestParamsCount,
     requestHint,
     requestOpen,
     infoSession: infoSession.section,

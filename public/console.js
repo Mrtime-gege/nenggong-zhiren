@@ -983,6 +983,7 @@ function renderInfoExtra(ticket, d) {
       const node = existing[index].querySelector(".info-extra-value");
       if (node && node.textContent !== values[index]) node.textContent = values[index];
     }
+    renderRequestParameters(ticket, d);
     return;
   }
   const fragment = document.createDocumentFragment();
@@ -993,6 +994,58 @@ function renderInfoExtra(ticket, d) {
     fragment.append(row);
   });
   d.els.infoExtra.replaceChildren(fragment);
+  renderRequestParameters(ticket, d);
+}
+
+const PARAM_STATUS_LABELS = {
+  supported: ["已使用", "supported"],
+  ignored: ["已接收未使用", "ignored"],
+  unsupported: ["不支持", "unsupported"],
+  unknown: ["未识别", "unknown"],
+  derived: ["派生/默认", "derived"],
+  nested: ["嵌套字段", "nested"],
+};
+
+function renderRequestParameters(ticket, d) {
+  const host = d?.els?.requestParamsBody;
+  if (!host) return;
+  const rows = Array.isArray(ticket.requestParameters) ? ticket.requestParameters : [];
+  if (d.els.requestParamsCount) {
+    d.els.requestParamsCount.textContent = rows.length ? `${rows.length} 项` : "";
+  }
+  const signature = `${ticket.id}|${rows.length}|${rows.map((row) => row.path).join(",")}`;
+  if (d.requestParamsSignature === signature) return;
+  d.requestParamsSignature = signature;
+  host.replaceChildren();
+  if (!rows.length) {
+    host.append(el("div", "request-summary-hint", "这张票据没有参数快照；新请求会显示字段说明。"));
+    return;
+  }
+  const groups = new Map();
+  for (const row of rows) {
+    const group = row.group || "请求";
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(row);
+  }
+  for (const [group, items] of groups) {
+    host.append(el("div", "request-params-group-title", group));
+    for (const row of items) {
+      const node = el("article", "request-params-row");
+      const head = el("div", "request-params-head");
+      head.append(el("code", "request-params-path", row.path || row.normalizedField || "—"));
+      const status = PARAM_STATUS_LABELS[row.status] || PARAM_STATUS_LABELS.nested;
+      head.append(el("span", `request-params-badge ${status[1]}`, status[0]));
+      node.append(head);
+      const meta = el("div", "request-params-meta");
+      if (row.type) meta.append(el("span", "", row.type));
+      if (row.rawValue) meta.append(el("span", "", `原始 ${row.rawValue}`));
+      if (row.normalizedField) meta.append(el("span", "", `归一化 ${row.normalizedField}=${row.normalizedValue ?? "—"}`));
+      node.append(meta);
+      node.append(el("p", "request-params-meaning", row.meaning || "—"));
+      if (row.effect) node.append(el("p", "request-params-effect", row.effect));
+      host.append(node);
+    }
+  }
 }
 
 function requestSizeText(bytes) {

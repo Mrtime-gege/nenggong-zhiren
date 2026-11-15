@@ -1405,7 +1405,7 @@ test("admin settings, usage, audit and status APIs", async () => {
   const audit = await opJson(adminSession, "/op/api/audit");
   assert.ok(audit.events.some((event) => event.action === "settings.update"));
   const status = await opJson(adminSession, "/op/api/status");
-  assert.equal(status.version, "0.6.5");
+  assert.equal(status.version, "0.6.6");
   assert.ok(status.storage.users.exists);
   assert.ok(Array.isArray(status.audit));
 });
@@ -1921,7 +1921,7 @@ test("metrics, global history search and archive CSV are available", async () =>
   const text = await metrics.text();
   assert.match(text, /ngzr_up 1/);
   assert.match(text, /ngzr_tickets_state\{state="queued"\}/);
-  assert.match(text, /ngzr_build_info\{version="0\.6\.5"\}/);
+  assert.match(text, /ngzr_build_info\{version="0\.6\.6"\}/);
 
   const history = await opJson(adminSession, `/op/api/history?q=${encodeURIComponent(tag)}`);
   assert.equal(history.total, 1);
@@ -2942,6 +2942,8 @@ test("request inspection is dry-run and ticket snapshots keep the raw protocol b
   assert.equal(inspected.normalized.messages[0].content, "inspect me");
   assert.equal(inspected.normalized.stream, true);
   assert.equal(inspected.normalized.tools[0].function.name, "lookup");
+  assert.ok(inspected.parameters.some((row) => row.path === "model" && row.status === "supported"));
+  assert.ok(inspected.parameters.some((row) => row.path === "tools[].function.name"));
   const anthropic = await fetch(`${BASE}/v1/inspect/anthropic`, {
     method: "POST",
     headers: { "x-api-key": CALLER_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
@@ -2968,6 +2970,7 @@ test("request inspection is dry-run and ticket snapshots keep the raw protocol b
   assert.equal(detail.ticket.requestInspection.protocol, "openai");
   assert.match(detail.ticket.requestInspection.raw, new RegExp(tag));
   assert.equal(detail.ticket.requestInspection.truncated, false);
+  assert.ok(detail.ticket.requestParameters.some((row) => row.path === "model"));
   await claim(adminSession, ticket.id);
   await finishJson(adminSession, ticket.id, { text: "inspect ok", finishReason: "stop" });
   assert.equal((await pending).status, 200);

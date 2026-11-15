@@ -44,6 +44,7 @@ import {
   normalizeRequest,
 } from "./src/protocol/index.mjs";
 import { anthropicMessageJson } from "./src/protocol/anthropic.mjs";
+import { describeRequestParameters } from "./src/protocol/request-parameters.mjs";
 import {
   finishAnthropicStream,
   startAnthropicStream,
@@ -54,7 +55,7 @@ import { validateJsonSchema, formatSchemaErrors } from "./src/schema.mjs";
 import { probeEnvironment } from "./src/environment.mjs";
 
 const PUBLIC_DIR = path.join(ROOT, "public");
-const VERSION = "0.6.5";
+const VERSION = "0.6.6";
 const PUBLIC_CONFIG = (() => {
   try {
     return loadConfig();
@@ -1877,6 +1878,44 @@ function ticketInputStats(ticket) {
   return stats;
 }
 
+function normalizedTicketRequest(ticket) {
+  return {
+    protocol: ticket.protocol || OPENAI_PROTOCOL,
+    model: ticket.model,
+    messages: ticket.messages || [],
+    attachments: ticket.attachments || [],
+    tools: ticket.tools || [],
+    toolChoice: ticket.toolChoice,
+    parallelToolCalls: ticket.parallelToolCalls,
+    responseFormat: ticket.responseFormat,
+    maxTokens: ticket.maxTokens,
+    stops: ticket.stops || [],
+    stream: ticket.stream === true,
+    includeUsage: ticket.includeUsage === true,
+    clientUser: ticket.clientUser,
+    effort: ticket.effort,
+  };
+}
+
+const ticketParameterCache = new WeakMap();
+
+function ticketRequestParameters(ticket) {
+  const inspection = ticket.requestInspection;
+  if (!inspection?.raw) return [];
+  // The inspection object is immutable for a ticket, so the parsed row list can
+  // be reused across every detail render/action without re-parsing the raw body.
+  const cached = ticketParameterCache.get(inspection);
+  if (cached) return cached;
+  let rows;
+  try {
+    rows = describeRequestParameters(ticket.protocol || OPENAI_PROTOCOL, JSON.parse(inspection.raw), normalizedTicketRequest(ticket));
+  } catch {
+    rows = [];
+  }
+  ticketParameterCache.set(inspection, rows);
+  return rows;
+}
+
 function publicTicket(ticket) {
   const end = ticket.finishedAt || Date.now();
   const input = ticketInputStats(ticket);
@@ -1917,6 +1956,7 @@ function publicTicket(ticket) {
     aiPending: ticket.aiPending || null,
     aiCards: Array.isArray(ticket.aiCards) ? ticket.aiCards : [],
     requestInspection: ticket.requestInspection || null,
+    requestParameters: ticketRequestParameters(ticket),
     maxTokens: ticket.maxTokens,
     stops: ticket.stops,
     promptTokens: ticket.promptTokens,
@@ -2683,6 +2723,7 @@ async function handleInspectRequest(req, res, protocol) {
     raw: body,
     rawChars: raw.length,
     normalized,
+    parameters: describeRequestParameters(protocol, body, normalized),
     notes: [
       "dry-run：不会创建票据、消耗调用配额或触发人工回复。",
       "raw 是本次请求 JSON；normalized 是进入票据队列前的归一化结构。",

@@ -87,6 +87,10 @@
               <span id="requestRelatedHint" class="admin-hint"></span>
             </div>
             <div id="requestPacket" class="request-packet" aria-label="请求结构图"></div>
+            <details class="request-parameters-panel" open>
+              <summary><span>参数说明</span><span id="requestParameterCount" class="admin-hint">—</span></summary>
+              <div id="requestParameters" class="request-parameters"></div>
+            </details>
             <div class="request-view-toolbar">
               <button id="requestRawView" class="request-view-button active" type="button">原始请求</button>
               <button id="requestNormalizedView" class="request-view-button" type="button">归一化请求</button>

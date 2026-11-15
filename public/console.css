@@ -4669,3 +4669,93 @@ body[data-page="workbench"] .qitem-foot {
   pointer-events: auto;
   transition: none;
 }
+
+/* Ticket-level request parameter dictionary in the inspector. */
+.request-params {
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+
+.request-params > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 9.5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.request-params-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 34vh;
+  padding: 7px 2px 2px;
+  overflow: auto;
+}
+
+.request-params-group-title {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.request-params-row {
+  padding: 5px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.request-params-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.request-params-path {
+  color: #aabaff;
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.request-params-badge {
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 7.5px;
+}
+
+.request-params-badge.supported { border-color: rgba(120, 196, 148, 0.28); color: #8ed2a4; }
+.request-params-badge.ignored { border-color: rgba(229, 177, 94, 0.25); color: #e5b15e; }
+.request-params-badge.unsupported,
+.request-params-badge.unknown { border-color: rgba(228, 118, 118, 0.25); color: #e48787; }
+.request-params-badge.derived { border-color: rgba(138, 164, 248, 0.25); color: #aabaff; }
+
+.request-params-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 2px 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 7.5px;
+}
+
+.request-params-meaning,
+.request-params-effect {
+  margin: 1px 0 0;
+  color: var(--text-dim);
+  font-size: 8.5px;
+  line-height: 1.45;
+}
+
+.request-params-effect { color: var(--muted); }

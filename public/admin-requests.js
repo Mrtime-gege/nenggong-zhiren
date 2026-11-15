@@ -432,7 +432,7 @@ function renderDetail(ticket) {
     ["会话", ticket.sessionId ? `${ticket.sessionId} · 第 ${ticket.sessionTurn || 1} 轮` : "独立请求"],
     ["创建", fmtTime(ticket.createdAt)],
     ["请求大小", fmtBytes(ticket.requestInspection?.raw?.length || 0)],
-    ["工具 / 附件", `${ticket.toolCount || 0} / ${ticket.attachmentCount || 0}`],
+    ["工具 / 附件", `${ticket.toolCount ?? (ticket.tools || []).length} / ${ticket.attachmentCount ?? (ticket.attachments || []).length}`],
   ];
   for (const [key, value] of pairs) {
     const pair = el("div", "request-meta-pair");
@@ -441,7 +441,62 @@ function renderDetail(ticket) {
   }
   const related = relatedTickets(ticket);
   $("requestRelatedHint").textContent = ticket.sessionId ? `同会话 ${related.length} 张` : "无会话 ID";
+  renderParameters(ticket);
   renderPayload();
+}
+
+const PARAM_STATUS = {
+  supported: ["已使用", "param-supported"],
+  ignored: ["已接收未使用", "param-ignored"],
+  unsupported: ["不支持", "param-unsupported"],
+  unknown: ["未识别", "param-unknown"],
+  derived: ["派生/默认", "param-derived"],
+  nested: ["嵌套字段", "param-nested"],
+};
+
+function renderParameters(ticket) {
+  const host = $("requestParameters");
+  const count = $("requestParameterCount");
+  if (!host) return;
+  const rows = Array.isArray(ticket.requestParameters) ? ticket.requestParameters : [];
+  if (count) count.textContent = `${rows.length} 项`;
+  host.replaceChildren();
+  if (!rows.length) {
+    host.append(el("div", "request-param-empty", "这张票据没有可用的参数快照；新请求会显示完整参数说明。"));
+    return;
+  }
+  const groups = new Map();
+  for (const row of rows) {
+    const group = row.group || "请求";
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(row);
+  }
+  for (const [group, items] of groups) {
+    const section = el("section", "request-param-group");
+    section.append(el("div", "request-param-group-title", group));
+    for (const row of items) {
+      const node = el("article", "request-param-row");
+      const head = el("div", "request-param-head");
+      const path = el("code", "request-param-path", row.path || row.normalizedField || "—");
+      path.title = "点击定位到对应 JSON 字段";
+      path.addEventListener("click", () => {
+        const top = String(row.path || "").split(".")[0].replace(/\[\].*$/, "");
+        if (top) revealJsonField(top);
+      });
+      const status = PARAM_STATUS[row.status] || PARAM_STATUS.nested;
+      head.append(path, el("span", `request-param-status ${status[1]}`, status[0]));
+      node.append(head);
+      const meta = el("div", "request-param-meta");
+      if (row.type) meta.append(el("span", "request-param-tag", row.type));
+      if (row.rawValue !== undefined && row.rawValue !== "") meta.append(el("span", "", `原始 ${row.rawValue}`));
+      if (row.normalizedField) meta.append(el("span", "", `归一化 ${row.normalizedField}=${row.normalizedValue ?? "—"}`));
+      node.append(meta);
+      node.append(el("p", "request-param-meaning", row.meaning || "—"));
+      node.append(el("p", "request-param-effect", row.effect || ""));
+      section.append(node);
+    }
+    host.append(section);
+  }
 }
 
 function renderPayload() {

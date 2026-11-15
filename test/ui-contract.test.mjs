@@ -98,6 +98,8 @@ test("standalone request inspector supports composite filters and related sessio
   assert.match(script, /function renderFields/);
   assert.match(html, /id="requestFields"/);
   assert.match(html, /id="requestPacket"/);
+  assert.match(html, /id="requestParameters"/);
+  assert.match(script, /renderParameters/);
   const assets = fs.readFileSync(path.join(ROOT, "src/http/public-assets.mjs"), "utf8");
   assert.match(assets, /"\/requests\.html"/);
   assert.match(assets, /"\/admin-requests\.js"/);
