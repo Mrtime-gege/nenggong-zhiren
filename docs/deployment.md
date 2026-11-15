@@ -76,10 +76,18 @@ Restart-Service iphlpsvc
 - worker 脚本：<https://github.com/Mrtime-gege/nenggong-zhiren/tree/main/scripts>
 
 页面上的「安装依赖」优先在项目根目录创建或复用 `.venv`，然后用 `.venv/bin/pip` 安装；
-不会直接修改系统 Python。Kali/Debian 需要先安装 venv 模块：
+不会直接修改系统 Python。
+
+Kali/Debian 经常缺少 `ensurepip`，此时安装器会自动：
+
+1. 用 `python3 -m venv --without-pip` 创建解释器；
+2. 用系统 pip 的 `--python .venv/bin/python` 把 pip 装进 `.venv`；
+3. 再安装 Pillow / pypdfium2。
+
+如果这一步仍失败，再安装 venv 模块：
 
 ```bash
-sudo apt install python3-venv
+sudo apt install python3.14-venv   # 或 python3-venv
 ```
 
 也可以手工执行：
@@ -92,7 +100,7 @@ python3 -m venv .venv
 worker 会自动使用 `.venv/bin/python`，不需要修改 `workers.python`；该配置仍作为创建/修复
 venv 的基础解释器。安装来源遵循本机 pip 配置；生产环境应使用可信索引或离线镜像。
 
-如果宿主机无法创建 venv（例如缺少 `python3-venv`），页面会提示安装 venv 模块；不会自动改用系统 Python。
+如果宿主机连 `--without-pip` 和 `pip --python` 都不可用，页面会提示安装 venv 模块；不会自动改用系统 Python。
 如已有独立的 Python 环境，可在「可选功能」页的「使用已有 Python 环境」填入解释器或环境目录，
 检测通过后 worker 只读取该环境；安装/卸载仍只作用于项目 `.venv`，外部环境由用户自行管理。
 也可以写入配置：

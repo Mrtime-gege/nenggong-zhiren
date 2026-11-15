@@ -80,11 +80,12 @@ async function moduleProbe(python, moduleName, timeoutMs) {
 const REPO_URL = "https://github.com/Mrtime-gege/nenggong-zhiren";
 
 function installInfo(python) {
+  const venvPython = process.platform === "win32" ? ".venv\\Scripts\\python.exe" : ".venv/bin/python";
   const venvPip = process.platform === "win32" ? ".venv\\Scripts\\pip.exe" : ".venv/bin/pip";
   return {
     image: {
       package: "Pillow",
-      command: `${python} -m venv .venv && ${venvPip} install Pillow`,
+      command: `${python} -m venv --without-pip .venv && ${python} -m pip --python ${venvPython} install pip && ${venvPip} install Pillow`,
       uninstallCommand: `${venvPip} uninstall -y Pillow`,
       pypi: "https://pypi.org/project/Pillow/",
       project: "https://github.com/python-pillow/Pillow",
@@ -93,7 +94,7 @@ function installInfo(python) {
     },
     pdf: {
       package: "pypdfium2",
-      command: `${python} -m venv .venv && ${venvPip} install pypdfium2`,
+      command: `${python} -m venv --without-pip .venv && ${python} -m pip --python ${venvPython} install pip && ${venvPip} install pypdfium2`,
       uninstallCommand: `${venvPip} uninstall -y pypdfium2`,
       pypi: "https://pypi.org/project/pypdfium2/",
       project: "https://github.com/pypdfium2-team/pypdfium2",

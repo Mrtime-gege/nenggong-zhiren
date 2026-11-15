@@ -20,7 +20,7 @@
 - 修复：MFA 静默降级、用户名大小写绕过、AI relay 未脱敏、附件下载缺少审计、`workers.python` 未生效、功能开关未执行、JSON Schema 原型链、metrics token 非 ASCII 长度、CORS null 来源。
 - 新增 Anthropic 流式 thinking：支持 `thinking` / `thinking_delta` 块和非流式 `content[].type=thinking`；正文开始后拒绝追加思考（`reasoning_after_text`）。
 - 环境检查新增「可选功能」：图片重编码、PDF 页图与历史索引三张能力卡，统一展示 Python/依赖/worker 状态、安装与卸载命令、PyPI/脚本地址，并支持一键安装/卸载和输出面板。
-- 可选依赖严格限定在项目 `.venv` 安装和卸载，默认不读取系统 Python；缺少 `python3-venv` 时提示安装该模块，不回退 `--break-system-packages`。
+- 可选依赖严格限定在项目 `.venv` 安装和卸载，默认不读取系统 Python；缺少 `ensurepip` 时自动用 `--without-pip` + 系统 pip `--python` 引导 pip，仍失败才提示安装 `python3.14-venv`，不回退 `--break-system-packages`。
 - 新增管理员手动指定外部 Python 环境的检测入口；通过后 worker 只读取该环境，安装/卸载仍只作用于项目 `.venv`。
 - 可选功能卡补充 Pillow、pypdfium2 的原项目地址；两个 worker `.py` 明确为本项目脚本，不冒充第三方项目。
 - 可选功能探测把 `ModuleNotFoundError` 归一为「未安装」，卸载成功后不再把导入失败显示成卸载失败。

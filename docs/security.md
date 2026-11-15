@@ -161,7 +161,7 @@
 - 「环境检查 → 可选功能」只允许管理员，必须带 `confirm: "INSTALL"`，固定只安装 `Pillow` 或 `pypdfium2`，不执行任意命令，并写 `environment.install` 审计；
 - 卸载接口 `POST /op/api/environment/uninstall` 同样只允许管理员，必须带 `confirm: "UNINSTALL"`，固定卸载上述两个包，并写 `environment.uninstall` 审计；
 - 可选依赖只安装到项目 `.venv`，只用 `.venv/bin/pip` 安装/卸载，不读取也不修改系统 Python；
-- 系统缺少 `python3-venv` 时返回明确错误，不会自动改用 `--break-system-packages`；
+- 系统缺少 `ensurepip` 时先用 `--without-pip` 创建 `.venv`，再用系统 pip 的 `--python .venv/bin/python` 把 pip 引导进 `.venv`；仍失败才返回明确错误，不会自动改用 `--break-system-packages`；
 - 只有管理员在「使用已有 Python 环境」中手动指定并通过检测后，才读取该外部解释器；安装/卸载接口拒绝在外部环境模式下运行；
 - 安装会使用本机 pip 配置访问包索引；生产环境应限制为可信索引/离线镜像，安装后按需重启服务使 worker 探测生效；
 - 生产环境应配合 systemd/容器重启策略和权限隔离，页面按钮不能替代进程管理器。

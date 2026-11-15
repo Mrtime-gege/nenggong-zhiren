@@ -36,7 +36,7 @@
 
       <section class="admin-card" id="optionalCard">
         <div class="admin-card-title">可选功能 <span id="optionalSummary" class="admin-hint">探测中…</span></div>
-        <p class="admin-card-desc">图片重编码和 PDF 页图需要 Python 依赖与 worker 脚本；历史索引使用 Node 内置 SQLite。安装/卸载以服务账号执行，并写入审计。</p>
+        <p class="admin-card-desc">图片重编码和 PDF 页图需要 Python 依赖与 worker 脚本；历史索引使用 Node 内置 SQLite。安装/卸载只作用于项目 <code>.venv</code>，并写入审计；缺少 <code>ensurepip</code> 时会自动把 pip 引导进 <code>.venv</code>。</p>
         <div id="optionalGrid" class="optional-grid"></div>
         <div class="optional-external">
           <div class="optional-external-copy">

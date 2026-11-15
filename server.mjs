@@ -3325,15 +3325,39 @@ function runCommand(command, args, { timeoutMs = 180_000 } = {}) {
 async function ensureWorkerVenv() {
   if (workerVenvPip()) return { ok: true, python: workerVenvPython(), stdout: "", stderr: "" };
   const base = String(config.workers?.python || "python3").trim() || "python3";
-  const result = await runCommand(base, ["-m", "venv", "--clear", WORKER_VENV_DIR], { timeoutMs: 180_000 });
+  let stdout = "";
+  let stderr = "";
+  const created = await runCommand(base, ["-m", "venv", "--clear", WORKER_VENV_DIR], { timeoutMs: 180_000 });
+  stdout += created.stdout;
+  stderr += created.stderr;
+  if (workerVenvPip()) {
+    return { ok: true, python: workerVenvPython(), stdout, stderr };
+  }
+  // Debian/Kali often ships Python without ensurepip. Create the interpreter
+  // first, then bootstrap pip from the base pip into that interpreter; this
+  // keeps every package inside .venv and never touches system site-packages.
+  const bare = await runCommand(base, ["-m", "venv", "--clear", "--without-pip", WORKER_VENV_DIR], { timeoutMs: 180_000 });
+  stdout += bare.stdout;
+  stderr += bare.stderr;
+  if (workerVenvPython()) {
+    const bootstrap = await runCommand(
+      base,
+      ["-m", "pip", "--python", workerVenvPython(), "install", "--disable-pip-version-check", "pip"],
+      { timeoutMs: 180_000 },
+    );
+    stdout += bootstrap.stdout;
+    stderr += bootstrap.stderr;
+  }
   const ready = Boolean(workerVenvPip());
   return {
     ok: ready,
     python: ready ? workerVenvPython() : base,
-    stdout: result.stdout,
-    stderr: result.stderr,
-    timedOut: result.timedOut,
-    hint: ready ? "" : "创建 .venv 失败；需要 python3-venv（Kali/Debian: sudo apt install python3-venv）",
+    stdout,
+    stderr,
+    timedOut: created.timedOut || bare.timedOut,
+    hint: ready
+      ? ""
+      : "创建 .venv 失败；请安装 python3-venv（Kali/Debian: sudo apt install python3.14-venv），并确认系统 pip 可用。",
   };
 }
 
