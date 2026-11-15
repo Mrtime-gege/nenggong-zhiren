@@ -66,7 +66,14 @@ Restart-Service iphlpsvc
 ## 可选媒体 worker
 
 基础的上传、文字预览和图片预览不需要额外依赖。以下能力都是可选的，且**只探测
-`config.jsonc` 中明确配置的路径**，不扫描项目树或主机目录：
+`config.jsonc` 中明确配置的路径**，不扫描项目树或主机目录。管理员也可以在
+`/console/overview?tab=environment` 的「可选功能安装」卡片里查看状态、复制安装命令或直接安装 Python 依赖。
+
+安装地址：
+
+- Pillow：<https://pypi.org/project/Pillow/>
+- pypdfium2：<https://pypi.org/project/pypdfium2/>
+- worker 脚本：<https://github.com/Mrtime-gege/nenggong-zhiren/tree/main/scripts>
 
 ```jsonc
 "workers": {
@@ -85,11 +92,15 @@ Restart-Service iphlpsvc
 需要 Python 3 与 Pillow：
 
 ```bash
+python3 -m pip install --user Pillow
 python3 -c "import PIL"
 ```
 
+PyPI：<https://pypi.org/project/Pillow/>
+
 缺少 worker、Python 或 Pillow 时，上传仍可用，但图片不会被重新编码，服务端会记录跳过原因。
-Python worker 脚本需从源码目录复制或配置外部路径。
+Python worker 脚本需从源码目录复制或配置外部路径；发布包不包含脚本，地址：
+<https://github.com/Mrtime-gege/nenggong-zhiren/tree/main/scripts>。
 
 ### PDF 页图
 
@@ -98,6 +109,8 @@ Python worker 脚本需从源码目录复制或配置外部路径。
 ```bash
 python3 -m pip install --user pypdfium2
 ```
+
+PyPI：<https://pypi.org/project/pypdfium2/>
 
 生产账号必须能执行配置的 `python3` 并导入该包。systemd 的 `ProtectHome=true` 可能阻止
 用户级 site-packages；此时建议创建专用 venv，并在 unit 中设置 `PATH`/`PYTHONPATH`，

@@ -103,6 +103,9 @@ npm start
 - 图片 worker 需要 Python 3 + Pillow；缺失时跳过重编码，上传仍可用；
 - PDF worker 需要 `pypdfium2`；缺失时 PDF 上传、文字预览和下载仍可用，页图预览不可用；
 - 两个路径都可以改成外部绝对路径或留空禁用；
+- 管理员可在「环境检查」页的「可选功能安装」里查看状态、复制命令或直接安装依赖；
+  安装地址：Pillow <https://pypi.org/project/Pillow/>、pypdfium2 <https://pypi.org/project/pypdfium2/>、
+  worker 脚本 <https://github.com/Mrtime-gege/nenggong-zhiren/tree/main/scripts>；
 - 修改后重启服务，然后在管理员「环境」页查看探测结果。
 
 这两个 Python 脚本不随服务自带，如要从其他目录使用，手动配置绝对路径即可。

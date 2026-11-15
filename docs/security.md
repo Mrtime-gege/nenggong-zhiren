@@ -158,6 +158,7 @@
 - `/op/api/system/restart` 和 `/op/api/system/shutdown` 只允许管理员，并要求 CSRF 和明确的确认字符串；
 - 重启会创建新的服务进程；结束服务会退出当前进程，不会自动拉起；
 - 两种操作都写入审计日志，记录操作者、动作、时间和 PID；
+- 「环境检查 → 可选功能安装」只允许管理员，必须带 `confirm: "INSTALL"`，固定只安装 `Pillow` 或 `pypdfium2`，不执行任意命令，并写 `environment.install` 审计；
 - 生产环境应配合 systemd/容器重启策略和权限隔离，页面按钮不能替代进程管理器。
 
 ## 请求检查与原始请求快照

@@ -17,7 +17,7 @@
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-9ad7b4" /></a>
   <a href="https://nodejs.org/"><img alt="node" src="https://img.shields.io/badge/node-%3E%3D20-5fa04e" /></a>
   <img alt="dependencies" src="https://img.shields.io/badge/runtime_dependencies-0-c28a5a" />
-  <img alt="tests" src="https://img.shields.io/badge/tests-144%20passing-b084f0" />
+  <img alt="tests" src="https://img.shields.io/badge/tests-145%20passing-b084f0" />
 </p>
 
 <p align="center">
@@ -102,7 +102,7 @@ OpenAI / Anthropic 请求
 | AI 辅助 | 结果卡片与详情随票据持久化；未认领也可查看；不自动填入或发送 |
 | 自动 AI | 管理员开关；收到/认领后预生成卡片；不会自动回复调用方 |
 | 统一导航 | 坐席 / 概览 / 记录 / 管理 / 设置；概览、记录、管理使用二级 Hub |
-| 管理能力 | 用户、模型、API 密钥（含文件并发）、配额、审计、历史、环境检查 |
+| 管理能力 | 用户、模型、API 密钥（含文件并发）、配额、审计、历史、环境检查与可选依赖安装 |
 | 可观测性 | 状态页、Prometheus `/metrics`、历史检索、审计、CSV |
 | 页面性能 | 静态资源 ETag 条件缓存；Hub 相邻/悬停预载；轮询未变化时跳过 DOM 重建 |
 | 请求检查 | `/v1/inspect/*` dry-run；逐字段含义/处理方式/字段级 diff/警告；独立检查页支持服务端筛选分页、结构图、JSON 折叠、字段搜索、报告导出、重放校验、兼容性矩阵和同会话关联 |

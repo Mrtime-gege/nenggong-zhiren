@@ -3185,3 +3185,27 @@ body[data-page="settings"] .settings-content > .admin-only {
   color: var(--text-dim);
   font-size: 8.5px;
 }
+
+/* Optional dependency install rows. */
+.install-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.install-actions .btn {
+  font-size: 9px;
+  padding: 3px 8px;
+}
+
+.install-link {
+  color: #aabaff;
+  font-size: 9px;
+  text-decoration: none;
+}
+
+.install-link:hover {
+  text-decoration: underline;
+}

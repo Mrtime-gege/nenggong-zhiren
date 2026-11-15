@@ -46,6 +46,13 @@
       </section>
 
       <section class="admin-card">
+        <div class="admin-card-title">可选功能安装 <span class="admin-hint">按需</span></div>
+        <p class="admin-card-desc">图片重编码需要 Pillow 和 <code>normalize-image.py</code>；PDF 页图需要 pypdfium2 和 <code>render-pdf-page.py</code>。worker 脚本不随发布包提供，可从下方地址获取后放到 <code>workers.imageWorker</code> / <code>workers.pdfWorker</code> 配置的路径。</p>
+        <div id="installList" class="vault-list"></div>
+        <pre id="installOutput" class="config-snippet hidden"></pre>
+      </section>
+
+      <section class="admin-card">
         <div class="admin-card-title">如何配置</div>
         <pre id="configHint" class="config-snippet"></pre>
       </section>

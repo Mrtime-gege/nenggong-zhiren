@@ -70,6 +70,31 @@ async function moduleProbe(python, moduleName, timeoutMs) {
     : { available: false, version: "", error: result.error };
 }
 
+const REPO_URL = "https://github.com/Mrtime-gege/nenggong-zhiren";
+
+function installInfo(python) {
+  return {
+    image: {
+      package: "Pillow",
+      command: `${python} -m pip install --user Pillow`,
+      pypi: "https://pypi.org/project/Pillow/",
+      script: `${REPO_URL}/blob/main/scripts/normalize-image.py`,
+      scripts: `${REPO_URL}/tree/main/scripts`,
+    },
+    pdf: {
+      package: "pypdfium2",
+      command: `${python} -m pip install --user pypdfium2`,
+      pypi: "https://pypi.org/project/pypdfium2/",
+      script: `${REPO_URL}/blob/main/scripts/render-pdf-page.py`,
+      scripts: `${REPO_URL}/tree/main/scripts`,
+    },
+    workers: {
+      scripts: `${REPO_URL}/tree/main/scripts`,
+      docs: `${REPO_URL}/blob/main/docs/deployment.md#可选媒体-worker`,
+    },
+  };
+}
+
 export async function probeEnvironment(config = {}) {
   const python = String(config.python || "python3").trim() || "python3";
   const timeoutMs = Math.max(250, Math.min(30_000, Number(config.probeTimeoutMs) || 2500));
@@ -123,5 +148,6 @@ export async function probeEnvironment(config = {}) {
       pdfPagePreview: Boolean(pythonInfo.ok && pdf.exists && pdfium.available),
       historyIndex: sqlite,
     },
+    install: installInfo(python),
   };
 }

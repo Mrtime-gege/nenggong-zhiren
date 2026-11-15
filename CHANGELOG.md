@@ -19,7 +19,8 @@
 - 票据/会话/状态快照增加字节预算：实时票据 1000 张、估算总量 256 MiB；快照原始请求最多 256 KiB、消息正文最多 512 KiB；会话只保存消息哈希。
 - 修复：MFA 静默降级、用户名大小写绕过、AI relay 未脱敏、附件下载缺少审计、`workers.python` 未生效、功能开关未执行、JSON Schema 原型链、metrics token 非 ASCII 长度、CORS null 来源。
 - 新增 Anthropic 流式 thinking：支持 `thinking` / `thinking_delta` 块和非流式 `content[].type=thinking`；正文开始后拒绝追加思考（`reasoning_after_text`）。
-- 自动化测试 144 / 144 通过。
+- 环境检查新增「可选功能安装」：展示 Pillow、pypdfium2 和 worker 脚本地址，管理员可复制安装命令或一键运行固定 pip 安装，结果写审计。
+- 自动化测试 145 / 145 通过。
 
 ## 0.6.5 — 2026-11-11
 

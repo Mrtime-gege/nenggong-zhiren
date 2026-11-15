@@ -3263,6 +3263,62 @@ function normalizeTicketPriority(value) {
   return priority;
 }
 
+const PIP_PACKAGES = Object.freeze({
+  pillow: "Pillow",
+  pypdfium2: "pypdfium2",
+});
+let environmentInstallPending = false;
+
+function runPipInstall(python, packageName, { timeoutMs = 180_000 } = {}) {
+  return new Promise((resolve) => {
+    const args = ["-m", "pip", "install", "--user", "--disable-pip-version-check", packageName];
+    const child = spawn(python, args, {
+      env: { PATH: process.env.PATH || "/usr/bin:/bin", LANG: "C" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeoutMs);
+    timer.unref?.();
+    child.stdout.on("data", (chunk) => {
+      if (stdout.length < 64 * 1024) stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      if (stderr.length < 64 * 1024) stderr += chunk.toString();
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      resolve({ code: 1, stdout, stderr: `${stderr}${error.message}`, timedOut });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code: code ?? 1, stdout, stderr, timedOut });
+    });
+  });
+}
+
+function runPipInstallWithoutUser(python, packageName, { timeoutMs = 180_000 } = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(python, ["-m", "pip", "install", "--disable-pip-version-check", packageName], {
+      env: { PATH: process.env.PATH || "/usr/bin:/bin", LANG: "C" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, timeoutMs);
+    timer.unref?.();
+    child.stdout.on("data", (chunk) => { if (stdout.length < 64 * 1024) stdout += chunk.toString(); });
+    child.stderr.on("data", (chunk) => { if (stderr.length < 64 * 1024) stderr += chunk.toString(); });
+    child.on("error", (error) => { clearTimeout(timer); resolve({ code: 1, stdout, stderr: `${stderr}${error.message}`, timedOut }); });
+    child.on("close", (code) => { clearTimeout(timer); resolve({ code: code ?? 1, stdout, stderr, timedOut }); });
+  });
+}
+
 function verifyAdminStepUp(session, req, password, { totp = "", requireMfa = false } = {}) {
   const ip = clientIp(req);
   const allowed = auth.loginAllowed(ip, session.username);
@@ -4164,6 +4220,51 @@ async function handleOperator(req, res, url, session) {
   if (pathname === "/op/api/environment" && req.method === "GET") {
     requireAdmin(session);
     return sendJson(res, 200, await probeEnvironment(config.workers));
+  }
+
+  if (pathname === "/op/api/environment/install") {
+    requireAdmin(session);
+    if (req.method !== "POST") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    if (body.confirm !== "INSTALL") {
+      throw new ApiError(400, "Type INSTALL to confirm this action.", "invalid_request_error", "confirmation_required");
+    }
+    const component = String(body.component || "").trim().toLowerCase();
+    const packageName = PIP_PACKAGES[component];
+    if (!packageName) {
+      throw new ApiError(400, "component must be pillow or pypdfium2.", "invalid_request_error", "invalid_component");
+    }
+    if (environmentInstallPending) {
+      throw new ApiError(409, "Another optional dependency install is already running.", "invalid_request_error", "install_pending");
+    }
+    environmentInstallPending = true;
+    try {
+      const python = String(config.workers?.python || "python3").trim() || "python3";
+      let result = await runPipInstall(python, packageName);
+      if (result.code !== 0 && /Can not perform a '--user' install|not supported/i.test(result.stderr)) {
+        // Inside a venv pip refuses --user; retry into the active environment.
+        result = await runPipInstallWithoutUser(python, packageName);
+      }
+      audit.append({
+        actor: session.username,
+        action: "environment.install",
+        target: component,
+        ip: clientIp(req),
+        detail: `exit=${result.code}${result.timedOut ? " timeout" : ""}`,
+      });
+      const probe = await probeEnvironment(config.workers);
+      return sendJson(res, 200, {
+        ok: result.code === 0,
+        component,
+        package: packageName,
+        exitCode: result.code,
+        timedOut: result.timedOut,
+        stdout: String(result.stdout || "").slice(-8_000),
+        stderr: String(result.stderr || "").slice(-8_000),
+        probe,
+      });
+    } finally {
+      environmentInstallPending = false;
+    }
   }
 
   if (pathname === "/op/api/stats" && req.method === "GET") {

@@ -177,3 +177,12 @@ test("API key form exposes file concurrency limits", () => {
   assert.match(script, /maxUploadConcurrency/);
   assert.match(script, /maxDownloadConcurrency/);
 });
+
+test("environment page exposes optional dependency install controls", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/environment.html"), "utf8");
+  const script = fs.readFileSync(path.join(ROOT, "public/admin-environment.js"), "utf8");
+  assert.match(html, /id="installList"/);
+  assert.match(html, /可选功能安装/);
+  assert.match(script, /environment\/install/);
+  assert.match(script, /pypi/);
+});
