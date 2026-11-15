@@ -156,6 +156,7 @@ let aiActive = 0;
 const aiTicketLocks = new Set();
 const aiAutoLocks = new Set();
 let pdfRenderActive = 0;
+let imageWorkerActive = 0;
 let imageProxyActive = 0;
 const imageProxyByOperator = new Map();
 const imageProxyByHost = new Map();
@@ -828,10 +829,10 @@ function replayTicket(ticket, res) {
     if (ticket.protocol === ANTHROPIC_PROTOCOL) {
       for (const frame of ticket.anthLog || []) res.write(frame);
     } else {
+      for (const payload of ticket.sseLog || []) sendSse(res, payload);
       if (ticket.sseLogTruncated) {
         sendSse(res, { error: { message: "The stream replay was truncated by the server.", type: "server_error", param: null, code: "replay_truncated" } });
       }
-      for (const payload of ticket.sseLog || []) sendSse(res, payload);
       res.write("data: [DONE]\n\n");
     }
     res.end();
@@ -2764,7 +2765,9 @@ async function handleFileUploadInner(req, res, caller) {
   }
   const ownerHash = createHash("sha256").update(caller.key).digest("hex");
   if (config.workers.imageWorker && existsSync(config.workers.imageWorker) &&
-      config.attachments.reencodeImages !== false && attachments.looksLikeImage(content)) {
+      config.attachments.reencodeImages !== false && attachments.looksLikeImage(content) &&
+      imageWorkerActive < 2) {
+    imageWorkerActive += 1;
     try {
       const normalized = await normalizeImageBuffer(content, {
         script: config.workers.imageWorker,
@@ -2779,6 +2782,8 @@ async function handleFileUploadInner(req, res, caller) {
       // Re-encoding is defense in depth; a worker/toolchain failure must not
       // turn every valid image upload into a server error.
       log(`[attachment] image normalize skipped: ${error.message}`);
+    } finally {
+      imageWorkerActive = Math.max(0, imageWorkerActive - 1);
     }
   }
   try {
