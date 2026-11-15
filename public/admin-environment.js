@@ -130,9 +130,10 @@ function capabilityCard({ title, description, component, info, worker, featureAv
     card.append(commandLine("卸载", info.uninstallCommand || "", copyText));
 
     const actions = el("div", "optional-actions");
-    const install = el("button", "btn", featureAvailable ? "重新安装" : "安装依赖");
+    const install = el("button", "btn", worker.dependencyAvailable ? "依赖已安装" : "安装依赖");
     install.type = "button";
-    install.disabled = busy || !python.available;
+    install.disabled = busy || !python.available || worker.dependencyAvailable;
+    install.title = worker.dependencyAvailable ? "当前 Python 环境已能导入该依赖" : "";
     install.addEventListener("click", () => runPip("install", component, title));
     const uninstall = el("button", "btn ghost", "卸载依赖");
     uninstall.type = "button";
@@ -141,6 +142,7 @@ function capabilityCard({ title, description, component, info, worker, featureAv
     uninstall.addEventListener("click", () => runPip("uninstall", component, title));
     actions.append(install, uninstall);
     if (info.pypi) actions.append(link("PyPI 页面", info.pypi));
+    if (info.project) actions.append(link("原项目", info.project));
     if (info.script) actions.append(link("worker 脚本", info.script));
     card.append(actions);
   }
@@ -214,24 +216,49 @@ function renderOptional(data) {
 async function runPip(action, component, label) {
   if (busy) return;
   const info = probe?.install?.[component === "pillow" ? "image" : "pdf"] || {};
-  const command = action === "install" ? info.command : info.uninstallCommand;
   const verb = action === "install" ? "安装" : "卸载";
   const warning = action === "install"
-    ? `安装 ${label} 的可选依赖？这会在服务器上运行 pip。`
+    ? `安装 ${label} 的可选依赖？会优先创建项目 .venv 并在其中运行 pip。`
     : `从服务账号的 Python 环境卸载 ${label}？其他依赖它的程序可能受影响。`;
   if (!window.confirm(warning)) return;
   busy = true;
   setStatus(`${verb}中…`);
-  setOutput(`$ ${command || ""}\n\n正在${verb} ${label}…`);
+  let mode = action === "install" ? "venv" : undefined;
+  let data = null;
+  let command = "";
   try {
-    const data = await api(`/op/api/environment/${action}`, {
-      method: "POST",
-      body: { component, confirm: action === "install" ? "INSTALL" : "UNINSTALL" },
-    });
+    for (;;) {
+      command = action === "install"
+        ? (mode === "system" ? info.systemCommand : info.command)
+        : info.uninstallCommand;
+      setOutput(`$ ${command || ""}\n\n正在${verb} ${label}…`);
+      data = await api(`/op/api/environment/${action}`, {
+        method: "POST",
+        body: {
+          component,
+          confirm: action === "install" ? "INSTALL" : "UNINSTALL",
+          ...(mode ? { mode } : {}),
+        },
+      });
+      if (action === "install" && data.stage === "venv" && mode === "venv") {
+        setOutput([
+          data.hint || "创建项目 .venv 失败。",
+          "",
+          data.stdout || "",
+          data.stderr || "",
+        ].join("\n").trim());
+        const force = window.confirm(`${data.hint || "项目 .venv 不可用"}\n\n是否改用 --break-system-packages 安装到系统 Python？这会修改系统环境。`);
+        if (!force) break;
+        mode = "system";
+        continue;
+      }
+      break;
+    }
     setOutput([
       data.ok ? `${verb}完成` : `${verb}失败（退出码 ${data.exitCode}）`,
       "",
       `$ ${command || ""}`,
+      data.hint ? `${data.hint}\n` : "",
       data.stdout || "",
       data.stderr || "",
     ].join("\n").trim());

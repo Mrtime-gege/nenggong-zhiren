@@ -73,20 +73,25 @@ async function moduleProbe(python, moduleName, timeoutMs) {
 const REPO_URL = "https://github.com/Mrtime-gege/nenggong-zhiren";
 
 function installInfo(python) {
+  const venvPip = process.platform === "win32" ? ".venv\\Scripts\\pip.exe" : ".venv/bin/pip";
   return {
     image: {
       package: "Pillow",
-      command: `${python} -m pip install --user Pillow`,
-      uninstallCommand: `${python} -m pip uninstall -y Pillow`,
+      command: `${python} -m venv .venv && ${venvPip} install Pillow`,
+      systemCommand: `${python} -m pip install --break-system-packages Pillow`,
+      uninstallCommand: `${venvPip} uninstall -y Pillow`,
       pypi: "https://pypi.org/project/Pillow/",
+      project: "https://github.com/python-pillow/Pillow",
       script: `${REPO_URL}/blob/main/scripts/normalize-image.py`,
       scripts: `${REPO_URL}/tree/main/scripts`,
     },
     pdf: {
       package: "pypdfium2",
-      command: `${python} -m pip install --user pypdfium2`,
-      uninstallCommand: `${python} -m pip uninstall -y pypdfium2`,
+      command: `${python} -m venv .venv && ${venvPip} install pypdfium2`,
+      systemCommand: `${python} -m pip install --break-system-packages pypdfium2`,
+      uninstallCommand: `${venvPip} uninstall -y pypdfium2`,
       pypi: "https://pypi.org/project/pypdfium2/",
+      project: "https://github.com/pypdfium2-team/pypdfium2",
       script: `${REPO_URL}/blob/main/scripts/render-pdf-page.py`,
       scripts: `${REPO_URL}/tree/main/scripts`,
     },

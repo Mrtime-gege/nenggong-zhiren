@@ -37,7 +37,7 @@
 - `src/protocol/`：OpenAI / Anthropic 请求归一化、响应与流式增量。
 - `src/data/`：模型、密钥、用量、状态、设置、审计、附件、模板和历史存储。
 - `src/ai/`：旧 suggest/native 路径和当前 relay；relay 是工作台主路径。旧 `/ai/suggest` 仅保留兼容，并返回废弃提示头，新集成必须使用 `/ai/relay`；后续版本可能移除 suggest/native。AI 卡片持久化由 `src/ai/cards.mjs` 提供。
-- `src/media/`：隔离的图片重编码和 PDF 页渲染 worker 适配。
+- `src/media/`：隔离的图片重编码和 PDF 页渲染 worker 适配；可选依赖安装在项目 `.venv`，worker 优先使用该解释器。
 - `public/console.js`：网页工作台核心状态、操作和编辑流程（无构建步骤的原生 JavaScript）。
 - `public/console-utils.js`：控制台纯展示格式化工具（短 ID、耗时、JSON、预览文本）。
 - `public/console-ai-cards.js`：控制台 AI 卡片状态、服务端卡片合并和选中逻辑。

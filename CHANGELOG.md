@@ -20,6 +20,8 @@
 - 修复：MFA 静默降级、用户名大小写绕过、AI relay 未脱敏、附件下载缺少审计、`workers.python` 未生效、功能开关未执行、JSON Schema 原型链、metrics token 非 ASCII 长度、CORS null 来源。
 - 新增 Anthropic 流式 thinking：支持 `thinking` / `thinking_delta` 块和非流式 `content[].type=thinking`；正文开始后拒绝追加思考（`reasoning_after_text`）。
 - 环境检查新增「可选功能」：图片重编码、PDF 页图与历史索引三张能力卡，统一展示 Python/依赖/worker 状态、安装与卸载命令、PyPI/脚本地址，并支持一键安装/卸载和输出面板。
+- 可选依赖默认安装到项目 `.venv`，不再受 PEP 668 `externally-managed-environment` 阻断；缺少 `python3-venv` 时提示管理员确认后再走 `--break-system-packages` 系统安装。
+- 可选功能卡补充 Pillow、pypdfium2 的原项目地址；两个 worker `.py` 明确为本项目脚本，不冒充第三方项目。
 - 自动化测试 145 / 145 通过。
 
 ## 0.6.5 — 2026-11-11

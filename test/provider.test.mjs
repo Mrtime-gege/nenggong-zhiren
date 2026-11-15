@@ -387,7 +387,10 @@ test("environment page and capability probe are served to admins", async () => {
   assert.equal(typeof probe.features.pdfPagePreview, "boolean");
   assert.equal(typeof probe.runtime.sqlite, "boolean");
   assert.match(probe.install.image.pypi, /pypi\.org\/project\/Pillow/);
+  assert.match(probe.install.image.project, /github\.com\/python-pillow\/Pillow/);
+  assert.match(probe.install.pdf.project, /github\.com\/pypdfium2-team\/pypdfium2/);
   assert.match(probe.install.image.uninstallCommand, /pip uninstall -y Pillow/);
+  assert.match(probe.install.image.command, /\.venv/);
   assert.match(probe.install.pdf.pypi, /pypi\.org\/project\/pypdfium2/);
   assert.match(probe.install.workers.scripts, /github\.com\/Mrtime-gege\/nenggong-zhiren/);
   const badComponent = await op(adminSession, "/op/api/environment/install", {

@@ -71,30 +71,38 @@ Restart-Service iphlpsvc
 
 安装地址：
 
-- Pillow：<https://pypi.org/project/Pillow/>
-- pypdfium2：<https://pypi.org/project/pypdfium2/>
+- Pillow：PyPI <https://pypi.org/project/Pillow/> · 原项目 <https://github.com/python-pillow/Pillow>
+- pypdfium2：PyPI <https://pypi.org/project/pypdfium2/> · 原项目 <https://github.com/pypdfium2-team/pypdfium2>
 - worker 脚本：<https://github.com/Mrtime-gege/nenggong-zhiren/tree/main/scripts>
 
-页面上的「安装依赖」会以服务账号运行 `python -m pip install --user <包名>`；venv 不允许
-`--user` 时会回退到当前环境。systemd 的 `ProtectHome=true` 可能让 `--user` 安装结果不可读，
-此时建议：
+页面上的「安装依赖」优先在项目根目录创建或复用 `.venv`，然后用 `.venv/bin/pip` 安装；
+不会直接修改系统 Python。Kali/Debian 需要先安装 venv 模块：
 
 ```bash
-python3 -m venv /opt/nenggong-zhiren/.venv
-/opt/nenggong-zhiren/.venv/bin/pip install Pillow pypdfium2
+sudo apt install python3-venv
 ```
 
-然后把 `workers.python` 改成 `/opt/nenggong-zhiren/.venv/bin/python`，或在 unit 中设置
-`PATH`/`PYTHONPATH`。安装来源遵循本机 pip 配置；生产环境应使用可信索引或离线镜像。
+也可以手工执行：
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install Pillow pypdfium2
+```
+
+worker 会自动使用 `.venv/bin/python`，不需要修改 `workers.python`；该配置仍作为创建/修复
+venv 的基础解释器。安装来源遵循本机 pip 配置；生产环境应使用可信索引或离线镜像。
+
+如果宿主机无法创建 venv（例如缺少 `python3-venv`），页面会提示是否改用
+`--break-system-packages` 安装到系统 Python。这会修改系统环境，优先修复 venv，不建议在生产使用。
 
 需要移除可选能力时，可以在环境页点「卸载依赖」，或手工执行：
 
 ```bash
-python3 -m pip uninstall -y Pillow
-python3 -m pip uninstall -y pypdfium2
+.venv/bin/pip uninstall -y Pillow
+.venv/bin/pip uninstall -y pypdfium2
 ```
 
-卸载会影响使用同一 Python 环境的其他程序；生产环境优先用专用 venv，避免影响系统包。
+卸载会影响使用同一 Python 环境的其他程序；生产环境优先使用专用 venv，避免影响系统包。
 
 ```jsonc
 "workers": {
@@ -113,11 +121,11 @@ python3 -m pip uninstall -y pypdfium2
 需要 Python 3 与 Pillow：
 
 ```bash
-python3 -m pip install --user Pillow
-python3 -c "import PIL"
+.venv/bin/pip install Pillow
+.venv/bin/python -c "import PIL"
 ```
 
-PyPI：<https://pypi.org/project/Pillow/>
+PyPI：<https://pypi.org/project/Pillow/> · 原项目：<https://github.com/python-pillow/Pillow>
 
 缺少 worker、Python 或 Pillow 时，上传仍可用，但图片不会被重新编码，服务端会记录跳过原因。
 Python worker 脚本需从源码目录复制或配置外部路径；发布包不包含脚本，地址：
@@ -128,10 +136,10 @@ Python worker 脚本需从源码目录复制或配置外部路径；发布包不
 需要可选的 `pypdfium2`：
 
 ```bash
-python3 -m pip install --user pypdfium2
+.venv/bin/pip install pypdfium2
 ```
 
-PyPI：<https://pypi.org/project/pypdfium2/>
+PyPI：<https://pypi.org/project/pypdfium2/> · 原项目：<https://github.com/pypdfium2-team/pypdfium2>
 
 生产账号必须能执行配置的 `python3` 并导入该包。systemd 的 `ProtectHome=true` 可能阻止
 用户级 site-packages；此时建议创建专用 venv，并在 unit 中设置 `PATH`/`PYTHONPATH`，

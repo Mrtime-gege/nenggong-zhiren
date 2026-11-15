@@ -237,6 +237,17 @@ npm start             # 启动服务
 
 完整边界和处理建议见 [安全模型](docs/security.md)；漏洞报告方式见 [SECURITY.md](SECURITY.md)。
 
+## 可选外部依赖
+
+图片重编码和 PDF 页图会用到两个可选 Python 库；它们不随发布包提供，由管理员在「环境检查 → 可选功能」中按需安装到项目 `.venv`：
+
+| 依赖 | 用途 | 原项目 | PyPI |
+| --- | --- | --- | --- |
+| Pillow | 图片重编码、剥离 EXIF | <https://github.com/python-pillow/Pillow> | <https://pypi.org/project/Pillow/> |
+| pypdfium2 | PDF 页图渲染 | <https://github.com/pypdfium2-team/pypdfium2> | <https://pypi.org/project/pypdfium2/> |
+
+`scripts/normalize-image.py` 和 `scripts/render-pdf-page.py` 是本项目自己的 worker 脚本，分别导入上述两个库；脚本不随发布包提供，源码地址见 <https://github.com/Mrtime-gege/nenggong-zhiren/tree/main/scripts>。
+
 ## 发布
 
 最新版本：**0.6.6**。发布说明和下载见 [GitHub Releases](https://github.com/Mrtime-gege/nenggong-zhiren/releases)。

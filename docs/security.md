@@ -160,8 +160,9 @@
 - 两种操作都写入审计日志，记录操作者、动作、时间和 PID；
 - 「环境检查 → 可选功能」只允许管理员，必须带 `confirm: "INSTALL"`，固定只安装 `Pillow` 或 `pypdfium2`，不执行任意命令，并写 `environment.install` 审计；
 - 卸载接口 `POST /op/api/environment/uninstall` 同样只允许管理员，必须带 `confirm: "UNINSTALL"`，固定卸载上述两个包，并写 `environment.uninstall` 审计；
-- 安装会使用服务账号和本机 pip 配置访问包索引；生产环境应限制为可信索引/离线镜像，安装后按需重启服务使 worker 探测生效；
-- 卸载会影响同一 Python 环境的其他程序，生产环境应使用专用 venv，避免移除系统级依赖；
+- 默认在项目根目录创建/复用 `.venv`，用 `.venv/bin/pip` 安装，不直接修改系统 Python；系统缺少 `python3-venv` 时页面会提示，并由管理员再次确认后才可改用 `--break-system-packages`；
+- 安装会使用本机 pip 配置访问包索引；生产环境应限制为可信索引/离线镜像，安装后按需重启服务使 worker 探测生效；
+- 卸载优先作用于 `.venv`；无 venv 时可能回退到系统 Python，并提示影响范围；
 - 生产环境应配合 systemd/容器重启策略和权限隔离，页面按钮不能替代进程管理器。
 
 ## 请求检查与原始请求快照

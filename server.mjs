@@ -2786,7 +2786,7 @@ async function handleFileUploadInner(req, res, caller) {
     try {
       const normalized = await normalizeImageBuffer(content, {
         script: config.workers.imageWorker,
-        python: config.workers.python,
+        python: resolvedWorkerPython(),
         maxBytes: config.attachments.maxBytes,
       });
       const stem = filename.replace(/\.[^.]+$/, "") || "image";
@@ -3263,43 +3263,70 @@ function normalizeTicketPriority(value) {
   return priority;
 }
 
-const PIP_PACKAGES = Object.freeze({
-  pillow: "Pillow",
-  pypdfium2: "pypdfium2",
-});
-let environmentInstallPending = false;
+const WORKER_VENV_DIR = path.join(ROOT, ".venv");
+const VENV_BIN = process.platform === "win32" ? "Scripts" : "bin";
+const VENV_PYTHON = process.platform === "win32" ? "python.exe" : "python";
+const VENV_PIP = process.platform === "win32" ? "pip.exe" : "pip";
 
-function runPipInstall(python, packageName, { timeoutMs = 180_000 } = {}) {
+function workerVenvPython() {
+  const file = path.join(WORKER_VENV_DIR, VENV_BIN, VENV_PYTHON);
+  return existsSync(file) ? file : "";
+}
+
+function workerVenvPip() {
+  const file = path.join(WORKER_VENV_DIR, VENV_BIN, VENV_PIP);
+  return existsSync(file) ? file : "";
+}
+
+// Optional Python packages live in the project venv when it is ready; the
+// configured interpreter remains the base used to create/repair that venv.
+function resolvedWorkerPython() {
+  const venv = workerVenvPython();
+  return venv && workerVenvPip() ? venv : config.workers.python;
+}
+
+function workerRuntimeConfig() {
+  return { ...config.workers, python: resolvedWorkerPython() };
+}
+
+function runCommand(command, args, { timeoutMs = 180_000 } = {}) {
   return new Promise((resolve) => {
-    const args = ["-m", "pip", "install", "--user", "--disable-pip-version-check", packageName];
-    const child = spawn(python, args, {
+    const child = spawn(command, args, {
       env: { PATH: process.env.PATH || "/usr/bin:/bin", LANG: "C" },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGKILL");
-    }, timeoutMs);
+    const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, timeoutMs);
     timer.unref?.();
-    child.stdout.on("data", (chunk) => {
-      if (stdout.length < 64 * 1024) stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
-      if (stderr.length < 64 * 1024) stderr += chunk.toString();
-    });
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      resolve({ code: 1, stdout, stderr: `${stderr}${error.message}`, timedOut });
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ code: code ?? 1, stdout, stderr, timedOut });
-    });
+    child.stdout.on("data", (chunk) => { if (stdout.length < 64 * 1024) stdout += chunk.toString(); });
+    child.stderr.on("data", (chunk) => { if (stderr.length < 64 * 1024) stderr += chunk.toString(); });
+    child.on("error", (error) => { clearTimeout(timer); resolve({ code: 1, stdout, stderr: `${stderr}${error.message}`, timedOut }); });
+    child.on("close", (code) => { clearTimeout(timer); resolve({ code: code ?? 1, stdout, stderr, timedOut }); });
   });
 }
+
+async function ensureWorkerVenv() {
+  if (workerVenvPip()) return { ok: true, python: workerVenvPython(), stdout: "", stderr: "" };
+  const base = String(config.workers?.python || "python3").trim() || "python3";
+  const result = await runCommand(base, ["-m", "venv", "--clear", WORKER_VENV_DIR], { timeoutMs: 180_000 });
+  const ready = Boolean(workerVenvPip());
+  return {
+    ok: ready,
+    python: ready ? workerVenvPython() : base,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    timedOut: result.timedOut,
+    hint: ready ? "" : "创建 .venv 失败；需要 python3-venv（Kali/Debian: sudo apt install python3-venv）",
+  };
+}
+
+const PIP_PACKAGES = Object.freeze({
+  pillow: "Pillow",
+  pypdfium2: "pypdfium2",
+});
+let environmentInstallPending = false;
 
 function runPipInstallWithoutUser(python, packageName, { timeoutMs = 180_000 } = {}) {
   return new Promise((resolve) => {
@@ -3335,6 +3362,18 @@ function runPipUninstall(python, packageName, { timeoutMs = 120_000 } = {}) {
     child.on("error", (error) => { clearTimeout(timer); resolve({ code: 1, stdout, stderr: `${stderr}${error.message}`, timedOut }); });
     child.on("close", (code) => { clearTimeout(timer); resolve({ code: code ?? 1, stdout, stderr, timedOut }); });
   });
+}
+
+function runPipInstallSystem(python, packageName, options = {}) {
+  return runCommand(
+    python,
+    ["-m", "pip", "install", "--break-system-packages", "--disable-pip-version-check", packageName],
+    options,
+  );
+}
+
+function runPipUninstallSystem(python, packageName, options = {}) {
+  return runCommand(python, ["-m", "pip", "uninstall", "-y", "--break-system-packages", packageName], options);
 }
 
 function verifyAdminStepUp(session, req, password, { totp = "", requireMfa = false } = {}) {
@@ -3477,7 +3516,7 @@ async function handleOperator(req, res, url, session) {
       try {
         rendered = await renderPdfPageBuffer(attachments.readBlob(fileId).buffer, page, {
           script: config.workers.pdfWorker,
-          python: config.workers.python,
+          python: resolvedWorkerPython(),
         });
       } catch (error) {
         throw new ApiError(503, "PDF 页图预览不可用，请下载原文件或查看文字预览。", "server_error", "pdf_preview_unavailable");
@@ -4237,7 +4276,7 @@ async function handleOperator(req, res, url, session) {
 
   if (pathname === "/op/api/environment" && req.method === "GET") {
     requireAdmin(session);
-    return sendJson(res, 200, await probeEnvironment(config.workers));
+    return sendJson(res, 200, await probeEnvironment(workerRuntimeConfig()));
   }
 
   if (pathname === "/op/api/environment/install") {
@@ -4251,15 +4290,43 @@ async function handleOperator(req, res, url, session) {
     if (!packageName) {
       throw new ApiError(400, "component must be pillow or pypdfium2.", "invalid_request_error", "invalid_component");
     }
+    const mode = body.mode === "system" ? "system" : "venv";
     if (environmentInstallPending) {
-      throw new ApiError(409, "Another optional dependency install is already running.", "invalid_request_error", "install_pending");
+      throw new ApiError(409, "Another optional dependency operation is already running.", "invalid_request_error", "install_pending");
     }
     environmentInstallPending = true;
     try {
-      const python = String(config.workers?.python || "python3").trim() || "python3";
-      let result = await runPipInstall(python, packageName);
-      if (result.code !== 0 && /Can not perform a '--user' install|not supported/i.test(result.stderr)) {
-        // Inside a venv pip refuses --user; retry into the active environment.
+      const basePython = String(config.workers?.python || "python3").trim() || "python3";
+      let python = basePython;
+      let setup = null;
+      let result;
+      if (mode === "system") {
+        result = await runPipInstallSystem(basePython, packageName);
+      } else {
+        setup = await ensureWorkerVenv();
+        if (!setup.ok) {
+          audit.append({
+            actor: session.username,
+            action: "environment.install",
+            target: component,
+            ip: clientIp(req),
+            detail: "venv_failed",
+          });
+          const probe = await probeEnvironment(workerRuntimeConfig());
+          return sendJson(res, 200, {
+            ok: false,
+            stage: "venv",
+            component,
+            package: packageName,
+            mode,
+            exitCode: 1,
+            hint: setup.hint,
+            stdout: String(setup.stdout || "").slice(-8_000),
+            stderr: String(setup.stderr || "").slice(-8_000),
+            probe,
+          });
+        }
+        python = setup.python;
         result = await runPipInstallWithoutUser(python, packageName);
       }
       audit.append({
@@ -4267,15 +4334,19 @@ async function handleOperator(req, res, url, session) {
         action: "environment.install",
         target: component,
         ip: clientIp(req),
-        detail: `exit=${result.code}${result.timedOut ? " timeout" : ""}`,
+        detail: `${mode} exit=${result.code}${result.timedOut ? " timeout" : ""}`,
       });
-      const probe = await probeEnvironment(config.workers);
+      const probe = await probeEnvironment(workerRuntimeConfig());
       return sendJson(res, 200, {
         ok: result.code === 0,
+        stage: "install",
         component,
         package: packageName,
+        mode,
+        python,
         exitCode: result.code,
         timedOut: result.timedOut,
+        hint: result.code === 0 ? "" : "安装失败；可检查 pip 输出，或使用模式 system（--break-system-packages）。",
         stdout: String(result.stdout || "").slice(-8_000),
         stderr: String(result.stderr || "").slice(-8_000),
         probe,
@@ -4301,20 +4372,29 @@ async function handleOperator(req, res, url, session) {
     }
     environmentInstallPending = true;
     try {
-      const python = String(config.workers?.python || "python3").trim() || "python3";
-      const result = await runPipUninstall(python, packageName);
+      const basePython = String(config.workers?.python || "python3").trim() || "python3";
+      const python = resolvedWorkerPython();
+      let mode = workerVenvPip() ? "venv" : "system";
+      let result = await runPipUninstall(python, packageName);
+      if (result.code !== 0 && /externally-managed-environment/i.test(result.stderr)) {
+        result = await runPipUninstallSystem(python, packageName);
+        mode = "system";
+      }
       audit.append({
         actor: session.username,
         action: "environment.uninstall",
         target: component,
         ip: clientIp(req),
-        detail: `exit=${result.code}${result.timedOut ? " timeout" : ""}`,
+        detail: `${mode} exit=${result.code}${result.timedOut ? " timeout" : ""}`,
       });
-      const probe = await probeEnvironment(config.workers);
+      const probe = await probeEnvironment(workerRuntimeConfig());
       return sendJson(res, 200, {
         ok: result.code === 0,
+        stage: "uninstall",
         component,
         package: packageName,
+        mode,
+        python,
         exitCode: result.code,
         timedOut: result.timedOut,
         stdout: String(result.stdout || "").slice(-8_000),
