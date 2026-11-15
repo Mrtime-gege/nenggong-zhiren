@@ -1017,6 +1017,11 @@ function renderRequestParameters(ticket, d) {
   if (d.requestParamsSignature === signature) return;
   d.requestParamsSignature = signature;
   host.replaceChildren();
+  const warnings = Array.isArray(ticket.requestParameterWarnings) ? ticket.requestParameterWarnings : [];
+  if (warnings.length) {
+    const note = el("div", "request-params-warning", `${warnings.length} 个参数需要留意：${warnings.slice(0, 3).map((item) => item.path).join("、")}${warnings.length > 3 ? "…" : ""}`);
+    host.append(note);
+  }
   if (!rows.length) {
     host.append(el("div", "request-summary-hint", "这张票据没有参数快照；新请求会显示字段说明。"));
     return;
@@ -1119,6 +1124,7 @@ function updateDetail(ticket) {
 function renderTicketExtras(ticket, d) {
   const routing = d.els.routingPanel;
   if (!routing) return;
+  const canEditExtras = Boolean(state.role === "admin" || ticket.claimedBy === state.operator);
   const extrasSignature = JSON.stringify({
     tags: ticket.tags || [],
     priority: ticket.priority,
@@ -1132,6 +1138,12 @@ function renderTicketExtras(ticket, d) {
   if ((d.routingDirty || d.noteDirty) && d.extrasSignature !== undefined) return;
   d.extrasSignature = extrasSignature;
   routing.replaceChildren();
+  if (!canEditExtras) {
+    const readOnlyHead = el("div", "ticket-extra-head");
+    readOnlyHead.append(el("span", "", "路由"));
+    readOnlyHead.append(el("span", "ticket-extra-hint", "仅当前处理人或管理员可修改"));
+    routing.append(readOnlyHead, el("div", "inspector-empty", `标签 ${(ticket.tags || []).join(", ") || "无"} · 优先级 ${ticket.priority ?? 1}`));
+  } else {
   const routeHead = el("div", "ticket-extra-head");
   routeHead.append(el("span", "", "路由"));
   routeHead.append(el("span", "ticket-extra-hint", "标签 / 优先级"));
@@ -1180,6 +1192,7 @@ function renderTicketExtras(ticket, d) {
   });
   routeBody.append(tagLabel, priorityLabel, routeSave, routeError);
   routing.append(routeHead, routeBody);
+  }
 
   const notes = d.els.notesPanel;
   const previousNote = notes.querySelector(".internal-note-input");
@@ -1198,6 +1211,10 @@ function renderTicketExtras(ticket, d) {
     head.append(el("time", "", new Date(entry.createdAt || Date.now()).toLocaleString("zh-CN", { hour12: false })));
     item.append(head, el("div", "internal-note-text", entry.text || ""));
     noteList.append(item);
+  }
+  if (!canEditExtras) {
+    notes.append(noteHead, noteList, el("div", "inspector-empty", "仅当前处理人或管理员可添加备注。"));
+    return;
   }
   const noteInput = el("textarea", "internal-note-input");
   noteInput.rows = 2;
@@ -2270,7 +2287,11 @@ function renderMessageRow(ticket, message, index, isContext) {
     const strip = el("div", "attachments");
     for (const attachment of images) {
       const image = el("img", "attachment-thumb");
-      image.src = attachment.url;
+      // Remote images are fetched by the server proxy so operator browsers never
+      // issue requests to arbitrary caller-controlled hosts.
+      image.src = /^data:image\//i.test(attachment.url)
+        ? attachment.url
+        : `/op/api/image-proxy?ticket=${encodeURIComponent(ticket.id)}&url=${encodeURIComponent(attachment.url)}`;
       image.alt = "调用方附带的图片";
       image.loading = "lazy";
       image.referrerPolicy = "no-referrer";
@@ -3587,7 +3608,7 @@ function syncCommandbar() {
   els.cmdCancel.disabled =
     state.busy ||
     !active ||
-    !(mine || ticket.state === "queued" || (state.role === "admin"));
+    !(state.role === "admin" || (mine && ticket.state !== "queued"));
   els.cmdMore.disabled = state.busy;
   if (els.cmdMore.disabled) closeCommandMenu();
   updateShortcutLabels();
@@ -4191,7 +4212,9 @@ function commandPaletteActions() {
       add("当前票据", "快捷回复", "插入一条已保存的模板", openTemplateModal);
       add("当前票据", "正文并完成", "发送当前草稿并结束票据", () => doAction("finish"), "⌘↵");
       if (ticket.state === "claimed") add("当前票据", "转交票据", "把票据交给其他回复员", openTransfer);
-      if (isActive(ticket)) add("当前票据", "取消请求", "中止请求并通知调用方", () => doAction("cancel"));
+      if (isActive(ticket) && (state.role === "admin" || (ticket.claimedBy === state.operator && ticket.state !== "queued"))) {
+        add("当前票据", "取消请求", "中止请求并通知调用方", () => doAction("cancel"));
+      }
     }
     add("工作台", "下一张票据", "切换到队列中的下一张票据", nextTicket);
     add("工作台", "聚焦回复框", "把光标放到回复编辑器", focusDraft);

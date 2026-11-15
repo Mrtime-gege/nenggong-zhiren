@@ -325,6 +325,11 @@ export function loadConfig(file = CONFIG_FILE) {
         max: 1_000,
       }),
       loginUserMaxFailures: integerAt(auth, "loginUserMaxFailures", "auth.loginUserMaxFailures", {
+        fallback: 50,
+        min: 1,
+        max: 1_000,
+      }),
+      loginComboMaxFailures: integerAt(auth, "loginComboMaxFailures", "auth.loginComboMaxFailures", {
         fallback: 5,
         min: 1,
         max: 1_000,

@@ -2,10 +2,16 @@
 
 import { anthropicStopReason, anthropicToolBlocks, anthropicUsage } from "./anthropic.mjs";
 
+const MAX_ANTH_LOG_ENTRIES = 2_000;
+
 function writeEvent(ticket, type, payload) {
   const frame = `event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`;
   if (!ticket.anthLog) ticket.anthLog = [];
   ticket.anthLog.push(frame);
+  if (ticket.anthLog.length > MAX_ANTH_LOG_ENTRIES) {
+    ticket.anthLog.splice(0, ticket.anthLog.length - MAX_ANTH_LOG_ENTRIES);
+    ticket.anthLogTruncated = true;
+  }
   if (!ticket.res || ticket.res.writableEnded || ticket.res.destroyed) return false;
   try {
     return ticket.res.write(frame);

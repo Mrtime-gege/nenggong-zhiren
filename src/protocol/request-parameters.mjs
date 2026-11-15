@@ -236,6 +236,8 @@ function childRows(key, value, group) {
       normalizedField: "",
       normalizedValue: "",
       status: "nested",
+      diff: "nested",
+      warning: "",
     });
   };
   if (key === "messages" && Array.isArray(value) && value.length) {
@@ -259,6 +261,37 @@ function childRows(key, value, group) {
   return rows;
 }
 
+function diffFor(status, rawValue, normalizedValue, normalizedField) {
+  if (status === "unsupported") return "rejected";
+  if (status === "ignored" || status === "unknown") return status;
+  if (status === "nested") return "nested";
+  if (status === "derived") return "default";
+  if (!normalizedField) return "unchanged";
+  if (normalizedValue === undefined) return "dropped";
+  if (rawValue === normalizedValue) return "unchanged";
+  return "converted";
+}
+
+function warningFor(path, status) {
+  if (status === "ignored") return "该参数已接收，但当前人工回复流程不会使用。";
+  if (status === "unknown") return "当前协议适配器不认识该字段，只会保留在原始快照中。";
+  if (status === "unsupported") return "该参数不受支持，请求会在入库前被拒绝。";
+  return "";
+}
+
+export function summarizeParameterWarnings(rows) {
+  const warnings = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!row.warning) continue;
+    warnings.push({
+      path: row.path,
+      level: row.status === "unsupported" ? "error" : row.status === "unknown" ? "warn" : "info",
+      message: row.warning,
+    });
+  }
+  return warnings;
+}
+
 export function describeRequestParameters(protocol, rawBody, normalized = {}) {
   const raw = rawBody && typeof rawBody === "object" && !Array.isArray(rawBody) ? rawBody : {};
   const defs = FIELD_SETS[protocol] || FIELD_SETS.openai;
@@ -279,6 +312,8 @@ export function describeRequestParameters(protocol, rawBody, normalized = {}) {
         normalizedField: def.normalizedField || "",
         normalizedValue: def.normalizedField ? summarize(normalizedValue) : "",
         status: def.status || "supported",
+        diff: diffFor(def.status || "supported", summarize(value), def.normalizedField ? summarize(normalizedValue) : undefined, def.normalizedField),
+        warning: warningFor(key, def.status || "supported"),
       });
       rows.push(...childRows(key, value, def.group));
     } else {
@@ -292,6 +327,8 @@ export function describeRequestParameters(protocol, rawBody, normalized = {}) {
         normalizedField: "",
         normalizedValue: "",
         status: "unknown",
+        diff: "unknown",
+        warning: warningFor(key, "unknown"),
       });
     }
   }
@@ -309,8 +346,23 @@ export function describeRequestParameters(protocol, rawBody, normalized = {}) {
       normalizedField: field,
       normalizedValue: summarize(value),
       status: "derived",
+      diff: "default",
+      warning: "",
     });
   }
   return rows;
 }
 
+
+export function protocolFieldCatalog(protocol = "openai") {
+  const defs = FIELD_SETS[protocol] || FIELD_SETS.openai;
+  return Object.entries(defs).map(([key, def]) => ({
+    path: key,
+    group: def.group || "请求",
+    type: def.type,
+    meaning: def.meaning,
+    effect: def.effect,
+    status: def.status || "supported",
+    warning: warningFor(key, def.status || "supported"),
+  }));
+}

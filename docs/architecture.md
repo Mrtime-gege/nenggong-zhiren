@@ -1,6 +1,6 @@
 # 架构
 
-## 0.6.6 分层
+## 0.7.0 分层
 
 - **配置层**：`src/config.mjs` 只读取根目录 `config.jsonc`；不读取环境变量，也不接受运行参数。可选的 `workers` 段只声明 Python worker 路径。
 - **数据层**：`src/data/models.mjs` 维护运行时模型注册表；`src/data/api-keys.mjs` 管理调用密钥、配额和模型范围；`src/data/usage.mjs` 保存分钟/日/月用量和每日历史；`src/data/state.mjs` 保存完成请求和幂等快照；`src/data/settings.mjs` 保存设置页覆盖值；`src/data/audit.mjs` 追加审计事件；`src/auth.mjs` 负责账号、模型权限、会话、MFA 和登录限速；`src/totp.mjs` 提供 TOTP。
@@ -47,8 +47,10 @@
 - `public/console-queue.js`：控制台队列选择、统计和渲染。
 - `public/console-shortcuts.js`：快捷键定义、持久化和编辑面板。
 - `public/console-detail.js`：票据详情工作区构建；资料页展示请求关键字段并跳转到独立请求检查页。
-- `public/requests.html`、`public/admin-requests.js`：独立请求检查页，支持多条件筛选、原始/归一化对照、逐字段参数说明和同会话关联。
-- `src/protocol/request-parameters.mjs`：请求参数说明表；把原始字段映射到含义、处理方式、归一化字段和状态，供检查接口和票据详情复用。
+- `public/requests.html`、`public/admin-requests.js`：独立请求检查页，支持服务端筛选与分页、参数警告/diff、字段搜索、原始/归一化对照、报告导出、重放校验和兼容性矩阵。
+- `src/protocol/request-parameters.mjs`：请求参数说明表；把原始字段映射到含义、处理方式、归一化字段、状态和字段级 diff，供检查接口、报告导出和票据详情复用。
+- `src/net/safe-fetch.mjs`：外链图片安全代理；DNS 解析后拒绝私网地址，不跟随重定向，限制类型、大小和超时。
+- `src/runtime-state.mjs`：重启状态文件读写；记录请求时间、旧/新 PID 和健康检查结果。
 - `public/hub.html` + `navigation.js`：一级导航和概览/记录/管理 Hub；二级页面通过同源 iframe 复用。
 - `public/login.*`：双栏登录页；TOTP 输入过滤/进度、Caps Lock 提示、加载态、指针光晕和 `Ctrl/Cmd+Enter` 提交。
 - `public/settings.html`、`settings-operator.html`：设置页；快捷栏支持拖动手柄/方向键排序、新增项底部提示和恢复默认。
@@ -144,7 +146,8 @@ queued ──claim──► claimed ──chunk/finish──► streaming ──
 5. 浏览器控制台无 pageerror，静态 CSS/JS 返回 ETag，重复请求可 304；
 6. 会话右侧浮动滚动条不得覆盖消息操作按钮；上下文面板原生滚动条使用稳定 gutter；
 7. 可滚动会话的右侧缩略图保持显示，无可滚动内容时隐藏；
-8. 「记录 → 请求检查」可打开结构图、折叠 JSON、字段跳转，并能从票据自动筛选同会话；
+8. 「记录 → 请求检查」可打开结构图、折叠 JSON、字段跳转、参数说明，并能从票据自动筛选同会话；
+9. 重启由旧进程做健康探针：新进程 20 秒内未通过 `/healthz` 时写入失败状态并退出，状态可在系统信息中查看；
 9. 「设置 → 系统信息」的刷新、诊断复制和重启/结束服务按钮可用，生命周期操作有确认和审计。
 
 自动化命令：

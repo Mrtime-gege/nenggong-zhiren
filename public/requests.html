@@ -54,11 +54,15 @@
           <button id="requestRelatedClear" class="btn ghost hidden" type="button">清除关联筛选</button>
         </div>
       </form>
+      <details id="requestCompatibilityBox" class="request-compat">
+        <summary>协议兼容性报告 <span id="requestCompatibilityHint" class="admin-hint">查看字段支持矩阵</span></summary>
+        <div id="requestCompatibility" class="request-compat-body"></div>
+      </details>
 
       <div class="request-workspace">
         <section class="admin-card request-list-card">
           <div class="request-list-head">
-            <div class="admin-card-title">请求 <span id="requestCount" class="admin-hint">—</span></div>
+            <div class="admin-card-title">请求 <span id="requestCount" class="admin-hint">—</span><button id="requestLoadMore" class="btn ghost hidden" type="button">加载更多</button></div>
             <span class="admin-hint">显示活动票据和最近 200 条结束票据</span>
           </div>
           <div class="admin-table-wrap request-table-wrap">
@@ -79,16 +83,28 @@
           <div id="requestDetail" class="request-detail hidden">
             <div class="request-detail-head">
               <div><span class="status-kicker">SELECTED REQUEST</span><h2 id="requestDetailTitle">—</h2></div>
-              <button id="requestDetailClose" class="btn ghost" type="button">清除</button>
+              <div class="request-detail-actions">
+                <a id="requestExportJson" class="btn ghost" href="#" download>导出 JSON</a>
+                <a id="requestExportMarkdown" class="btn ghost" href="#" download>导出报告</a>
+                <button id="requestReplay" class="btn ghost" type="button">重放校验</button>
+                <button id="requestDetailClose" class="btn ghost" type="button">清除</button>
+              </div>
             </div>
             <div id="requestDetailMeta" class="request-meta"></div>
+            <div id="requestReplayResult" class="request-replay-result hidden"></div>
             <div class="request-related-line">
               <label class="request-related-toggle"><input id="requestRelatedOnly" type="checkbox" checked /> 自动筛选同会话相关请求</label>
               <span id="requestRelatedHint" class="admin-hint"></span>
             </div>
             <div id="requestPacket" class="request-packet" aria-label="请求结构图"></div>
             <details class="request-parameters-panel" open>
-              <summary><span>参数说明</span><span id="requestParameterCount" class="admin-hint">—</span></summary>
+              <summary>
+                <span>参数说明</span>
+                <span id="requestParameterCount" class="admin-hint">—</span>
+              </summary>
+              <div id="requestParameterWarnings" class="request-param-warnings"></div>
+              <label class="request-param-filter"><input id="requestParamOnlyIssues" type="checkbox" /> 只看异常（已转换 / 未使用 / 未识别 / 不支持）</label>
+              <input id="requestParamSearch" class="request-param-search" type="search" placeholder="按字段名或含义过滤…" autocomplete="off" />
               <div id="requestParameters" class="request-parameters"></div>
             </details>
             <div class="request-view-toolbar">

@@ -25,6 +25,7 @@ import { countTokens, capToTokens, applyStop, splitForStream } from "./src/text.
 import { PUBLIC_FILES } from "./src/http/public-assets.mjs";
 import { createPageService } from "./src/http/pages.mjs";
 import { resolveClientIp } from "./src/net.mjs";
+import { SafeFetchError, fetchRemoteImage, resolvePublicImageUrl } from "./src/net/safe-fetch.mjs";
 import { publicFeatureCatalog, userAllowsFeature } from "./src/features.mjs";
 import { ApiKeyError, ApiKeyStore, ModelError, ModelStore } from "./src/data/index.mjs";
 import { QuotaError, StateStore, UsageStore } from "./src/data/index.mjs";
@@ -44,7 +45,7 @@ import {
   normalizeRequest,
 } from "./src/protocol/index.mjs";
 import { anthropicMessageJson } from "./src/protocol/anthropic.mjs";
-import { describeRequestParameters } from "./src/protocol/request-parameters.mjs";
+import { describeRequestParameters, protocolFieldCatalog, summarizeParameterWarnings } from "./src/protocol/request-parameters.mjs";
 import {
   finishAnthropicStream,
   startAnthropicStream,
@@ -53,9 +54,12 @@ import {
 } from "./src/protocol/stream.mjs";
 import { validateJsonSchema, formatSchemaErrors } from "./src/schema.mjs";
 import { probeEnvironment } from "./src/environment.mjs";
+import { readRestartStatus, writeRestartStatus } from "./src/runtime-state.mjs";
 
 const PUBLIC_DIR = path.join(ROOT, "public");
-const VERSION = "0.6.6";
+const VERSION = "0.7.0";
+const MAX_TICKET_TEXT_CHARS = 1_000_000;
+const MAX_SSE_LOG_ENTRIES = 2_000;
 const PUBLIC_CONFIG = (() => {
   try {
     return loadConfig();
@@ -89,6 +93,7 @@ const config = Object.freeze({
   loginRateWindowMs: PUBLIC_CONFIG.auth.loginRateWindowMs,
   loginIpMaxFailures: PUBLIC_CONFIG.auth.loginIpMaxFailures,
   loginUserMaxFailures: PUBLIC_CONFIG.auth.loginUserMaxFailures,
+  loginComboMaxFailures: PUBLIC_CONFIG.auth.loginComboMaxFailures,
   cookieSecure: PUBLIC_CONFIG.server.cookieSecure === true,
   cookieSecureMode: PUBLIC_CONFIG.server.cookieSecure,
   tlsEnabled: PUBLIC_CONFIG.tls.enabled,
@@ -146,6 +151,7 @@ let aiActive = 0;
 const aiTicketLocks = new Set();
 const aiAutoLocks = new Set();
 let pdfRenderActive = 0;
+let imageProxyActive = 0;
 
 const audit = new AuditStore({
   file: config.auditFile,
@@ -224,7 +230,9 @@ const stats = {
   handledCount: 0,
   handledMs: 0,
   completionTokens: 0,
+  inspections: 0,
 };
+const paramStats = { tickets: 0, unknown: 0, ignored: 0, unsupported: 0, converted: 0, dropped: 0 };
 
 /* ------------------------------------------------------------------ */
 /* Small helpers                                                      */
@@ -259,6 +267,7 @@ const auth = new AuthService({
   loginRateWindowMs: config.loginRateWindowMs,
   loginIpMaxFailures: config.loginIpMaxFailures,
   loginUserMaxFailures: config.loginUserMaxFailures,
+  loginComboMaxFailures: config.loginComboMaxFailures,
   secureCookies: config.cookieSecure,
   logger: console,
 }).init();
@@ -486,11 +495,12 @@ function sendRaw(res, status, contentType, body, extraHeaders = {}) {
 }
 
 function sendSse(res, payload) {
-  if (!isResOpen(res)) return false;
+  if (!isResOpen(res)) return { ok: false, needDrain: false };
   try {
-    return res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    const accepted = res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    return { ok: true, needDrain: accepted === false };
   } catch {
-    return false;
+    return { ok: false, needDrain: false };
   }
 }
 
@@ -639,6 +649,7 @@ function persistRuntime({ flush = false } = {}) {
   }
 }
 
+const RESTART_STATUS_FILE = path.join(path.dirname(config.stateFile), "restart-status.json");
 const RECONNECT_GRACE_MS = Math.max(
   10_000,
   Number(process.env.NGZR_RECONNECT_GRACE_MS) || 2 * 60_000,
@@ -775,6 +786,7 @@ function replayTicket(ticket, res) {
     if (ticket.protocol === ANTHROPIC_PROTOCOL) {
       for (const frame of ticket.anthLog || []) res.write(frame);
     } else {
+      if (ticket.sseLogTruncated) res.write(": earlier stream frames were truncated from the replay log\n\n");
       for (const payload of ticket.sseLog || []) sendSse(res, payload);
       res.write("data: [DONE]\n\n");
     }
@@ -1446,6 +1458,11 @@ function appendText(ticket, raw) {
       ticket.forcedFinishReason = "length";
     }
   }
+  if (candidate.length > MAX_TICKET_TEXT_CHARS) {
+    candidate = candidate.slice(0, MAX_TICKET_TEXT_CHARS);
+    ticket.forcedFinishReason = "length";
+    ticket.textTruncated = true;
+  }
 
   ticket.text = candidate;
   return {
@@ -1472,6 +1489,10 @@ function chunkPayload(ticket, delta, finishReason = null) {
 
 function emitSse(ticket, payload) {
   ticket.sseLog.push(payload);
+  if (ticket.sseLog.length > MAX_SSE_LOG_ENTRIES) {
+    ticket.sseLog.splice(0, ticket.sseLog.length - MAX_SSE_LOG_ENTRIES);
+    ticket.sseLogTruncated = true;
+  }
   return sendSse(ticket.res, payload);
 }
 
@@ -1521,8 +1542,10 @@ function replayActiveStream(ticket) {
   res.writeHead(200, sseHeaders());
   res.flushHeaders?.();
   if (ticket.protocol === ANTHROPIC_PROTOCOL) {
+    if (ticket.anthLogTruncated) res.write(": earlier stream frames were truncated from the replay log\n\n");
     for (const frame of ticket.anthLog || []) res.write(frame);
   } else {
+    if (ticket.sseLogTruncated) res.write(": earlier stream frames were truncated from the replay log\n\n");
     for (const payload of ticket.sseLog || []) sendSse(res, payload);
   }
   armHeartbeat(ticket);
@@ -1700,6 +1723,13 @@ function writeStreamFinal(ticket, usage) {
   }
   if (ticket.refusal) writeRefusal(ticket);
   else if (ticket.reasoning && !ticket.refusal) writeReasoning(ticket);
+  // A slow consumer can leave the tail unflushed when finish is requested.
+  // Emit it here (Node buffers the writes) so the final chunk never cuts text.
+  if (!ticket.refusal && ticket.text.length > ticket.delivered) {
+    const rest = ticket.text.slice(ticket.delivered);
+    for (const part of splitForStream(rest)) emitSse(ticket, chunkPayload(ticket, { content: part }));
+    ticket.delivered = ticket.text.length;
+  }
   if (ticket.toolCalls.length) writeToolCallDeltas(ticket);
   emitSse(ticket, chunkPayload(ticket, {}, ticket.finishReason));
   if (ticket.includeUsage) {
@@ -1719,6 +1749,30 @@ function writeStreamFinal(ticket, usage) {
   }
 }
 
+function waitForDrain(res, timeoutMs = 30_000) {
+  if (!isResOpen(res) || !res.writableNeedDrain) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      res.off("drain", onDrain);
+      res.off("close", onClose);
+      res.off("error", onError);
+      resolve(value);
+    };
+    const onDrain = () => finish(true);
+    const onClose = () => finish(false);
+    const onError = () => finish(false);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    timer.unref?.();
+    res.on("drain", onDrain);
+    res.on("close", onClose);
+    res.on("error", onError);
+  });
+}
+
 async function flushPending(ticket, paced) {
   if (!ticket.stream || ticket.finished) return;
   if (ticket.clientGone && !ticket.detached && !ticket.restored) return;
@@ -1729,20 +1783,32 @@ async function flushPending(ticket, paced) {
   const to = ticket.text.length;
   const pending = ticket.text.slice(from, to);
   const parts = paced ? splitForStream(pending) : [pending];
+  let written = 0;
 
   for (const part of parts) {
     if (ticket.finished || (ticket.clientGone && !ticket.detached && !ticket.restored)) return;
+    let needDrain = false;
     if (ticket.protocol === ANTHROPIC_PROTOCOL) {
       appendAnthropicText(ticket, part);
-    } else if (!emitSse(ticket, chunkPayload(ticket, { content: part }))) {
-      return;
+      needDrain = Boolean(ticket.res?.writableNeedDrain);
+    } else {
+      const result = emitSse(ticket, chunkPayload(ticket, { content: part }));
+      if (!result.ok) return;
+      needDrain = result.needDrain;
+    }
+    // Advance only after the frame was accepted, so a blocked or closed socket
+    // never causes the same text to be replayed on the next flush.
+    written += part.length;
+    ticket.delivered = Math.max(ticket.delivered, from + written);
+    if (needDrain) {
+      const drained = await waitForDrain(ticket.res);
+      if (!drained) return;
     }
     if (paced && ticket.speedMs > 0) {
       const delay = Math.max(0, Math.round(ticket.speedMs * (0.6 + Math.random() * 0.8)));
       if (delay > 0) await sleep(delay);
     }
   }
-  ticket.delivered = Math.max(ticket.delivered, to);
 }
 
 function queueFlush(ticket, paced) {
@@ -1898,6 +1964,18 @@ function normalizedTicketRequest(ticket) {
 }
 
 const ticketParameterCache = new WeakMap();
+const inspectionAuditSeen = new Map();
+
+function auditInspectionView(actor, ticketId, req) {
+  const key = `${actor}|${ticketId}`;
+  const now = Date.now();
+  const last = inspectionAuditSeen.get(key) || 0;
+  if (now - last < 10 * 60_000) return;
+  if (inspectionAuditSeen.size > 2_000) inspectionAuditSeen.clear();
+  inspectionAuditSeen.set(key, now);
+  audit.append({ actor, action: "ticket.inspect", target: ticketId, ip: clientIp(req) });
+}
+
 
 function ticketRequestParameters(ticket) {
   const inspection = ticket.requestInspection;
@@ -1911,6 +1989,14 @@ function ticketRequestParameters(ticket) {
     rows = describeRequestParameters(ticket.protocol || OPENAI_PROTOCOL, JSON.parse(inspection.raw), normalizedTicketRequest(ticket));
   } catch {
     rows = [];
+  }
+  paramStats.tickets += 1;
+  for (const row of rows) {
+    if (row.status === "unknown") paramStats.unknown += 1;
+    if (row.status === "ignored") paramStats.ignored += 1;
+    if (row.status === "unsupported") paramStats.unsupported += 1;
+    if (row.diff === "converted") paramStats.converted += 1;
+    if (row.diff === "dropped") paramStats.dropped += 1;
   }
   ticketParameterCache.set(inspection, rows);
   return rows;
@@ -1957,6 +2043,7 @@ function publicTicket(ticket) {
     aiCards: Array.isArray(ticket.aiCards) ? ticket.aiCards : [],
     requestInspection: ticket.requestInspection || null,
     requestParameters: ticketRequestParameters(ticket),
+    requestParameterWarnings: summarizeParameterWarnings(ticketRequestParameters(ticket)),
     maxTokens: ticket.maxTokens,
     stops: ticket.stops,
     promptTokens: ticket.promptTokens,
@@ -2110,7 +2197,7 @@ function publicTicketSummary(ticket) {
     requestBytes: ticket.requestInspection?.raw?.length || 0,
     requestCaptured: Boolean(ticket.requestInspection),
     requestTruncated: ticket.requestInspection?.truncated === true,
-    searchText: ticketSearchText(ticket),
+    searchText: ticketSearchText(ticket).slice(0, 8_000),
   };
   ticket._summaryCache = { signature, value: summary };
   return summary;
@@ -2211,6 +2298,19 @@ function metricsText() {
     "# HELP ngzr_models_configured Number of models in the runtime registry.",
     "# TYPE ngzr_models_configured gauge",
     `ngzr_models_configured ${models.length}`,
+    "# HELP ngzr_request_inspections_total Dry-run inspections served.",
+    "# TYPE ngzr_request_inspections_total counter",
+    `ngzr_request_inspections_total ${stats.inspections}`,
+    "# HELP ngzr_request_params_scanned_total Tickets whose parameters were described.",
+    "# TYPE ngzr_request_params_scanned_total counter",
+    `ngzr_request_params_scanned_total ${paramStats.tickets}`,
+    "# HELP ngzr_request_param_flags Parameters by handling state.",
+    "# TYPE ngzr_request_param_flags counter",
+    `ngzr_request_param_flags{kind="unknown"} ${paramStats.unknown}`,
+    `ngzr_request_param_flags{kind="ignored"} ${paramStats.ignored}`,
+    `ngzr_request_param_flags{kind="unsupported"} ${paramStats.unsupported}`,
+    `ngzr_request_param_flags{kind="converted"} ${paramStats.converted}`,
+    `ngzr_request_param_flags{kind="dropped"} ${paramStats.dropped}`,
   ];
   return `${lines.join("\n")}\n`;
 }
@@ -2714,6 +2814,8 @@ async function handleInspectRequest(req, res, protocol) {
     );
   }
   const { rawBody: _rawBody, ...normalized } = request;
+  stats.inspections += 1;
+  const parameters = describeRequestParameters(protocol, body, normalized);
   return sendJson(res, 200, {
     ok: true,
     inspect: true,
@@ -2722,8 +2824,12 @@ async function handleInspectRequest(req, res, protocol) {
     endpoint: protocol === ANTHROPIC_PROTOCOL ? "/v1/messages" : "/v1/chat/completions",
     raw: body,
     rawChars: raw.length,
+    rawBytes: Buffer.byteLength(raw),
+    bodyLimitBytes: live.limits.bodyLimitBytes,
+    truncated: false,
     normalized,
-    parameters: describeRequestParameters(protocol, body, normalized),
+    parameters,
+    warnings: summarizeParameterWarnings(parameters),
     notes: [
       "dry-run：不会创建票据、消耗调用配额或触发人工回复。",
       "raw 是本次请求 JSON；normalized 是进入票据队列前的归一化结构。",
@@ -2965,6 +3071,55 @@ async function handleOperator(req, res, url, session) {
   const pathname = url.pathname;
   const body = ["POST", "PATCH"].includes(req.method) ? await readJson(req) : {};
   const operator = session.username;
+
+  if (pathname === "/op/api/image-proxy") {
+    if (req.method !== "GET") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    const ticketId = String(url.searchParams.get("ticket") || "").trim();
+    const rawUrl = String(url.searchParams.get("url") || "");
+    if (!ticketId || !rawUrl) {
+      throw new ApiError(400, "ticket and url are required.", "invalid_request_error", "missing_image_reference");
+    }
+    const imageTicket = requireTicket(ticketId);
+    if (!canSeeModel(session, imageTicket.model)) {
+      throw new ApiError(404, "Ticket not found.", "invalid_request_error", "ticket_not_found");
+    }
+    const listed = (imageTicket.attachments || []).some((item) => item.type !== "file" && item.url === rawUrl);
+    if (!listed) {
+      throw new ApiError(404, "Image is not referenced by this ticket.", "invalid_request_error", "image_not_referenced");
+    }
+    if (imageProxyActive >= 4) {
+      throw new ApiError(503, "图片代理当前繁忙，请稍后重试。", "server_error", "image_proxy_busy");
+    }
+    imageProxyActive += 1;
+    try {
+      const resolved = await resolvePublicImageUrl(rawUrl);
+      const image = await fetchRemoteImage(resolved, {
+        maxBytes: Math.min(config.attachments.maxBytes || 5 * 1024 * 1024, 5 * 1024 * 1024),
+      });
+      audit.append({
+        actor: session.username,
+        action: "attachment.proxy",
+        target: imageTicket.id,
+        detail: resolved.url.host,
+      });
+      res.writeHead(200, {
+        "Content-Type": image.mime,
+        "Content-Length": String(image.buffer.length),
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self' data:",
+        "Cache-Control": "private, max-age=60",
+      });
+      res.end(image.buffer);
+      return;
+    } catch (error) {
+      if (error instanceof SafeFetchError) {
+        throw new ApiError(error.status, error.message, "invalid_request_error", error.code);
+      }
+      throw error;
+    } finally {
+      imageProxyActive = Math.max(0, imageProxyActive - 1);
+    }
+  }
 
   const attachmentMatch = /^\/op\/api\/tickets\/([^/]+)\/attachments\/([^/]+)\/(meta|preview|raw|image|pdf-page)$/.exec(pathname);
   if (attachmentMatch) {
@@ -3339,6 +3494,7 @@ async function handleOperator(req, res, url, session) {
         queued: [...tickets.values()].filter((ticket) => ticket.state === "queued").length,
         active: [...tickets.values()].filter((ticket) => ["queued", "claimed", "streaming", "finishing"].includes(ticket.state)).length,
       },
+      restart: readRestartStatus(RESTART_STATUS_FILE),
     });
   }
 
@@ -3356,16 +3512,52 @@ async function handleOperator(req, res, url, session) {
       throw new ApiError(409, "A service lifecycle action is already pending.", "invalid_request_error", "action_pending");
     }
     serviceActionPending = true;
+    let childPid = null;
+    if (action === "restart") {
+      try {
+        const child = spawn(process.execPath, process.argv.slice(1), {
+          cwd: process.cwd(),
+          env: { ...process.env, NGZR_RESTART_DELAY_MS: "1500" },
+          detached: true,
+          stdio: "ignore",
+        });
+        childPid = child.pid || null;
+        child.unref();
+      } catch (error) {
+        serviceActionPending = false;
+        audit.append({
+          actor: session.username,
+          action: "system.restart",
+          target: "server",
+          ip: clientIp(req),
+          detail: `spawn_failed: ${error.message}`,
+        });
+        throw new ApiError(500, `无法启动新进程：${error.message}`, "server_error", "restart_spawn_failed");
+      }
+    }
     audit.append({
       actor: session.username,
       action: `system.${action}`,
       target: "server",
       ip: clientIp(req),
-      detail: `pid=${process.pid}`,
+      detail: `pid=${process.pid}${childPid ? ` child=${childPid}` : ""}`,
     });
-    const payload = { ok: true, action, pid: process.pid };
+    if (action === "restart") {
+      writeRestartStatus(RESTART_STATUS_FILE, {
+        requestedAt: new Date().toISOString(),
+        requestedBy: session.username,
+        oldPid: process.pid,
+        childPid,
+        port: config.port,
+        readyAt: null,
+        readyPid: null,
+        failedAt: null,
+        error: null,
+      });
+    }
+    const payload = { ok: true, action, pid: process.pid, ...(childPid ? { childPid } : {}) };
     sendJson(res, 200, payload);
-    log(`[system] ${action} requested by ${session.username} pid=${process.pid}`);
+    log(`[system] ${action} requested by ${session.username} pid=${process.pid}${childPid ? ` child=${childPid}` : ""}`);
     setTimeout(() => {
       log(`[system] executing ${action}`);
       if (action === "restart") restartRuntime();
@@ -3789,12 +3981,56 @@ async function handleOperator(req, res, url, session) {
       stats: revisionStats,
     });
     const etag = `"t-${createHash("sha256").update(revision).digest("hex").slice(0, 24)}"`;
-    if (String(req.headers["if-none-match"] || "") === etag) {
+    if (url.searchParams.get("mode") !== "search" && String(req.headers["if-none-match"] || "") === etag) {
       res.writeHead(304, { ETag: etag, "Cache-Control": "no-store" });
       res.end();
       return;
     }
     const serialize = compact ? publicTicketSummary : publicTicket;
+    const searchMode = url.searchParams.get("mode") === "search";
+    if (searchMode) {
+      const q = String(url.searchParams.get("q") || "").trim().toLowerCase();
+      const protocol = String(url.searchParams.get("protocol") || "");
+      const state = String(url.searchParams.get("state") || "");
+      const model = String(url.searchParams.get("model") || "");
+      const caller = String(url.searchParams.get("caller") || "").trim().toLowerCase();
+      const operatorName = String(url.searchParams.get("operator") || "").trim().toLowerCase();
+      const session = String(url.searchParams.get("session") || "").trim();
+      const stream = String(url.searchParams.get("stream") || "");
+      const tools = String(url.searchParams.get("tools") || "");
+      const images = String(url.searchParams.get("images") || "");
+      const capture = String(url.searchParams.get("capture") || "");
+      const from = Number(url.searchParams.get("from") || 0) || 0;
+      const to = Number(url.searchParams.get("to") || 0) || 0;
+      const filtered = all.filter((ticket) => {
+        if (protocol && ticket.protocol !== protocol) return false;
+        if (state && ticket.state !== state) return false;
+        if (model && ticket.model !== model) return false;
+        if (caller && !String(ticket.callerLabel || "").toLowerCase().includes(caller)) return false;
+        if (operatorName && !String(ticket.claimedBy || "").toLowerCase().includes(operatorName)) return false;
+        if (session && ticket.sessionId !== session) return false;
+        if (stream && (ticket.stream === true) !== (stream === "1")) return false;
+        if (tools && ((ticket.tools || []).length > 0) !== (tools === "1")) return false;
+        if (images && (ticket.attachments || []).some((item) => item.type !== "file") !== (images === "1")) return false;
+        if (capture && Boolean(ticket.requestInspection) !== (capture === "1")) return false;
+        const at = ticket.finishedAt || ticket.created || 0;
+        if (from && at < from) return false;
+        if (to && at > to) return false;
+        if (q && !ticketSearchText(ticket).includes(q)) return false;
+        return true;
+      }).sort((a, b) => (b.finishedAt || b.created) - (a.finishedAt || a.created));
+      const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
+      const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit")) || 50));
+      const page = filtered.slice(offset, offset + limit).map(serialize);
+      return sendJsonBody(res, 200, JSON.stringify({
+        ok: true,
+        tickets: page,
+        total: filtered.length,
+        offset,
+        limit,
+        stats,
+      }));
+    }
     const active = all
       .filter((ticket) => activeStates.has(ticket.state))
       .sort((a, b) => a.created - b.created)
@@ -4001,6 +4237,168 @@ async function handleOperator(req, res, url, session) {
     }
   }
 
+  const replayMatch = /^\/op\/api\/tickets\/([^/]+)\/replay$/.exec(pathname);
+  if (replayMatch) {
+    if (req.method !== "POST") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    const replayTicket = requireTicket(decodePathParam(replayMatch[1]));
+    if (!canSeeModel(session, replayTicket.model)) {
+      throw new ApiError(404, "Ticket not found.", "invalid_request_error", "ticket_not_found");
+    }
+    if (!replayTicket.requestInspection?.raw) {
+      throw new ApiError(409, "This ticket has no raw request snapshot.", "invalid_request_error", "replay_unavailable");
+    }
+    let replayBody;
+    try {
+      replayBody = JSON.parse(replayTicket.requestInspection.raw);
+    } catch {
+      throw new ApiError(409, "The stored request snapshot is not valid JSON.", "invalid_request_error", "replay_invalid_snapshot");
+    }
+    let replayRequest;
+    try {
+      replayRequest = normalizeRequest(replayTicket.protocol || OPENAI_PROTOCOL, replayBody, { models: MODELS });
+    } catch (error) {
+      if (error instanceof ProtocolError) {
+        throw new ApiError(error.status || 400, error.message, "invalid_request_error", error.code, error.param);
+      }
+      throw error;
+    }
+    const normalized = {
+      protocol: replayTicket.protocol || OPENAI_PROTOCOL,
+      model: replayRequest.model,
+      messages: replayRequest.messages,
+      attachments: replayRequest.attachments,
+      tools: replayRequest.tools,
+      toolChoice: replayRequest.toolChoice,
+      parallelToolCalls: replayRequest.parallelToolCalls,
+      responseFormat: replayRequest.responseFormat,
+      maxTokens: replayRequest.maxTokens,
+      stops: replayRequest.stops,
+      stream: replayRequest.stream,
+      includeUsage: replayRequest.includeUsage,
+      clientUser: replayRequest.clientUser,
+      effort: replayRequest.effort,
+    };
+    const parameters = describeRequestParameters(replayTicket.protocol || OPENAI_PROTOCOL, replayBody, normalized);
+    audit.append({ actor: operator, action: "ticket.replay", target: replayTicket.id, ip: clientIp(req) });
+    return sendJson(res, 200, {
+      ok: true,
+      replay: true,
+      ticket: replayTicket.id,
+      protocol: normalized.protocol,
+      model: normalized.model,
+      parameters,
+      warnings: summarizeParameterWarnings(parameters),
+      normalized: {
+        messages: normalized.messages.length,
+        tools: normalized.tools.length,
+        attachments: normalized.attachments.length,
+        maxTokens: normalized.maxTokens ?? null,
+        stream: normalized.stream,
+      },
+    });
+  }
+
+  if (pathname === "/op/api/compatibility" && req.method === "GET") {
+    return sendJson(res, 200, {
+      ok: true,
+      version: VERSION,
+      protocols: [OPENAI_PROTOCOL, ANTHROPIC_PROTOCOL].map((protocol) => {
+        const fields = protocolFieldCatalog(protocol);
+        return {
+          protocol,
+          fields,
+          counts: {
+            supported: fields.filter((field) => field.status === "supported").length,
+            ignored: fields.filter((field) => field.status === "ignored").length,
+            unsupported: fields.filter((field) => field.status === "unsupported").length,
+          },
+        };
+      }),
+    });
+  }
+
+  const reportMatch = /^\/op\/api\/tickets\/([^/]+)\/report$/.exec(pathname);
+  if (reportMatch) {
+    if (req.method !== "GET") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    const reportTicket = requireTicket(decodePathParam(reportMatch[1]));
+    if (!canSeeModel(session, reportTicket.model)) {
+      throw new ApiError(404, "Ticket not found.", "invalid_request_error", "ticket_not_found");
+    }
+    const format = String(url.searchParams.get("format") || "json").toLowerCase();
+    if (!["json", "md"].includes(format)) {
+      throw new ApiError(400, "format must be json or md.", "invalid_request_error", "invalid_report_format");
+    }
+    const parameters = ticketRequestParameters(reportTicket);
+    const warnings = summarizeParameterWarnings(parameters);
+    let rawBody = null;
+    try {
+      rawBody = reportTicket.requestInspection?.raw ? JSON.parse(reportTicket.requestInspection.raw) : null;
+    } catch {
+      rawBody = null;
+    }
+    const report = {
+      generatedAt: new Date().toISOString(),
+      ticket: {
+        id: reportTicket.id,
+        protocol: reportTicket.protocol || OPENAI_PROTOCOL,
+        model: reportTicket.model,
+        state: reportTicket.state,
+        createdAt: reportTicket.created,
+        claimedAt: reportTicket.claimedAt,
+        finishedAt: reportTicket.finishedAt,
+        caller: reportTicket.callerLabel,
+        sessionId: reportTicket.sessionId || null,
+        finishReason: reportTicket.finishReason || null,
+      },
+      request: {
+        raw: rawBody,
+        rawTruncated: reportTicket.requestInspection?.truncated === true,
+        normalized: normalizedTicketRequest(reportTicket),
+      },
+      parameters,
+      warnings,
+      notes: reportTicket.notes || [],
+    };
+    audit.append({ actor: session.username, action: "ticket.report", target: reportTicket.id, detail: format });
+    if (format === "json") {
+      return sendJson(res, 200, report, {
+        "Content-Disposition": `attachment; filename="ngzr-request-${reportTicket.id}.json"`,
+      });
+    }
+    const lines = [
+      `# 请求检查报告 · ${reportTicket.id}`,
+      "",
+      `- 生成时间：${report.generatedAt}`,
+      `- 协议：${report.ticket.protocol}`,
+      `- 模型：${report.ticket.model}`,
+      `- 状态：${report.ticket.state}`,
+      `- 调用方：${report.ticket.caller || "—"}`,
+      `- 创建时间：${new Date(reportTicket.created).toISOString()}`,
+      `- 原始快照：${report.request.rawTruncated ? "已截断" : "完整"}`,
+      "",
+      "## 参数说明",
+      "",
+      "| 字段 | 状态 | 差异 | 含义 | 处理方式 |",
+      "| --- | --- | --- | --- | --- |",
+      ...parameters.map((row) => `| ${row.path} | ${row.status} | ${row.diff || ""} | ${String(row.meaning || "").replaceAll("|", "\\|")} | ${String(row.effect || "").replaceAll("|", "\\|")} |`),
+      "",
+    ];
+    if (warnings.length) {
+      lines.push("## 警告", "", ...warnings.map((item) => `- **${item.path}**（${item.level}）：${item.message}`), "");
+    }
+    lines.push("## 原始请求", "", "```json", JSON.stringify(rawBody, null, 2) ?? "null", "```", "");
+    lines.push("## 归一化请求", "", "```json", JSON.stringify(report.request.normalized, null, 2), "```", "");
+    const body = `${lines.join("\n")}\n`;
+    res.writeHead(200, {
+      "Content-Type": "text/markdown; charset=utf-8",
+      "Content-Length": Buffer.byteLength(body),
+      "Content-Disposition": `attachment; filename="ngzr-request-${reportTicket.id}.md"`,
+      "Cache-Control": "no-store",
+    });
+    res.end(body);
+    return;
+  }
+
   const notesMatch = /^\/op\/api\/tickets\/([^/]+)\/notes$/.exec(pathname);
   if (notesMatch) {
     const noteTicket = requireTicket(decodePathParam(notesMatch[1]));
@@ -4013,6 +4411,9 @@ async function handleOperator(req, res, url, session) {
     }
     if (req.method !== "POST") {
       throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    }
+    if (noteTicket.claimedBy !== operator && session.role !== "admin") {
+      throw new ApiError(403, "Only the claimant or an administrator can add notes.", "invalid_request_error", "not_ticket_owner");
     }
     const text = String(body.text || "").trim();
     if (!text) throw new ApiError(400, "Note text is required.", "invalid_request_error", "invalid_note");
@@ -4041,6 +4442,9 @@ async function handleOperator(req, res, url, session) {
     const metaTicket = requireTicket(decodePathParam(metaMatch[1]));
     if (!canSeeModel(session, metaTicket.model)) {
       throw new ApiError(404, "Ticket not found.", "invalid_request_error", "ticket_not_found");
+    }
+    if (metaTicket.claimedBy !== operator && session.role !== "admin") {
+      throw new ApiError(403, "Only the claimant or an administrator can change ticket metadata.", "invalid_request_error", "not_ticket_owner");
     }
     const tags = normalizeTicketTags(body.tags);
     const priority = normalizeTicketPriority(body.priority);
@@ -4072,6 +4476,7 @@ async function handleOperator(req, res, url, session) {
   }
 
   if (!action && req.method === "GET") {
+    if (ticket.requestInspection) auditInspectionView(operator, ticket.id, req);
     return sendJson(res, 200, { ok: true, ticket: publicTicket(ticket) });
   }
 
@@ -4429,13 +4834,23 @@ async function handleOperator(req, res, url, session) {
   }
 
   if (action === "cancel") {
-    if (ticket.state !== "queued" && ticket.claimedBy !== operator && session.role !== "admin") {
+    // Unclaimed tickets have no owner, so only an administrator may abort them;
+    // otherwise any operator could cancel other callers' queued work.
+    if (ticket.state === "queued" ? session.role !== "admin" : ticket.claimedBy !== operator && session.role !== "admin") {
       throw new ApiError(403, "Only the claimant or an administrator can cancel this ticket.", "invalid_request_error", "not_ticket_owner");
     }
     if (ticket.finished) {
       return sendJson(res, 200, { ok: true, state: ticket.state, alreadyFinished: true });
     }
-    log(`[cancel] ${ticket.id} operator=${operator}`);
+    const cancelReason = String(body.reason || "").trim().slice(0, 300);
+    audit.append({
+      actor: operator,
+      action: "ticket.cancel",
+      target: ticket.id,
+      ip: clientIp(req),
+      detail: cancelReason ? `queued=${ticket.state === "queued"} reason=${cancelReason}` : `queued=${ticket.state === "queued"}`,
+    });
+    log(`[cancel] ${ticket.id} operator=${operator}${cancelReason ? ` reason=${cancelReason}` : ""}`);
     finalizeError(
       ticket,
       500,
@@ -4961,6 +5376,10 @@ function startListening() {
   }
   const configuredKeys = apiKeys.list();
   log(`能工智人 (nenggong-zhiren) v${VERSION} listening on ${config.host}:${address.port}`);
+  const previousRestart = readRestartStatus(RESTART_STATUS_FILE);
+  if (previousRestart?.requestedAt && !previousRestart.readyAt) {
+    writeRestartStatus(RESTART_STATUS_FILE, { readyAt: new Date().toISOString(), readyPid: process.pid, failedAt: null, error: null });
+  }
   log(`  login       ${base}/login`);
   log(`  console     ${base}/console`);
   for (const url of lanUrls) log(`  LAN         ${url}/login`);
@@ -4995,20 +5414,56 @@ function stopRuntime() {
   setTimeout(() => process.exit(0), 3_000).unref();
 }
 
+function probeHealthOnce(port, timeoutMs = 1000) {
+  return new Promise((resolve) => {
+    const request = http.get({
+      host: "127.0.0.1",
+      port,
+      path: "/healthz",
+      timeout: timeoutMs,
+    }, (response) => {
+      response.resume();
+      resolve(response.statusCode === 200);
+    });
+    request.on("timeout", () => { request.destroy(); resolve(false); });
+    request.on("error", () => resolve(false));
+  });
+}
+
+async function waitForHealth(port, deadlineMs) {
+  const deadline = Date.now() + deadlineMs;
+  while (Date.now() < deadline) {
+    if (await probeHealthOnce(port)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 300).unref?.());
+  }
+  return false;
+}
+
 function restartRuntime() {
   log(`[system] restartRuntime pid=${process.pid}`);
   closeRuntimeStores();
-  // The replacement waits for the old listener to release the port. Spawning a
-  // second process that binds immediately would race with EADDRINUSE.
-  const child = spawn(process.execPath, process.argv.slice(1), {
-    cwd: process.cwd(),
-    env: { ...process.env, NGZR_RESTART_DELAY_MS: "1500" },
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
   try { server.close(); } catch { /* already closed */ }
-  setTimeout(() => process.exit(0), 300);
+  // The replacement was spawned before the HTTP response with a 1.5s bind
+  // delay. Keep this process alive as a watchdog so a failed start is recorded
+  // instead of silently losing the service.
+  const watchdog = async () => {
+    const ready = await waitForHealth(config.port, 20_000);
+    if (ready) {
+      writeRestartStatus(RESTART_STATUS_FILE, { readyAt: new Date().toISOString(), readyPid: null, failedAt: null, error: null });
+      log("[system] restart healthy");
+      process.exit(0);
+    }
+    writeRestartStatus(RESTART_STATUS_FILE, {
+      failedAt: new Date().toISOString(),
+      error: "health check timed out after restart",
+    });
+    log("[system] restart health check failed");
+    process.exit(1);
+  };
+  watchdog().catch((error) => {
+    log(`[system] restart watchdog error: ${error.message}`);
+    process.exit(1);
+  });
 }
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

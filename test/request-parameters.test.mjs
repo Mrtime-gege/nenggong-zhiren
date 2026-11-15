@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { describeRequestParameters } from "../src/protocol/request-parameters.mjs";
+import { describeRequestParameters, summarizeParameterWarnings } from "../src/protocol/request-parameters.mjs";
 
 test("OpenAI request parameters include meanings, nested fields and unknown fields", () => {
   const rows = describeRequestParameters("openai", {
@@ -35,6 +35,10 @@ test("OpenAI request parameters include meanings, nested fields and unknown fiel
   assert.equal(byPath.get("future_parameter").status, "unknown");
   assert.ok(rows.some((row) => row.path === "normalized.toolChoice" && row.status === "derived"));
   assert.equal(byPath.get("max_tokens").normalizedField, "maxTokens");
+  assert.equal(byPath.get("future_parameter").diff, "unknown");
+  assert.ok(byPath.get("future_parameter").warning);
+  const warnings = summarizeParameterWarnings(rows);
+  assert.ok(warnings.some((item) => item.path === "future_parameter" && item.level === "warn"));
 });
 
 test("Anthropic request parameters map system and metadata fields", () => {

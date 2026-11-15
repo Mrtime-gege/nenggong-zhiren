@@ -190,7 +190,8 @@ export class AuthService {
     sessionIdleMs = 2 * 60 * 60_000,
     loginRateWindowMs = 5 * 60_000,
     loginIpMaxFailures = 10,
-    loginUserMaxFailures = 5,
+    loginUserMaxFailures = 50,
+    loginComboMaxFailures = 5,
     secureCookies = false,
     cookieName = "ngzr_session",
     logger = console,
@@ -205,6 +206,7 @@ export class AuthService {
     this.loginRateWindowMs = loginRateWindowMs;
     this.loginIpMaxFailures = loginIpMaxFailures;
     this.loginUserMaxFailures = loginUserMaxFailures;
+    this.loginComboMaxFailures = loginComboMaxFailures;
     this.secureCookies = secureCookies;
     this.cookieName = cookieName;
     this.logger = logger;
@@ -574,17 +576,24 @@ export class AuthService {
 
   loginAllowed(ip, username) {
     const now = this.now();
-    const ipEntry = this.loginFailures.get(`ip:${ip}`);
-    const userEntry = this.loginFailures.get(`user:${normalizeUsernameSafe(username)}`);
-    const prune = (entry, windowMs) =>
-      entry ? entry.failures.filter((at) => now - at < windowMs) : [];
-    const ipFailures = prune(ipEntry, this.loginRateWindowMs);
-    const userFailures = prune(userEntry, this.loginRateWindowMs);
+    const normalized = normalizeUsernameSafe(username);
+    const prune = (entry) =>
+      entry ? entry.failures.filter((at) => now - at < this.loginRateWindowMs) : [];
+    const ipFailures = prune(this.loginFailures.get(`ip:${ip}`));
+    const comboFailures = prune(this.loginFailures.get(`combo:${ip}|${normalized}`));
+    const userFailures = prune(this.loginFailures.get(`user:${normalized}`));
+    // Admin accounts are exempt from the username-wide lock so an attacker from
+    // one address cannot lock the only administrator out. The per-address and
+    // per-address+username limits still apply.
+    const adminAccount = this.users.get(normalized)?.role === "admin";
     let retryAfterMs = 0;
     if (ipFailures.length >= this.loginIpMaxFailures) {
       retryAfterMs = Math.max(retryAfterMs, this.loginRateWindowMs - (now - ipFailures[0]));
     }
-    if (userFailures.length >= this.loginUserMaxFailures) {
+    if (comboFailures.length >= this.loginComboMaxFailures) {
+      retryAfterMs = Math.max(retryAfterMs, this.loginRateWindowMs - (now - comboFailures[0]));
+    }
+    if (!adminAccount && userFailures.length >= this.loginUserMaxFailures) {
       retryAfterMs = Math.max(retryAfterMs, this.loginRateWindowMs - (now - userFailures[0]));
     }
     return { allowed: retryAfterMs <= 0, retryAfterMs: Math.max(0, retryAfterMs) };
@@ -592,19 +601,19 @@ export class AuthService {
 
   recordLoginFailure(ip, username) {
     const now = this.now();
-    for (const [key, windowMs] of [
-      [`ip:${ip}`, this.loginRateWindowMs],
-      [`user:${normalizeUsernameSafe(username)}`, this.loginRateWindowMs],
-    ]) {
+    const normalized = normalizeUsernameSafe(username);
+    for (const key of [`ip:${ip}`, `combo:${ip}|${normalized}`, `user:${normalized}`]) {
       const entry = this.loginFailures.get(key) || { failures: [] };
-      entry.failures = entry.failures.filter((at) => now - at < windowMs);
+      entry.failures = entry.failures.filter((at) => now - at < this.loginRateWindowMs);
       entry.failures.push(now);
       this.loginFailures.set(key, entry);
     }
   }
 
   clearLoginFailures(ip, username) {
-    this.loginFailures.delete(`user:${normalizeUsernameSafe(username)}`);
+    const normalized = normalizeUsernameSafe(username);
+    this.loginFailures.delete(`user:${normalized}`);
+    this.loginFailures.delete(`combo:${ip}|${normalized}`);
     const ipEntry = this.loginFailures.get(`ip:${ip}`);
     if (ipEntry) {
       ipEntry.failures = ipEntry.failures.slice(-Math.floor(this.loginIpMaxFailures / 2));

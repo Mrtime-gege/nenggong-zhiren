@@ -4,6 +4,10 @@ const $ = (id) => document.getElementById(id);
 let me = null;
 let csrf = "";
 let tickets = [];
+let totalTickets = 0;
+let pageOffset = 0;
+let hasMore = false;
+let serverFiltered = false;
 let selectedId = null;
 let selectedTicket = null;
 let selectedView = "raw";
@@ -306,8 +310,11 @@ function matches(ticket, f) {
 }
 
 function visibleTickets() {
-  const filters = readFilters();
-  return tickets.filter((ticket) => matches(ticket, filters));
+  if (!serverFiltered) {
+    const filters = readFilters();
+    return tickets.filter((ticket) => matches(ticket, filters));
+  }
+  return tickets;
 }
 
 function relatedTickets(ticket) {
@@ -318,7 +325,7 @@ function relatedTickets(ticket) {
 function renderRows() {
   const body = $("requestRows");
   const rows = visibleTickets();
-  $("requestCount").textContent = `${rows.length} / ${tickets.length} 条`;
+  $("requestCount").textContent = `${rows.length} / ${serverFiltered ? totalTickets : tickets.length} 条`;
   // Auto-refresh runs every few seconds; avoid rebuilding an unchanged table.
   const rowSignature = JSON.stringify([
     selectedId,
@@ -422,6 +429,9 @@ function renderDetail(ticket) {
   $("requestDetailEmpty").classList.add("hidden");
   $("requestDetail").classList.remove("hidden");
   $("requestDetailTitle").textContent = `${protocolLabel(ticket.protocol)} · ${ticket.id}`;
+  const exportBase = `/op/api/tickets/${encodeURIComponent(ticket.id)}/report`;
+  if ($("requestExportJson")) $("requestExportJson").href = `${exportBase}?format=json`;
+  if ($("requestExportMarkdown")) $("requestExportMarkdown").href = `${exportBase}?format=md`;
   const meta = $("requestDetailMeta");
   meta.replaceChildren();
   const pairs = [
@@ -454,19 +464,70 @@ const PARAM_STATUS = {
   nested: ["嵌套字段", "param-nested"],
 };
 
+const PARAM_DIFF = {
+  unchanged: ["原样", "diff-unchanged"],
+  converted: ["已转换", "diff-converted"],
+  dropped: ["已丢弃", "diff-dropped"],
+  truncated: ["已截断", "diff-truncated"],
+  default: ["默认值", "diff-default"],
+  ignored: ["未使用", "diff-ignored"],
+  unknown: ["未识别", "diff-unknown"],
+  rejected: ["不支持", "diff-rejected"],
+  nested: ["嵌套", "diff-nested"],
+};
+
+function renderParameterWarnings(ticket, rows) {
+  const host = $("requestParameterWarnings");
+  if (!host) return;
+  host.replaceChildren();
+  const warnings = Array.isArray(ticket.requestParameterWarnings) ? ticket.requestParameterWarnings : [];
+  if (!warnings.length) return;
+  const head = el("div", "request-param-warning-head");
+  const errorCount = warnings.filter((item) => item.level === "error").length;
+  head.append(el("span", "", errorCount ? `有 ${errorCount} 个参数会导致请求被拒绝` : `${warnings.length} 个参数需要留意`));
+  const jump = el("select", "request-param-warning-jump");
+  jump.append(new Option("跳到参数…", ""));
+  for (const warning of warnings) jump.append(new Option(warning.path, warning.path));
+  jump.addEventListener("change", () => {
+    if (!jump.value) return;
+    const row = host.parentElement?.querySelector(`[data-param-path="${jump.value}"]`);
+    row?.scrollIntoView({ block: "nearest" });
+    row?.classList.add("param-flash");
+    setTimeout(() => row?.classList.remove("param-flash"), 1200);
+  });
+  head.append(jump);
+  host.append(head);
+  for (const warning of warnings) {
+    const chip = el("span", `request-param-warning ${warning.level}`, `${warning.path}：${warning.message}`);
+    host.append(chip);
+  }
+}
+
 function renderParameters(ticket) {
   const host = $("requestParameters");
   const count = $("requestParameterCount");
   if (!host) return;
   const rows = Array.isArray(ticket.requestParameters) ? ticket.requestParameters : [];
   if (count) count.textContent = `${rows.length} 项`;
+  renderParameterWarnings(ticket, rows);
   host.replaceChildren();
   if (!rows.length) {
     host.append(el("div", "request-param-empty", "这张票据没有可用的参数快照；新请求会显示完整参数说明。"));
     return;
   }
+  const onlyIssues = Boolean($("requestParamOnlyIssues")?.checked);
+  const query = String($("requestParamSearch")?.value || "").trim().toLowerCase();
+  const visible = rows.filter((row) => {
+    if (onlyIssues && !["converted", "dropped", "ignored", "unknown", "rejected"].includes(row.diff)) return false;
+    if (query && !`${row.path} ${row.meaning} ${row.effect}`.toLowerCase().includes(query)) return false;
+    return true;
+  });
+  if (!visible.length) {
+    host.append(el("div", "request-param-empty", "没有匹配当前筛选的参数。"));
+    return;
+  }
   const groups = new Map();
-  for (const row of rows) {
+  for (const row of visible) {
     const group = row.group || "请求";
     if (!groups.has(group)) groups.set(group, []);
     groups.get(group).push(row);
@@ -476,6 +537,7 @@ function renderParameters(ticket) {
     section.append(el("div", "request-param-group-title", group));
     for (const row of items) {
       const node = el("article", "request-param-row");
+      node.dataset.paramPath = row.path || "";
       const head = el("div", "request-param-head");
       const path = el("code", "request-param-path", row.path || row.normalizedField || "—");
       path.title = "点击定位到对应 JSON 字段";
@@ -485,6 +547,10 @@ function renderParameters(ticket) {
       });
       const status = PARAM_STATUS[row.status] || PARAM_STATUS.nested;
       head.append(path, el("span", `request-param-status ${status[1]}`, status[0]));
+      const diff = PARAM_DIFF[row.diff];
+      if (diff && !["unchanged", "nested"].includes(row.diff)) {
+        head.append(el("span", `request-param-diff ${diff[1]}`, diff[0]));
+      }
       node.append(head);
       const meta = el("div", "request-param-meta");
       if (row.type) meta.append(el("span", "request-param-tag", row.type));
@@ -498,6 +564,86 @@ function renderParameters(ticket) {
     host.append(section);
   }
 }
+
+
+async function replaySelectedTicket() {
+  const ticket = selectedTicket;
+  const host = $("requestReplayResult");
+  if (!ticket || !host) return;
+  host.classList.remove("hidden", "ok", "error");
+  host.textContent = "正在按当前协议重新校验…";
+  $("requestReplay")?.setAttribute("disabled", "disabled");
+  try {
+    const data = await api(`/op/api/tickets/${encodeURIComponent(ticket.id)}/replay`, { method: "POST", body: {} });
+    const ignored = (data.parameters || []).filter((row) => row.status === "ignored").length;
+    const unknown = (data.parameters || []).filter((row) => row.status === "unknown").length;
+    host.classList.add("ok");
+    host.textContent = `重放通过：${data.protocol} · ${data.normalized.messages} 条消息 · ${data.normalized.tools} 个工具 · ${data.parameters.length} 个参数（${ignored} 个未使用，${unknown} 个未识别）`;
+  } catch (error) {
+    host.classList.add("error");
+    const param = error.status ? `（HTTP ${error.status}）` : "";
+    host.textContent = `重放失败${param}：${error.message}`;
+  } finally {
+    $("requestReplay")?.removeAttribute("disabled");
+  }
+}
+
+let compatibilityLoaded = false;
+
+async function loadCompatibility() {
+  if (compatibilityLoaded) return;
+  const host = $("requestCompatibility");
+  if (!host) return;
+  host.textContent = "正在加载兼容性矩阵…";
+  try {
+    const data = await api("/op/api/compatibility");
+    host.replaceChildren();
+    for (const protocol of data.protocols || []) {
+      const section = el("section", "request-compat-protocol");
+      const title = el("div", "request-compat-title");
+      title.append(
+        el("strong", "", protocol.protocol === "anthropic-messages" ? "Anthropic Messages" : "OpenAI Chat"),
+        el("span", "admin-hint", `支持 ${protocol.counts.supported} · 未使用 ${protocol.counts.ignored} · 不支持 ${protocol.counts.unsupported}`),
+      );
+      section.append(title);
+      const table = el("table", "admin-table request-compat-table");
+      const head = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      for (const label of ["字段", "状态", "含义"]) headRow.append(el("th", "", label));
+      head.append(headRow);
+      const body = document.createElement("tbody");
+      for (const field of protocol.fields) {
+        const row = document.createElement("tr");
+        row.append(el("td", "", field.path));
+        const status = PARAM_STATUS[field.status] || PARAM_STATUS.nested;
+        const cell = document.createElement("td");
+        cell.append(el("span", `request-param-status ${status[1]}`, status[0]));
+        row.append(cell, el("td", "", field.meaning || ""));
+        body.append(row);
+      }
+      table.append(head, body);
+      section.append(table);
+      host.append(section);
+    }
+    const hint = $("requestCompatibilityHint");
+    if (hint) hint.textContent = `版本 ${data.version}`;
+    compatibilityLoaded = true;
+  } catch (error) {
+    host.textContent = `兼容性报告加载失败：${error.message}`;
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const onlyIssues = $("requestParamOnlyIssues");
+  if (onlyIssues) {
+    onlyIssues.addEventListener("change", () => {
+      if (selectedTicket) renderParameters(selectedTicket);
+    });
+    $("requestParamSearch")?.addEventListener("input", () => {
+      if (selectedTicket) renderParameters(selectedTicket);
+    });
+  }
+});
 
 function renderPayload() {
   const ticket = selectedTicket;
@@ -517,8 +663,9 @@ function renderPayload() {
   $("requestRawView").classList.toggle("active", selectedView === "raw");
   $("requestNormalizedView").classList.toggle("active", selectedView === "normalized");
   $("requestRawView").disabled = !hasRaw;
+  const rawBytes = inspection?.raw ? new Blob([inspection.raw]).size : 0;
   $("requestViewHint").textContent = selectedView === "raw"
-    ? (inspection?.truncated ? "原始请求超过捕获上限，已截断。" : "收到请求时的原始 JSON。展开字段或使用左侧字段列表跳转。")
+    ? (inspection?.truncated ? `原始请求超过捕获上限（${rawBytes} 字节），已截断。` : `收到请求时的原始 JSON（${rawBytes} 字节）。展开字段或使用左侧字段列表跳转。`)
     : "进入票据队列前的归一化结构；不包含原始字段别名和未知字段。";
   if (fallback) {
     $("requestPacket").replaceChildren();
@@ -533,16 +680,55 @@ function renderPayload() {
   renderJsonTree(data);
 }
 
-async function loadTickets() {
-  const data = await api("/op/api/tickets?compact=1&limit=200");
-  tickets = data.tickets || [];
+function buildSearchQuery(filters, offset) {
+  const params = new URLSearchParams({ compact: "1", mode: "search", limit: "50", offset: String(offset) });
+  for (const [key, value] of Object.entries({
+    q: filters.q,
+    protocol: filters.protocol,
+    state: filters.state,
+    model: filters.model,
+    caller: filters.caller,
+    operator: filters.operator,
+    session: filters.session,
+    stream: filters.stream,
+    tools: filters.tools,
+    images: filters.images,
+    capture: filters.capture,
+    from: filters.from ? String(filters.from) : "",
+    to: filters.to ? String(filters.to) : "",
+  })) {
+    if (value !== "" && value !== 0) params.set(key, String(value));
+  }
+  return params;
+}
+
+async function loadTickets({ append = false } = {}) {
+  const filters = readFilters();
+  const useSearch = filtersActive() || relatedOnly;
+  const data = useSearch
+    ? await api(`/op/api/tickets?${buildSearchQuery(filters, append ? pageOffset : 0)}`)
+    : await api("/op/api/tickets?compact=1&limit=200");
+  const incoming = data.tickets || [];
+  if (append && useSearch) {
+    const seen = new Set(tickets.map((ticket) => ticket.id));
+    tickets = [...tickets, ...incoming.filter((ticket) => !seen.has(ticket.id))];
+  } else {
+    tickets = incoming;
+  }
+  serverFiltered = useSearch;
+  totalTickets = useSearch ? Number(data.total) || 0 : tickets.length;
+  pageOffset = useSearch ? (Number(data.offset) || 0) + incoming.length : tickets.length;
+  hasMore = useSearch && pageOffset < totalTickets;
+  $("requestLoadMore")?.classList.toggle("hidden", !hasMore);
   modelOptions();
   renderRows();
   if (selectedId && !tickets.some((ticket) => ticket.id === selectedId)) {
     selectedId = null;
     showDetailEmpty();
   }
-  $("requestSummary").textContent = `最近 ${tickets.length} 条 · ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`;
+  $("requestSummary").textContent = useSearch
+    ? `筛选 ${totalTickets} 条 · 已加载 ${tickets.length} 条 · ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`
+    : `最近 ${tickets.length} 条 · ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`;
 }
 
 function resetFilters() {
@@ -550,7 +736,7 @@ function resetFilters() {
   for (const id of ["requestProtocol", "requestState", "requestModel", "requestStream", "requestTools", "requestImages", "requestCapture"]) $(id).value = "";
   relatedOnly = false;
   $("requestRelatedClear").classList.add("hidden");
-  renderRows();
+  loadTickets().catch((error) => { $("status").textContent = error.message; });
 }
 
 async function init() {
@@ -576,8 +762,19 @@ async function init() {
       renderRows();
     }
     if (initialTicket) selectTicket(initialTicket);
-    $("requestFilters").addEventListener("submit", (event) => { event.preventDefault(); relatedOnly = false; $("requestRelatedClear").classList.add("hidden"); renderRows(); });
-    $("requestFilters").addEventListener("change", () => { if (relatedOnly && $("requestSession").value !== selectedTicket?.sessionId) relatedOnly = false; renderRows(); });
+    $("requestFilters").addEventListener("submit", (event) => {
+      event.preventDefault();
+      relatedOnly = false;
+      $("requestRelatedClear").classList.add("hidden");
+      loadTickets().catch((error) => { $("status").textContent = error.message; });
+    });
+    $("requestFilters").addEventListener("change", () => {
+      if (relatedOnly && $("requestSession").value !== selectedTicket?.sessionId) relatedOnly = false;
+      renderRows();
+    });
+    $("requestLoadMore")?.addEventListener("click", () => {
+      loadTickets({ append: true }).catch((error) => { $("status").textContent = error.message; });
+    });
     $("requestReset").addEventListener("click", resetFilters);
     $("requestRefresh").addEventListener("click", () => loadTickets().catch((error) => { $("status").textContent = error.message; }));
     $("requestRelatedClear").addEventListener("click", () => {
@@ -596,6 +793,11 @@ async function init() {
     $("requestExpandAll").addEventListener("click", () => setTopLevelOpen(true));
     $("requestCollapseAll").addEventListener("click", () => setTopLevelOpen(false));
     $("requestDetailClose").addEventListener("click", () => { selectedId = null; showDetailEmpty(); renderRows(); });
+    $("requestReplay").addEventListener("click", () => { replaySelectedTicket(); });
+    $("requestReplayResult").classList.add("hidden");
+    $("requestCompatibilityBox").addEventListener("toggle", () => {
+      if ($("requestCompatibilityBox").open) loadCompatibility();
+    });
     const refresh = () => {
       clearTimeout(refreshTimer);
       if (!$("requestAutoRefresh").checked) return;

@@ -100,6 +100,15 @@ test("standalone request inspector supports composite filters and related sessio
   assert.match(html, /id="requestPacket"/);
   assert.match(html, /id="requestParameters"/);
   assert.match(script, /renderParameters/);
+  assert.match(html, /id="requestParamOnlyIssues"/);
+  assert.match(html, /id="requestParamSearch"/);
+  assert.match(html, /id="requestCompatibilityBox"/);
+  assert.match(html, /id="requestReplay"/);
+  assert.match(html, /id="requestExportMarkdown"/);
+  assert.match(script, /loadCompatibility/);
+  assert.match(script, /replaySelectedTicket/);
+  assert.match(script, /mode: "search"/);
+  assert.match(script, /requestLoadMore/);
   const assets = fs.readFileSync(path.join(ROOT, "src/http/public-assets.mjs"), "utf8");
   assert.match(assets, /"\/requests\.html"/);
   assert.match(assets, /"\/admin-requests\.js"/);

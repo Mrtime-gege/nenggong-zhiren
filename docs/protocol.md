@@ -324,8 +324,25 @@ POST /v1/inspect/anthropic
 | `rawValue` | 调用方原始值的短摘要，不展开完整正文 |
 | `normalizedField` / `normalizedValue` | 对应的归一化字段和值 |
 | `status` | `supported` / `ignored` / `unsupported` / `unknown` / `derived` / `nested` |
+| `diff` | `unchanged` / `converted` / `dropped` / `default` / `ignored` / `unknown` / `rejected` / `nested` |
+| `warning` | 需要提醒调用方的说明，例如“该参数会被忽略” |
 
-票据详情接口 `/op/api/tickets/{id}` 也会返回同样的 `requestParameters`，用于工作台「资料」页的内联说明。
+同时返回 `warnings`，按 `path` / `level`（`info`、`warn`、`error`）/ `message` 汇总异常参数。
+票据详情接口 `/op/api/tickets/{id}` 会返回同样的 `requestParameters` 和 `requestParameterWarnings`，
+用于工作台「资料」页的内联说明。请求检查页支持按字段名/含义过滤，并可只看异常参数。
+
+### 报告导出与重放
+
+```text
+GET  /op/api/tickets/{id}/report?format=json|md
+POST /op/api/tickets/{id}/replay
+GET  /op/api/compatibility
+```
+
+- `report` 返回单请求复盘材料：票据元数据、原始请求、归一化结构、参数说明、警告和内部备注；
+- `replay` 用当前协议适配器重新校验票据保存的原始请求，不创建票据、不消耗配额；
+  被拒绝时沿用标准错误结构并带 `param`，方便定位字段；
+- `compatibility` 返回 OpenAI / Anthropic 的字段支持矩阵和计数，供检查页展示。
 
 - 不进入票据队列，不消耗调用配额，不触发人工回复；
 - 不持久化请求；

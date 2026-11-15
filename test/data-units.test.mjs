@@ -12,6 +12,7 @@ import { SettingsError, SettingsStore } from "../src/data/settings.mjs";
 import { ModelError, ModelStore } from "../src/data/models.mjs";
 import { AuditStore } from "../src/data/audit.mjs";
 import { stripJsonc, parseJsonc, loadConfig, ConfigError } from "../src/config.mjs";
+import { readRestartStatus, writeRestartStatus } from "../src/runtime-state.mjs";
 
 const tmp = () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ngzr-unit-"));
@@ -261,4 +262,23 @@ test("JSONC parser handles comments, trailing commas and string literals", () =>
   assert.equal(parsed.n, 1);
   assert.equal(stripJsonc('{"x":"// not comment"}').includes("not comment"), true);
   assert.throws(() => parseJsonc('{ "x": }'), /JSON/);
+});
+
+test("restart status file merges patches atomically", () => {
+  const dir = tmp();
+  const file = dir.file("restart-status.json");
+  try {
+    assert.equal(readRestartStatus(file), null);
+    writeRestartStatus(file, { requestedAt: "2026-01-01T00:00:00.000Z", oldPid: 1, childPid: 2 });
+    writeRestartStatus(file, { readyAt: "2026-01-01T00:00:02.000Z", readyPid: 3 });
+    const status = readRestartStatus(file);
+    assert.equal(status.oldPid, 1);
+    assert.equal(status.childPid, 2);
+    assert.equal(status.readyPid, 3);
+    writeRestartStatus(file, { failedAt: "2026-01-01T00:00:05.000Z", error: "timeout" });
+    assert.equal(readRestartStatus(file).readyAt, "2026-01-01T00:00:02.000Z");
+    assert.equal(readRestartStatus(file).error, "timeout");
+  } finally {
+    dir.cleanup();
+  }
 });

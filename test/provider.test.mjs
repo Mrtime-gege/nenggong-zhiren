@@ -9,6 +9,9 @@ import test, { after, before } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
+import { readRestartStatus } from "../src/runtime-state.mjs";
+import { totp } from "../src/totp.mjs";
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = 19000 + Math.floor(Math.random() * 700);
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -169,8 +172,9 @@ after(() => {
   }
 });
 
-function login(username, password, { origin = BASE, next = "/console" } = {}) {
+function login(username, password, { origin = BASE, next = "/console", totp: totpCode = "" } = {}) {
   const form = new URLSearchParams({ username, password, next });
+  if (totpCode) form.set("totp", totpCode);
   return fetch(`${BASE}/auth/login`, {
     method: "POST",
     redirect: "manual",
@@ -881,6 +885,127 @@ test("Idempotency-Key replays completed requests, joins active ones and rejects 
   assert.equal((await a.json()).id, (await b.json()).id);
 });
 
+test("slow SSE consumer does not receive duplicated text", async () => {
+  const tag = marker("SLOWSTREAM");
+  const body = JSON.stringify({
+    model: "human-1",
+    stream: true,
+    messages: [{ role: "user", content: tag }],
+  });
+  // Headers are only sent when the operator starts streaming, so wait for the
+  // response after claiming instead of before.
+  let response;
+  const responsePromise = new Promise((resolve, reject) => {
+    const request = http.request(`${BASE}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${CALLER_KEY}`,
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(body),
+      },
+    }, (incoming) => {
+      incoming.pause();
+      response = incoming;
+      resolve(incoming);
+    });
+    request.on("error", reject);
+    request.end(body);
+  });
+  const ticket = await waitForTicket((item) => item.messages.some((message) => message.content.includes(tag)));
+  await claim(adminSession, ticket.id);
+  await responsePromise;
+  assert.equal(response.statusCode, 200);
+  const chunkText = "x".repeat(4000);
+  const chunks = 30;
+  for (let index = 0; index < chunks; index += 1) {
+    const result = await op(adminSession, `/op/api/tickets/${ticket.id}/chunk`, {
+      method: "POST",
+      body: { text: chunkText },
+    });
+    assert.equal(result.status, 200);
+  }
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  let raw = "";
+  response.setEncoding("utf8");
+  response.on("data", (piece) => { raw += piece; });
+  const finished = new Promise((resolve) => response.on("end", resolve));
+  response.resume();
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  const tail = "TAIL";
+  const finish = await op(adminSession, `/op/api/tickets/${ticket.id}/finish`, {
+    method: "POST",
+    body: { text: tail, finishReason: "stop" },
+  });
+  assert.equal(finish.status, 200, await finish.text());
+  await finished;
+  let content = "";
+  for (const line of raw.split("\n")) {
+    if (!line.startsWith("data: ")) continue;
+    const payload = line.slice(6);
+    if (payload === "[DONE]") continue;
+    const frame = JSON.parse(payload);
+    content += frame.choices?.[0]?.delta?.content || "";
+  }
+  assert.equal(content, `${chunkText.repeat(chunks)}${tail}`);
+});
+
+test("request search filters and paginates on the server", async () => {
+  const prefix = marker("SEARCHPAGE");
+  const created = [];
+  for (let index = 0; index < 3; index += 1) {
+    const tag = `${prefix}-${index}`;
+    const pending = startChat({ model: "human-1", messages: [{ role: "user", content: tag }] });
+    const ticket = await waitForTicket((item) => item.messages.some((message) => message.content.includes(tag)));
+    await claim(adminSession, ticket.id);
+    await finishJson(adminSession, ticket.id, { text: `reply ${index}`, finishReason: "stop" });
+    assert.equal((await pending).status, 200);
+    created.push(ticket.id);
+  }
+  const first = await opJson(adminSession, `/op/api/tickets?compact=1&mode=search&q=${encodeURIComponent(prefix)}&limit=2&offset=0`);
+  assert.equal(first.total, 3);
+  assert.equal(first.tickets.length, 2);
+  assert.equal(first.offset, 0);
+  const second = await opJson(adminSession, `/op/api/tickets?compact=1&mode=search&q=${encodeURIComponent(prefix)}&limit=2&offset=2`);
+  assert.equal(second.tickets.length, 1);
+  assert.notEqual(second.tickets[0].id, first.tickets[0].id);
+  const captured = await opJson(adminSession, `/op/api/tickets?compact=1&mode=search&q=${encodeURIComponent(prefix)}&capture=1`);
+  assert.ok(captured.total >= 3);
+  const missing = await opJson(adminSession, `/op/api/tickets?compact=1&mode=search&q=${encodeURIComponent(`${prefix}-missing`)}`);
+  assert.equal(missing.total, 0);
+  assert.deepEqual(missing.tickets, []);
+});
+
+test("remote image proxy blocks private hosts and unreferenced URLs", async () => {
+  const tag = marker("IMGPROXY");
+  const pending = startChat({
+    model: "human-1",
+    messages: [{
+      role: "user",
+      content: [
+        { type: "text", text: tag },
+        { type: "image_url", image_url: { url: `http://127.0.0.1:${PORT}/login` } },
+      ],
+    }],
+  });
+  const ticket = await waitForTicket((item) => item.messages.some((message) => message.content.includes(tag)));
+  const privateHost = await op(
+    adminSession,
+    `/op/api/image-proxy?ticket=${ticket.id}&url=${encodeURIComponent(`http://127.0.0.1:${PORT}/login`)}`,
+  );
+  assert.equal(privateHost.status, 403);
+  assert.equal((await privateHost.json()).error.code, "private_image_host");
+  const unreferenced = await op(
+    adminSession,
+    `/op/api/image-proxy?ticket=${ticket.id}&url=${encodeURIComponent("https://example.com/other.png")}`,
+  );
+  assert.equal(unreferenced.status, 404);
+  const missing = await op(adminSession, "/op/api/image-proxy");
+  assert.equal(missing.status, 400);
+  await claim(adminSession, ticket.id);
+  await finishJson(adminSession, ticket.id, { text: "image proxy ok", finishReason: "stop" });
+  assert.equal((await pending).status, 200);
+});
+
 test("image input becomes an operator attachment", async () => {
   const tag = marker("image");
   const pending = startChat({
@@ -1133,6 +1258,30 @@ test("MFA setup requires a password and cannot silently disable MFA", async () =
   assert.ok(secret.secret);
   const clean = await op(adminSession, "/op/api/mfa/disable", { method: "POST", body: { password: ADMIN_PASSWORD } });
   assert.equal(clean.status, 200);
+});
+
+test("MFA enable, login enforcement and setup staging", async () => {
+  const setup = await op(adminSession, "/op/api/mfa/setup", { method: "POST", body: { password: ADMIN_PASSWORD } });
+  assert.equal(setup.status, 200);
+  const secret = (await setup.json()).secret;
+  const enabled = await op(adminSession, "/op/api/mfa/enable", { method: "POST", body: { code: totp(secret) } });
+  assert.equal(enabled.status, 200);
+  try {
+    assert.equal((await login(ADMIN, ADMIN_PASSWORD)).status, 401);
+    const withTotp = await login(ADMIN, ADMIN_PASSWORD, { totp: totp(secret) });
+    assert.equal(withTotp.status, 303);
+    // Re-running setup must not disable the active secret.
+    const restage = await op(adminSession, "/op/api/mfa/setup", { method: "POST", body: { password: ADMIN_PASSWORD } });
+    assert.equal(restage.status, 200);
+    assert.equal((await login(ADMIN, ADMIN_PASSWORD)).status, 401);
+    assert.equal((await login(ADMIN, ADMIN_PASSWORD, { totp: totp(secret) })).status, 303);
+  } finally {
+    const disabled = await op(adminSession, "/op/api/mfa/disable", { method: "POST", body: { password: ADMIN_PASSWORD } });
+    assert.equal(disabled.status, 200);
+  }
+  assert.equal((await login(ADMIN, ADMIN_PASSWORD)).status, 303);
+  // New logins can evict the oldest concurrent session; refresh the shared one.
+  adminSession = await session(ADMIN, ADMIN_PASSWORD);
 });
 
 test("managed models constrain API keys and can be deleted safely", async () => {
@@ -1405,7 +1554,7 @@ test("admin settings, usage, audit and status APIs", async () => {
   const audit = await opJson(adminSession, "/op/api/audit");
   assert.ok(audit.events.some((event) => event.action === "settings.update"));
   const status = await opJson(adminSession, "/op/api/status");
-  assert.equal(status.version, "0.6.6");
+  assert.equal(status.version, "0.7.0");
   assert.ok(status.storage.users.exists);
   assert.ok(Array.isArray(status.audit));
 });
@@ -1921,7 +2070,9 @@ test("metrics, global history search and archive CSV are available", async () =>
   const text = await metrics.text();
   assert.match(text, /ngzr_up 1/);
   assert.match(text, /ngzr_tickets_state\{state="queued"\}/);
-  assert.match(text, /ngzr_build_info\{version="0\.6\.6"\}/);
+  assert.match(text, /ngzr_build_info\{version="0\.7\.0"\}/);
+  assert.match(text, /ngzr_request_inspections_total \d+/);
+  assert.match(text, /ngzr_request_param_flags\{kind="unknown"\} \d+/);
 
   const history = await opJson(adminSession, `/op/api/history?q=${encodeURIComponent(tag)}`);
   assert.equal(history.total, 1);
@@ -2916,10 +3067,68 @@ test("system info is exposed to admins and lifecycle actions require confirmatio
   assert.ok(info.runtime.uptimeSec >= 0);
   assert.ok(info.runtime.rssBytes > 0);
   assert.ok("tickets" in info.runtime);
+  assert.ok("restart" in info);
   const invalid = await op(adminSession, "/op/api/system/restart", { method: "POST", body: { confirm: "NO" } });
   assert.equal(invalid.status, 400);
   const forbidden = await op(aliceSession, "/op/api/system");
   assert.equal(forbidden.status, 403);
+});
+
+test("restart records readiness through a health check", async () => {
+  const data = mkdtempSync(path.join(os.tmpdir(), "ngzr-restart-"));
+  const project = path.join(data, "project");
+  const port = PORT + 5;
+  const users = path.join(data, "users.json");
+  const keys = path.join(data, "api-keys.json");
+  const password = "restart-password-123";
+  copyProject(project);
+  writeConfig(project, { port, usersFile: users, apiKeysFile: keys });
+  await runCli(["add", "admin", "--role", "admin"], password, project);
+  const origin = `http://127.0.0.1:${port}`;
+  const server = spawnServer(project, port);
+  try {
+    await waitForHealth(origin);
+    const loginResponse = await fetch(`${origin}/auth/login`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: origin },
+      body: new URLSearchParams({ username: "admin", password }),
+    });
+    const cookie = setCookieFrom(loginResponse);
+    const me = await fetch(`${origin}/auth/me`, { headers: { Cookie: cookie } }).then((r) => r.json());
+    const restart = await fetch(`${origin}/op/api/system/restart`, {
+      method: "POST",
+      headers: { Cookie: cookie, "X-CSRF-Token": me.csrfToken, "Content-Type": "application/json", Origin: origin },
+      body: JSON.stringify({ confirm: "RESTART" }),
+    });
+    assert.equal(restart.status, 200);
+    const payload = await restart.json();
+    assert.ok(payload.childPid);
+    const exited = new Promise((resolve) => server.once("exit", resolve));
+    await exited;
+    let healthy = false;
+    for (let index = 0; index < 80; index += 1) {
+      try {
+        const response = await fetch(`${origin}/healthz`);
+        if (response.status === 200) { healthy = true; break; }
+      } catch { /* still starting */ }
+      await sleep(250);
+    }
+    assert.equal(healthy, true, "restarted process should become healthy");
+    let status = null;
+    for (let index = 0; index < 40; index += 1) {
+      status = readRestartStatus(path.join(data, "restart-status.json"));
+      if (status?.readyAt) break;
+      await sleep(250);
+    }
+    assert.ok(status?.requestedAt);
+    assert.ok(status?.readyAt);
+    if (status?.readyPid) {
+      try { process.kill(status.readyPid, "SIGKILL"); } catch { /* already gone */ }
+    }
+  } finally {
+    try { server.kill("SIGKILL"); } catch { /* already gone */ }
+  }
 });
 
 test("request inspection is dry-run and ticket snapshots keep the raw protocol body", async () => {
@@ -2943,6 +3152,8 @@ test("request inspection is dry-run and ticket snapshots keep the raw protocol b
   assert.equal(inspected.normalized.stream, true);
   assert.equal(inspected.normalized.tools[0].function.name, "lookup");
   assert.ok(inspected.parameters.some((row) => row.path === "model" && row.status === "supported"));
+  assert.ok(Array.isArray(inspected.warnings));
+  assert.ok(inspected.parameters.every((row) => typeof row.diff === "string"));
   assert.ok(inspected.parameters.some((row) => row.path === "tools[].function.name"));
   const anthropic = await fetch(`${BASE}/v1/inspect/anthropic`, {
     method: "POST",
@@ -2971,8 +3182,48 @@ test("request inspection is dry-run and ticket snapshots keep the raw protocol b
   assert.match(detail.ticket.requestInspection.raw, new RegExp(tag));
   assert.equal(detail.ticket.requestInspection.truncated, false);
   assert.ok(detail.ticket.requestParameters.some((row) => row.path === "model"));
+  assert.ok(Array.isArray(detail.ticket.requestParameterWarnings));
+  const reportJson = await op(adminSession, `/op/api/tickets/${ticket.id}/report?format=json`);
+  assert.equal(reportJson.status, 200);
+  assert.match(reportJson.headers.get("content-disposition"), /ngzr-request-.*\.json/);
+  const report = await reportJson.json();
+  assert.equal(report.ticket.id, ticket.id);
+  assert.ok(report.parameters.length > 0);
+  assert.ok(Array.isArray(report.warnings));
+  const reportMd = await op(adminSession, `/op/api/tickets/${ticket.id}/report?format=md`);
+  assert.equal(reportMd.status, 200);
+  assert.match(reportMd.headers.get("content-type"), /text\/markdown/);
+  assert.match(await reportMd.text(), /## 参数说明/);
+  const badFormat = await op(adminSession, `/op/api/tickets/${ticket.id}/report?format=xml`);
+  assert.equal(badFormat.status, 400);
   await claim(adminSession, ticket.id);
   await finishJson(adminSession, ticket.id, { text: "inspect ok", finishReason: "stop" });
+  assert.equal((await pending).status, 200);
+});
+
+test("ticket replay, compatibility report and snapshot-view audit", async () => {
+  const tag = marker("REPLAY");
+  const pending = startChat({ model: "human-1", messages: [{ role: "user", content: tag }], future_flag: true });
+  const ticket = await waitForTicket((item) => item.messages.some((message) => message.content.includes(tag)));
+  const replay = await op(adminSession, `/op/api/tickets/${ticket.id}/replay`, { method: "POST", body: {} });
+  assert.equal(replay.status, 200);
+  const replayed = await replay.json();
+  assert.equal(replayed.replay, true);
+  assert.ok(replayed.parameters.some((row) => row.path === "future_flag" && row.status === "unknown"));
+  assert.ok(replayed.warnings.some((item) => item.path === "future_flag"));
+  const compatibility = await opJson(adminSession, "/op/api/compatibility");
+  assert.equal(compatibility.ok, true);
+  assert.ok(compatibility.protocols.length >= 2);
+  assert.ok(compatibility.protocols[0].fields.length > 0);
+  assert.ok(compatibility.protocols.some((item) => item.protocol === "anthropic"));
+  await opJson(adminSession, `/op/api/tickets/${ticket.id}`);
+  await opJson(adminSession, `/op/api/tickets/${ticket.id}`);
+  const audit = await opJson(adminSession, "/op/api/audit?action=ticket.inspect");
+  assert.ok(audit.events.some((event) => event.action === "ticket.inspect" && event.target === ticket.id));
+  const replayAudit = await opJson(adminSession, "/op/api/audit?action=ticket.replay");
+  assert.ok(replayAudit.events.some((event) => event.target === ticket.id));
+  await claim(adminSession, ticket.id);
+  await finishJson(adminSession, ticket.id, { text: "replay ok", finishReason: "stop" });
   assert.equal((await pending).status, 200);
 });
 
