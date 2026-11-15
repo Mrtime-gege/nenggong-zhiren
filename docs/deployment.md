@@ -360,3 +360,15 @@ journalctl -u nenggong-zhiren -f
 
 如果回复员和 DSH 不在同一台机器，`server.host` 需要监听局域网地址；此时务必启用 TLS 和防火墙。
 如果全部在本机，建议 `server.host` 使用 `127.0.0.1`，通过 SSH 隧道/反代访问，进一步缩小暴露面。
+
+## 10. 发布包内容
+
+发布包只包含 `release-whitelist.txt` 列出的文件，共 96 个：
+
+- 运行必需：`server.mjs`、`package.json`、`src/` 下 35 个模块、`public/` 下 47 个页面/脚本/样式/图标、`docs/openapi.json`；
+- 安装与运维：`config.example.jsonc`、`scripts/user.mjs`（账号 CLI）、`LICENSE`；
+- 分发文档：`README.md`、`SECURITY.md`、`CHANGELOG.md`、`docs/quickstart.md`、`docs/protocol.md`、`docs/deployment.md`、`docs/security.md`、`docs/architecture.md`。
+
+不进入发布包：`config.jsonc`、数据文件、`examples/`、`integrations/`、`test/`、`.github/`、`release-whitelist.txt`、`scripts/build-release.mjs`、媒体 worker 的 Python 脚本。
+
+> 注意：`config.example.jsonc` 默认 `workers.imageWorker` / `workers.pdfWorker` 指向 `scripts/normalize-image.py` 和 `scripts/render-pdf-page.py`，但这两个脚本不随发布包提供。发布包开箱时对应能力探测为不可用；需要图片重编码或 PDF 页图时，从源码提供脚本或改成外部绝对路径，也可以留空禁用。
