@@ -2296,8 +2296,14 @@ function renderMessageRow(ticket, message, index, isContext) {
       image.loading = "lazy";
       image.referrerPolicy = "no-referrer";
       image.addEventListener("click", () => {
-        if (/^(https?:|data:image\/)/i.test(attachment.url)) {
+        if (/^data:image\//i.test(attachment.url)) {
           window.open(attachment.url, "_blank", "noopener,noreferrer");
+        } else if (/^https?:/i.test(attachment.url)) {
+          window.open(
+            `/op/api/image-proxy?ticket=${encodeURIComponent(ticket.id)}&url=${encodeURIComponent(attachment.url)}`,
+            "_blank",
+            "noopener,noreferrer",
+          );
         }
       });
       strip.append(image);

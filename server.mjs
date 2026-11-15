@@ -10,6 +10,7 @@
  */
 
 import http from "node:http";
+import net from "node:net";
 import https from "node:https";
 import { spawn } from "node:child_process";
 import os from "node:os";
@@ -60,6 +61,10 @@ const PUBLIC_DIR = path.join(ROOT, "public");
 const VERSION = "0.7.0";
 const MAX_TICKET_TEXT_CHARS = 1_000_000;
 const MAX_SSE_LOG_ENTRIES = 2_000;
+const INSPECT_BODY_LIMIT_BYTES = 256 * 1024;
+const MAX_LIVE_TICKETS = 1_000;
+const SESSION_HASH_MESSAGES = 64;
+const MAX_LIVE_SNAPSHOT_BYTES = 256 * 1024 * 1024;
 const PUBLIC_CONFIG = (() => {
   try {
     return loadConfig();
@@ -152,6 +157,37 @@ const aiTicketLocks = new Set();
 const aiAutoLocks = new Set();
 let pdfRenderActive = 0;
 let imageProxyActive = 0;
+const imageProxyByOperator = new Map();
+const imageProxyByHost = new Map();
+const uploadByKey = new Map();
+let uploadActive = 0;
+const downloadByKey = new Map();
+let downloadActive = 0;
+
+function acquireKeyedSlot(map, key, { perKey = 2, globalMax = 4, current = () => 0, bump = () => {} } = {}) {
+  if (current() >= globalMax) return null;
+  const used = map.get(key) || 0;
+  if (used >= perKey) return null;
+  map.set(key, used + 1);
+  bump(1);
+  return () => {
+    bump(-1);
+    const left = (map.get(key) || 1) - 1;
+    if (left <= 0) map.delete(key);
+    else map.set(key, left);
+  };
+}
+
+function bumpProxyCount(map, key, limit) {
+  const used = map.get(key) || 0;
+  if (used >= limit) return null;
+  map.set(key, used + 1);
+  return () => {
+    const current = map.get(key) || 0;
+    if (current <= 1) map.delete(key);
+    else map.set(key, current - 1);
+  };
+}
 
 const audit = new AuditStore({
   file: config.auditFile,
@@ -252,6 +288,12 @@ class ApiError extends Error {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const nowIso = () => new Date().toISOString();
+function cleanLogText(value, max = 64) {
+  return String(value ?? "")
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    .slice(0, max);
+}
+
 function log(...args) {
   console.log(nowIso(), ...args);
 }
@@ -445,7 +487,7 @@ function applySecurityHeaders(req, res) {
   }
   res.setHeader(
     "Content-Security-Policy",
-    `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: http: https:; connect-src 'self'; frame-ancestors ${embeddedConsolePage ? "'self'" : "'none'"}; base-uri 'none'; form-action 'self'; object-src 'none'`,
+    `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors ${embeddedConsolePage ? "'self'" : "'none'"}; base-uri 'none'; form-action 'self'; object-src 'none'`,
   );
   res.setHeader("X-Frame-Options", embeddedConsolePage ? "SAMEORIGIN" : "DENY");
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -586,8 +628,8 @@ function parseMultipart(buffer, contentType) {
   return parts;
 }
 
-async function readJsonWithRaw(req) {
-  const raw = await readBody(req, live.limits.bodyLimitBytes);
+async function readJsonWithRaw(req, limit = live.limits.bodyLimitBytes) {
+  const raw = await readBody(req, limit);
   if (!raw) return { body: {}, raw: "" };
   try {
     return { body: JSON.parse(raw), raw };
@@ -786,7 +828,9 @@ function replayTicket(ticket, res) {
     if (ticket.protocol === ANTHROPIC_PROTOCOL) {
       for (const frame of ticket.anthLog || []) res.write(frame);
     } else {
-      if (ticket.sseLogTruncated) res.write(": earlier stream frames were truncated from the replay log\n\n");
+      if (ticket.sseLogTruncated) {
+        sendSse(res, { error: { message: "The stream replay was truncated by the server.", type: "server_error", param: null, code: "replay_truncated" } });
+      }
       for (const payload of ticket.sseLog || []) sendSse(res, payload);
       res.write("data: [DONE]\n\n");
     }
@@ -1100,6 +1144,24 @@ function sessionAnchor(messages) {
   return createHash("sha256").update(String(source)).digest("hex").slice(0, 24);
 }
 
+function messageHash(message) {
+  const role = String(message?.role || "");
+  const content = typeof message?.content === "string" ? message.content : JSON.stringify(message?.content ?? "");
+  return createHash("sha256").update(`${role}\0${content}`).digest("base64url");
+}
+
+function messageHashes(messages) {
+  return (Array.isArray(messages) ? messages : []).slice(0, SESSION_HASH_MESSAGES).map(messageHash);
+}
+
+function hashPrefixMatches(hashes, next) {
+  if (!Array.isArray(hashes) || !hashes.length || !Array.isArray(next) || hashes.length > next.length) return false;
+  for (let index = 0; index < hashes.length; index += 1) {
+    if (messageHash(next[index]) !== hashes[index]) return false;
+  }
+  return true;
+}
+
 function messagePrefix(previous, next) {
   if (!Array.isArray(previous) || !Array.isArray(next) || previous.length > next.length) return false;
   for (let i = 0; i < previous.length; i += 1) {
@@ -1129,7 +1191,7 @@ function resolveSession(req, request, caller) {
       if (candidate.callerKey !== caller.key) continue;
       if (candidate.model !== request.model) continue;
       if (now - candidate.lastAt > SESSION_FALLBACK_MS) continue;
-      if (!candidate.lastMessages || !messagePrefix(candidate.lastMessages, request.messages)) continue;
+      if (!candidate.lastHashes || !hashPrefixMatches(candidate.lastHashes, request.messages)) continue;
       record = candidate;
       break;
     }
@@ -1149,7 +1211,7 @@ function resolveSession(req, request, caller) {
       sessionRecords.set(id, record);
     }
   }
-  record.lastMessages = request.messages;
+  record.lastHashes = messageHashes(request.messages);
   record.lastAt = now;
   record.turns += 1;
   return {
@@ -1181,7 +1243,7 @@ function rebuildSessionRecords() {
     }
     record.turns = Math.max(record.turns, Number(ticket.sessionTurn) || 0);
     record.lastAt = Math.max(record.lastAt, Number(ticket.sessionLastAt) || Number(ticket.created) || 0);
-    if (!record.lastMessages && ticket.messages?.length) record.lastMessages = ticket.messages;
+    if (!record.lastHashes && ticket.messages?.length) record.lastHashes = messageHashes(ticket.messages);
     if (ticket.claimedBy) record.preferredOperator = ticket.claimedBy;
   }
 }
@@ -1388,6 +1450,39 @@ function clearTicketTimers(ticket) {
   ticket.timers.aiReply = null;
 }
 
+function ticketFootprint(ticket) {
+  const messages = Array.isArray(ticket.messages) ? ticket.messages : [];
+  let messageBytes = 0;
+  for (const message of messages) {
+    messageBytes += typeof message.content === "string" ? message.content.length : 256;
+  }
+  return (ticket.requestInspection?.raw?.length || 0) + messageBytes + (ticket.text?.length || 0);
+}
+
+function liveSnapshotBytes() {
+  let total = 0;
+  for (const ticket of tickets.values()) total += ticketFootprint(ticket);
+  return total;
+}
+
+function ensureTicketCapacity() {
+  if (tickets.size < MAX_LIVE_TICKETS && liveSnapshotBytes() < MAX_LIVE_SNAPSHOT_BYTES) return;
+  const evictable = () => [...tickets.values()]
+    .filter((ticket) => ticket.finished)
+    .sort((a, b) => (a.finishedAt || 0) - (b.finishedAt || 0));
+  while (tickets.size >= MAX_LIVE_TICKETS || liveSnapshotBytes() >= MAX_LIVE_SNAPSHOT_BYTES) {
+    const victim = evictable()[0];
+    if (!victim) {
+      throw new ApiError(503, "The server is at capacity. Please try again later.", "server_error", "capacity_exceeded", null, { "Retry-After": "30" });
+    }
+    clearTimeout(victim.timers?.retention);
+    tickets.delete(victim.id);
+    pruneHistoryTextCache(victim.id);
+    log(`[capacity] evicted ${victim.id} state=${victim.state}`);
+  }
+  persistRuntime();
+}
+
 function releaseTicketSlot(ticket) {
   if (ticket.releaseSlot) {
     ticket.releaseSlot();
@@ -1489,7 +1584,7 @@ function chunkPayload(ticket, delta, finishReason = null) {
 
 function emitSse(ticket, payload) {
   ticket.sseLog.push(payload);
-  if (ticket.sseLog.length > MAX_SSE_LOG_ENTRIES) {
+  if (ticket.sseLog.length > MAX_SSE_LOG_ENTRIES * 2) {
     ticket.sseLog.splice(0, ticket.sseLog.length - MAX_SSE_LOG_ENTRIES);
     ticket.sseLogTruncated = true;
   }
@@ -1539,7 +1634,9 @@ function detachTicket(ticket) {
 function replayActiveStream(ticket) {
   const res = ticket.res;
   if (!isResOpen(res)) return false;
-  res.writeHead(200, sseHeaders());
+  const replayHeaders = sseHeaders();
+  if (ticket.sseLogTruncated || ticket.anthLogTruncated) replayHeaders["X-NGZR-Replay-Truncated"] = "1";
+  res.writeHead(200, replayHeaders);
   res.flushHeaders?.();
   if (ticket.protocol === ANTHROPIC_PROTOCOL) {
     if (ticket.anthLogTruncated) res.write(": earlier stream frames were truncated from the replay log\n\n");
@@ -1782,7 +1879,12 @@ async function flushPending(ticket, paced) {
   const from = ticket.delivered;
   const to = ticket.text.length;
   const pending = ticket.text.slice(from, to);
-  const parts = paced ? splitForStream(pending) : [pending];
+  let parts = paced ? splitForStream(pending) : [pending];
+  if (paced && parts.length > 200) {
+    // Keep the per-flush frame count bounded; pacing hundreds of thousands of
+    // tiny frames would block the finish request for hours.
+    parts = [...parts.slice(0, 199), parts.slice(199).join("")];
+  }
   let written = 0;
 
   for (const part of parts) {
@@ -2043,7 +2145,9 @@ function publicTicket(ticket) {
     aiCards: Array.isArray(ticket.aiCards) ? ticket.aiCards : [],
     requestInspection: ticket.requestInspection || null,
     requestParameters: ticketRequestParameters(ticket),
+    requestParametersTruncated: ticketRequestParameters(ticket).truncated === true,
     requestParameterWarnings: summarizeParameterWarnings(ticketRequestParameters(ticket)),
+    requestParameterWarningsTruncated: summarizeParameterWarnings(ticketRequestParameters(ticket)).truncated === true,
     maxTokens: ticket.maxTokens,
     stops: ticket.stops,
     promptTokens: ticket.promptTokens,
@@ -2119,14 +2223,16 @@ function ticketSearchText(ticket) {
     tags.join("\u0000"),
   ].join("\u0001");
   if (ticket._searchCache?.key === cacheKey) return ticket._searchCache.value;
-  const value = [
-    ticket.id,
-    ticket.model,
-    ticket.claimedBy,
-    ticket.callerLabel,
-    ...messages.map((message) => message.content),
-    ...tags,
-  ].filter(Boolean).join(" ").toLowerCase();
+  const parts = [ticket.id, ticket.model, ticket.claimedBy, ticket.callerLabel];
+  let budget = 8_000;
+  for (const part of [...messages.map((message) => message.content), ...tags]) {
+    if (budget <= 0) break;
+    const text = String(part || "");
+    if (!text) continue;
+    parts.push(text.length > budget ? text.slice(0, budget) : text);
+    budget -= text.length;
+  }
+  const value = parts.filter(Boolean).join(" ").toLowerCase();
   ticket._searchCache = { key: cacheKey, value };
   return value;
 }
@@ -2575,6 +2681,16 @@ function attachmentError(error) {
   return error;
 }
 
+function markdownCell(value) {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\|/g, "\\|")
+    .replace(/\r?\n/g, " ")
+    .replace(/`/g, "\\`")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function attachmentDisposition(filename) {
   const fallback = String(filename || "attachment")
     .replace(/[^\x20-\x7e]/g, "_")
@@ -2589,7 +2705,37 @@ async function handleFileUpload(req, res) {
     throw new ApiError(404, "Attachments are disabled.", "invalid_request_error", "attachments_disabled");
   }
   const caller = authenticateCaller(req);
+  const release = acquireKeyedSlot(uploadByKey, caller.key, {
+    perKey: 2,
+    globalMax: 4,
+    current: () => uploadActive,
+    bump: (delta) => { uploadActive = Math.max(0, uploadActive + delta); },
+  });
+  if (!release) {
+    throw new ApiError(429, "Too many concurrent uploads. Please try again.", "rate_limit_error", "upload_busy", null, { "Retry-After": "2" });
+  }
+  try {
+    return await handleFileUploadInner(req, res, caller);
+  } finally {
+    release();
+  }
+}
+
+async function handleFileUploadInner(req, res, caller) {
   const contentType = String(req.headers["content-type"] || "");
+  const declaredBytes = Number(req.headers["content-length"] || 0);
+  if (declaredBytes > 0) {
+    try {
+      usageStore.checkUploadQuota(caller.id, declaredBytes, config.attachments.maxBytesPerKeyPerDay);
+    } catch (error) {
+      if (error instanceof QuotaError) {
+        throw new ApiError(429, error.message, "rate_limit_error", error.code, null, {
+          "Retry-After": String(Math.max(1, Math.ceil(error.retryAfterMs / 1000))),
+        });
+      }
+      throw error;
+    }
+  }
   const limit = config.attachments.maxBytes + 1024 * 1024;
   const spool = await readBodyToTemp(req, limit);
   let buffer;
@@ -2679,20 +2825,27 @@ async function handleFileUpload(req, res) {
   }
 }
 
-function handleFileApi(req, res, url) {
+async function handleFileApi(req, res, url) {
   const caller = authenticateCaller(req);
   const ownerHash = createHash("sha256").update(caller.key).digest("hex");
   const match = /^\/v1\/files\/([^/]+)(?:\/(content))?$/.exec(url.pathname);
   if (!match) throw new ApiError(404, "File not found.", "invalid_request_error", "not_found");
   let record;
-  let blob;
   try {
     record = attachments.getOwned(decodePathParam(match[1]), ownerHash);
-    if (match[2]) blob = attachments.readBlob(record.id);
   } catch (error) {
     throw attachmentError(error);
   }
   if (match[2]) {
+    const release = acquireKeyedSlot(downloadByKey, caller.key, {
+      perKey: 2,
+      globalMax: 4,
+      current: () => downloadActive,
+      bump: (delta) => { downloadActive = Math.max(0, downloadActive + delta); },
+    });
+    if (!release) {
+      throw new ApiError(429, "Too many concurrent downloads. Please try again.", "rate_limit_error", "download_busy", null, { "Retry-After": "2" });
+    }
     audit.append({
       actor: `key:${caller.label}`,
       action: "attachment.download",
@@ -2702,11 +2855,17 @@ function handleFileApi(req, res, url) {
     res.writeHead(200, {
       "Content-Type": "application/octet-stream",
       "Content-Disposition": attachmentDisposition(record.filename),
-      "Content-Length": String(blob.buffer.length),
+      "Content-Length": String(record.bytes),
       "X-Content-Type-Options": "nosniff",
       "Cache-Control": "no-store",
     });
-    res.end(blob.buffer);
+    try {
+      await pipeline(fs.createReadStream(attachments.blobPath(record.id)), res);
+    } catch {
+      try { res.destroy(); } catch { /* already closed */ }
+    } finally {
+      release();
+    }
     return;
   }
   return sendJson(res, 200, {
@@ -2797,7 +2956,19 @@ async function handleInspectRequest(req, res, protocol) {
   res.ngzrProtocol = protocol;
   const caller = authenticateCaller(req);
   setRateLimitHeaders(res, caller);
-  const { body, raw } = await readJsonWithRaw(req);
+  const releaseSlot = takeSlot(caller);
+  if (!releaseSlot) {
+    throw new ApiError(429, "Rate limit reached for inspections. Please try again later.", "rate_limit_error", "rate_limit_exceeded");
+  }
+  try {
+    await handleInspectRequestInner(req, res, protocol, caller);
+  } finally {
+    releaseSlot();
+  }
+}
+
+async function handleInspectRequestInner(req, res, protocol, caller) {
+  const { body, raw } = await readJsonWithRaw(req, INSPECT_BODY_LIMIT_BYTES);
   let request;
   try {
     request = normalizeRequest(protocol, body, { models: MODELS });
@@ -2816,6 +2987,7 @@ async function handleInspectRequest(req, res, protocol) {
   const { rawBody: _rawBody, ...normalized } = request;
   stats.inspections += 1;
   const parameters = describeRequestParameters(protocol, body, normalized);
+  const warnings = summarizeParameterWarnings(parameters);
   return sendJson(res, 200, {
     ok: true,
     inspect: true,
@@ -2825,11 +2997,13 @@ async function handleInspectRequest(req, res, protocol) {
     raw: body,
     rawChars: raw.length,
     rawBytes: Buffer.byteLength(raw),
-    bodyLimitBytes: live.limits.bodyLimitBytes,
+    bodyLimitBytes: INSPECT_BODY_LIMIT_BYTES,
     truncated: false,
     normalized,
     parameters,
-    warnings: summarizeParameterWarnings(parameters),
+    parametersTruncated: parameters.truncated === true,
+    warnings,
+    warningsTruncated: warnings.truncated === true,
     notes: [
       "dry-run：不会创建票据、消耗调用配额或触发人工回复。",
       "raw 是本次请求 JSON；normalized 是进入票据队列前的归一化结构。",
@@ -2914,6 +3088,7 @@ async function handleChatRequest(req, res, protocol) {
 
   let ticket;
   try {
+    ensureTicketCapacity();
     const session = resolveSession(req, request, caller);
     ticket = createTicket({ request, caller, releaseSlot, session });
   } catch (error) {
@@ -3067,6 +3242,27 @@ function normalizeTicketPriority(value) {
   return priority;
 }
 
+function verifyAdminStepUp(session, req, password, { totp = "", requireMfa = false } = {}) {
+  const ip = clientIp(req);
+  const allowed = auth.loginAllowed(ip, session.username);
+  if (!allowed.allowed) {
+    throw new ApiError(429, "登录尝试过多，请稍后再试。", "rate_limit_error", "too_many_attempts", null, {
+      "Retry-After": String(Math.max(1, Math.ceil(allowed.retryAfterMs / 1000))),
+    });
+  }
+  if (!auth.verifyCredentials(session.username, password)) {
+    auth.recordLoginFailure(ip, session.username);
+    audit.append({ actor: session.username, action: "auth.step_up_failure", target: "password", ip });
+    throw new ApiError(403, "密码不正确。", "invalid_request_error", "invalid_password");
+  }
+  if (requireMfa && auth.mfaEnabled(session.username) && !auth.verifyMfa(session.username, totp)) {
+    auth.recordLoginFailure(ip, session.username);
+    audit.append({ actor: session.username, action: "auth.step_up_failure", target: "totp", ip });
+    throw new ApiError(403, "动态验证码不正确。", "invalid_request_error", "invalid_totp");
+  }
+  auth.clearLoginFailures(ip, session.username);
+}
+
 async function handleOperator(req, res, url, session) {
   const pathname = url.pathname;
   const body = ["POST", "PATCH"].includes(req.method) ? await readJson(req) : {};
@@ -3091,8 +3287,18 @@ async function handleOperator(req, res, url, session) {
       throw new ApiError(503, "图片代理当前繁忙，请稍后重试。", "server_error", "image_proxy_busy");
     }
     imageProxyActive += 1;
+    let releaseOperator = null;
+    let releaseHost = null;
     try {
       const resolved = await resolvePublicImageUrl(rawUrl);
+      releaseOperator = bumpProxyCount(imageProxyByOperator, session.username, 2);
+      if (!releaseOperator) {
+        throw new ApiError(429, "该账号的图片代理请求过多，请稍后重试。", "rate_limit_error", "image_proxy_operator_busy");
+      }
+      releaseHost = bumpProxyCount(imageProxyByHost, resolved.url.host, 2);
+      if (!releaseHost) {
+        throw new ApiError(429, "同一图片主机的并发请求过多，请稍后重试。", "rate_limit_error", "image_proxy_host_busy");
+      }
       const image = await fetchRemoteImage(resolved, {
         maxBytes: Math.min(config.attachments.maxBytes || 5 * 1024 * 1024, 5 * 1024 * 1024),
       });
@@ -3117,6 +3323,8 @@ async function handleOperator(req, res, url, session) {
       }
       throw error;
     } finally {
+      releaseHost?.();
+      releaseOperator?.();
       imageProxyActive = Math.max(0, imageProxyActive - 1);
     }
   }
@@ -3226,9 +3434,10 @@ async function handleOperator(req, res, url, session) {
   if (pathname === "/op/api/mfa/setup") {
     requireAdmin(session);
     if (req.method !== "POST") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
-    if (!auth.verifyCredentials(session.username, body.password)) {
-      throw new ApiError(403, "密码不正确。", "invalid_request_error", "invalid_password");
-    }
+    verifyAdminStepUp(session, req, body.password, {
+      totp: body.totp || body.code || "",
+      requireMfa: auth.mfaEnabled(session.username),
+    });
     const secret = generateSecret();
     auth.setMfaSecret(session.username, secret);
     audit.append({ actor: session.username, action: "mfa.setup", ip: clientIp(req) });
@@ -3247,6 +3456,7 @@ async function handleOperator(req, res, url, session) {
       throw new ApiError(400, "动态验证码不正确。", "invalid_request_error", "invalid_totp");
     }
     auth.enableMfa(session.username);
+    auth.destroyUserSessionsExcept(session.username, session.token);
     audit.append({ actor: session.username, action: "mfa.enable", ip: clientIp(req) });
     return sendJson(res, 200, { ok: true, enabled: true });
   }
@@ -3254,9 +3464,12 @@ async function handleOperator(req, res, url, session) {
   if (pathname === "/op/api/mfa/disable") {
     requireAdmin(session);
     if (req.method !== "POST") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
-    const user = auth.verifyCredentials(session.username, body.password);
-    if (!user) throw new ApiError(403, "密码不正确。", "invalid_request_error", "invalid_password");
+    verifyAdminStepUp(session, req, body.password, {
+      totp: body.totp || body.code || "",
+      requireMfa: auth.mfaEnabled(session.username),
+    });
     auth.disableMfa(session.username);
+    auth.destroyUserSessionsExcept(session.username, session.token);
     audit.append({ actor: session.username, action: "mfa.disable", ip: clientIp(req) });
     return sendJson(res, 200, { ok: true, enabled: false });
   }
@@ -3865,6 +4078,15 @@ async function handleOperator(req, res, url, session) {
     if (req.method === "PATCH") {
       let user;
       if (body.password !== undefined) {
+        if (target === session.username) {
+          if (!body.currentPassword) {
+            throw new ApiError(400, "Changing your own password requires currentPassword.", "invalid_request_error", "current_password_required");
+          }
+          verifyAdminStepUp(session, req, body.currentPassword, {
+            totp: body.totp || "",
+            requireMfa: auth.mfaEnabled(session.username),
+          });
+        }
         auth.setPassword(target, body.password);
         user = auth.listUsers().find((item) => item.username === target);
       }
@@ -3986,7 +4208,14 @@ async function handleOperator(req, res, url, session) {
       res.end();
       return;
     }
-    const serialize = compact ? publicTicketSummary : publicTicket;
+    const serialize = compact
+      ? publicTicketSummary
+      : (ticket) => {
+          // List responses must never ship raw request snapshots; reading them
+          // requires the audited per-ticket detail endpoint.
+          const { requestInspection, requestParameters, requestParametersTruncated, requestParameterWarnings, requestParameterWarningsTruncated, ...rest } = publicTicket(ticket);
+          return rest;
+        };
     const searchMode = url.searchParams.get("mode") === "search";
     if (searchMode) {
       const q = String(url.searchParams.get("q") || "").trim().toLowerCase();
@@ -4380,11 +4609,11 @@ async function handleOperator(req, res, url, session) {
       "",
       "| 字段 | 状态 | 差异 | 含义 | 处理方式 |",
       "| --- | --- | --- | --- | --- |",
-      ...parameters.map((row) => `| ${row.path} | ${row.status} | ${row.diff || ""} | ${String(row.meaning || "").replaceAll("|", "\\|")} | ${String(row.effect || "").replaceAll("|", "\\|")} |`),
+      ...parameters.map((row) => `| ${markdownCell(row.path)} | ${markdownCell(row.status)} | ${markdownCell(row.diff)} | ${markdownCell(row.meaning)} | ${markdownCell(row.effect)} |`),
       "",
     ];
     if (warnings.length) {
-      lines.push("## 警告", "", ...warnings.map((item) => `- **${item.path}**（${item.level}）：${item.message}`), "");
+      lines.push("## 警告", "", ...warnings.map((item) => `- **${markdownCell(item.path)}**（${markdownCell(item.level)}）：${markdownCell(item.message)}`), "");
     }
     lines.push("## 原始请求", "", "```json", JSON.stringify(rawBody, null, 2) ?? "null", "```", "");
     lines.push("## 归一化请求", "", "```json", JSON.stringify(report.request.normalized, null, 2), "```", "");
@@ -4898,7 +5127,7 @@ async function handleLogin(req, res, url) {
   const allowed = auth.loginAllowed(ip, usernameForLimit);
   if (!allowed.allowed) {
     audit.append({ actor: usernameForLimit || "unknown", action: "login.throttled", ip, detail: "retry-after" });
-    log(`[login-throttled] ip=${ip} username=${usernameForLimit || "-"}`);
+    log(`[login-throttled] ip=${cleanLogText(ip)} username=${cleanLogText(usernameForLimit) || "-"}`);
     return serveLoginPage(res, {
       status: 429,
       error: "登录尝试过多，请稍后再试。",
@@ -4911,7 +5140,7 @@ async function handleLogin(req, res, url) {
   if (!user) {
     auth.recordLoginFailure(ip, usernameForLimit);
     audit.append({ actor: usernameForLimit || "unknown", action: "login.failure", ip });
-    log(`[login-failed] ip=${ip} username=${usernameForLimit || "-"}`);
+    log(`[login-failed] ip=${cleanLogText(ip)} username=${cleanLogText(usernameForLimit) || "-"}`);
     return serveLoginPage(res, {
       status: 401,
       error: "用户名、密码或动态验证码不正确。",
@@ -5414,26 +5643,37 @@ function stopRuntime() {
   setTimeout(() => process.exit(0), 3_000).unref();
 }
 
-function probeHealthOnce(port, timeoutMs = 1000) {
+function probeHealthOnce(target, timeoutMs = 1000) {
+  const client = target.tls ? https : http;
   return new Promise((resolve) => {
-    const request = http.get({
-      host: "127.0.0.1",
-      port,
+    const request = client.get({
+      host: target.host,
+      port: target.port,
       path: "/healthz",
       timeout: timeoutMs,
+      ...(target.tls ? { rejectUnauthorized: false, servername: net.isIP(target.host) ? undefined : target.host } : {}),
     }, (response) => {
-      response.resume();
-      resolve(response.statusCode === 200);
+      let raw = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => { raw += chunk; });
+      response.on("end", () => {
+        try {
+          const body = JSON.parse(raw);
+          resolve(response.statusCode === 200 && body?.service === "nenggong-zhiren");
+        } catch {
+          resolve(false);
+        }
+      });
     });
     request.on("timeout", () => { request.destroy(); resolve(false); });
     request.on("error", () => resolve(false));
   });
 }
 
-async function waitForHealth(port, deadlineMs) {
+async function waitForHealth(target, deadlineMs) {
   const deadline = Date.now() + deadlineMs;
   while (Date.now() < deadline) {
-    if (await probeHealthOnce(port)) return true;
+    if (await probeHealthOnce(target)) return true;
     await new Promise((resolve) => setTimeout(resolve, 300).unref?.());
   }
   return false;
@@ -5441,24 +5681,41 @@ async function waitForHealth(port, deadlineMs) {
 
 function restartRuntime() {
   log(`[system] restartRuntime pid=${process.pid}`);
-  closeRuntimeStores();
+  const address = server.address();
+  const port = address && typeof address === "object" ? address.port : config.port;
+  const host = config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host;
+  const target = { host, port, tls: config.tlsEnabled === true };
   try { server.close(); } catch { /* already closed */ }
-  // The replacement was spawned before the HTTP response with a 1.5s bind
-  // delay. Keep this process alive as a watchdog so a failed start is recorded
-  // instead of silently losing the service.
+  // Keep stores open while the replacement starts so a failed restart can roll
+  // back to the old listener instead of leaving the service down.
   const watchdog = async () => {
-    const ready = await waitForHealth(config.port, 20_000);
+    const ready = await waitForHealth(target, 20_000);
     if (ready) {
-      writeRestartStatus(RESTART_STATUS_FILE, { readyAt: new Date().toISOString(), readyPid: null, failedAt: null, error: null });
+      writeRestartStatus(RESTART_STATUS_FILE, { readyAt: new Date().toISOString(), failedAt: null, error: null });
+      closeRuntimeStores();
       log("[system] restart healthy");
       process.exit(0);
     }
     writeRestartStatus(RESTART_STATUS_FILE, {
       failedAt: new Date().toISOString(),
-      error: "health check timed out after restart",
+      error: "health check timed out after restart; rolled back",
     });
-    log("[system] restart health check failed");
-    process.exit(1);
+    log("[system] restart health check failed; rolling back to old listener");
+    const onListenError = (error) => {
+      log(`[system] rollback failed: ${error.message}`);
+      process.exit(1);
+    };
+    server.once("error", onListenError);
+    try {
+      server.listen(port, config.host, () => {
+        server.off("error", onListenError);
+        log(`[system] rollback listening on ${config.host}:${port}`);
+      });
+      return;
+    } catch (error) {
+      log(`[system] rollback failed: ${error.message}`);
+      process.exit(1);
+    }
   };
   watchdog().catch((error) => {
     log(`[system] restart watchdog error: ${error.message}`);

@@ -317,6 +317,7 @@ export class AuthService {
         preferences: normalizePreferences(raw.preferences, DEFAULT_PREFERENCES, raw.role),
         totpSecret: typeof raw.totpSecret === "string" ? raw.totpSecret : "",
         pendingTotpSecret: typeof raw.pendingTotpSecret === "string" ? raw.pendingTotpSecret : "",
+        pendingTotpAt: Number(raw.pendingTotpAt) || 0,
         mfaEnabled: raw.mfaEnabled === true && typeof raw.totpSecret === "string" && raw.totpSecret.length > 0,
       });
     }
@@ -337,6 +338,7 @@ export class AuthService {
         preferences: normalizePreferences(user.preferences, DEFAULT_PREFERENCES, user.role),
         totpSecret: user.totpSecret || undefined,
         pendingTotpSecret: user.pendingTotpSecret || undefined,
+        pendingTotpAt: user.pendingTotpAt || undefined,
         mfaEnabled: user.mfaEnabled === true,
       })),
     };
@@ -376,6 +378,7 @@ export class AuthService {
     // untouched until the caller proves possession of the new secret in
     // enableMfa(). This prevents setup from silently downgrading MFA.
     user.pendingTotpSecret = String(secret || "");
+    user.pendingTotpAt = this.now();
     this.users.set(normalized, user);
     this.persistUsers();
   }
@@ -387,6 +390,7 @@ export class AuthService {
     if (!user || !secret) throw new AuthError("请先生成 MFA 密钥。", "mfa_not_setup");
     user.totpSecret = secret;
     user.pendingTotpSecret = "";
+    user.pendingTotpAt = 0;
     user.mfaEnabled = true;
     this.users.set(normalized, user);
     this.persistUsers();
@@ -399,6 +403,7 @@ export class AuthService {
     user.mfaEnabled = false;
     user.totpSecret = "";
     user.pendingTotpSecret = "";
+    user.pendingTotpAt = 0;
     this.users.set(normalized, user);
     this.persistUsers();
   }
@@ -407,6 +412,9 @@ export class AuthService {
     const user = this.users.get(normalizeUsername(username));
     const secret = user?.pendingTotpSecret || user?.totpSecret;
     if (!secret) return false;
+    const pendingAt = Number(user?.pendingTotpAt) || 0;
+    // A staged secret is only valid for ten minutes.
+    if (user?.pendingTotpSecret && pendingAt && at - pendingAt > 10 * 60_000) return false;
     return verifyTotp(secret, code, at, 1);
   }
 
@@ -587,7 +595,11 @@ export class AuthService {
     // per-address+username limits still apply.
     const adminAccount = this.users.get(normalized)?.role === "admin";
     let retryAfterMs = 0;
-    if (ipFailures.length >= this.loginIpMaxFailures) {
+    const sharedAddress = ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+    // Behind portproxy/NAT every LAN client shares one loopback address, so an
+    // IP-wide lock would lock the whole console. Keep the per-account and
+    // per-address+username limits instead.
+    if (!sharedAddress && ipFailures.length >= this.loginIpMaxFailures) {
       retryAfterMs = Math.max(retryAfterMs, this.loginRateWindowMs - (now - ipFailures[0]));
     }
     if (comboFailures.length >= this.loginComboMaxFailures) {
@@ -608,17 +620,20 @@ export class AuthService {
       entry.failures.push(now);
       this.loginFailures.set(key, entry);
     }
+    if (this.loginFailures.size > 5_000) {
+      const oldest = [...this.loginFailures.entries()]
+        .sort((a, b) => (a[1].failures.at(-1) || 0) - (b[1].failures.at(-1) || 0))
+        .slice(0, Math.ceil(this.loginFailures.size / 10));
+      for (const [key] of oldest) this.loginFailures.delete(key);
+    }
   }
 
   clearLoginFailures(ip, username) {
     const normalized = normalizeUsernameSafe(username);
     this.loginFailures.delete(`user:${normalized}`);
     this.loginFailures.delete(`combo:${ip}|${normalized}`);
-    const ipEntry = this.loginFailures.get(`ip:${ip}`);
-    if (ipEntry) {
-      ipEntry.failures = ipEntry.failures.slice(-Math.floor(this.loginIpMaxFailures / 2));
-      if (ipEntry.failures.length === 0) this.loginFailures.delete(`ip:${ip}`);
-    }
+    // Do not clear or halve the IP-wide counter on success: otherwise an
+    // attacker with one valid account can reset the spray limit repeatedly.
   }
 
   verifyCredentials(username, password) {
@@ -675,6 +690,12 @@ export class AuthService {
   destroyUserSessions(username) {
     for (const [token, session] of this.sessions) {
       if (session.username === username) this.sessions.delete(token);
+    }
+  }
+
+  destroyUserSessionsExcept(username, keepToken) {
+    for (const [token, session] of this.sessions) {
+      if (session.username === username && token !== keepToken) this.sessions.delete(token);
     }
   }
 

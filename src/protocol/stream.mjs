@@ -8,7 +8,7 @@ function writeEvent(ticket, type, payload) {
   const frame = `event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`;
   if (!ticket.anthLog) ticket.anthLog = [];
   ticket.anthLog.push(frame);
-  if (ticket.anthLog.length > MAX_ANTH_LOG_ENTRIES) {
+  if (ticket.anthLog.length > MAX_ANTH_LOG_ENTRIES * 2) {
     ticket.anthLog.splice(0, ticket.anthLog.length - MAX_ANTH_LOG_ENTRIES);
     ticket.anthLogTruncated = true;
   }

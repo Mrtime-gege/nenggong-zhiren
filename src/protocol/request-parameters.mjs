@@ -198,6 +198,9 @@ const NESTED = {
   },
 };
 
+const MAX_PARAMETER_ROWS = 256;
+const MAX_WARNING_ROWS = 64;
+
 const FIELD_SETS = {
   openai: OPENAI_RAW,
   anthropic: ANTHROPIC_RAW,
@@ -283,12 +286,14 @@ export function summarizeParameterWarnings(rows) {
   const warnings = [];
   for (const row of Array.isArray(rows) ? rows : []) {
     if (!row.warning) continue;
+    if (warnings.length >= MAX_WARNING_ROWS) break;
     warnings.push({
       path: row.path,
       level: row.status === "unsupported" ? "error" : row.status === "unknown" ? "warn" : "info",
       message: row.warning,
     });
   }
+  warnings.truncated = warnings.length >= MAX_WARNING_ROWS;
   return warnings;
 }
 
@@ -349,6 +354,24 @@ export function describeRequestParameters(protocol, rawBody, normalized = {}) {
       diff: "default",
       warning: "",
     });
+  }
+  if (rows.length > MAX_PARAMETER_ROWS) {
+    const dropped = rows.length - MAX_PARAMETER_ROWS;
+    rows.length = MAX_PARAMETER_ROWS;
+    rows.push({
+      path: `…（${dropped} 个参数未展开）`,
+      group: "截断",
+      type: "summary",
+      meaning: "参数行数超过展示上限。",
+      effect: "完整字段仍保留在原始请求快照中，请查看 raw。",
+      rawValue: "",
+      normalizedField: "",
+      normalizedValue: "",
+      status: "truncated",
+      diff: "truncated",
+      warning: "",
+    });
+    rows.truncated = true;
   }
   return rows;
 }

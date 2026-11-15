@@ -11,6 +11,7 @@ import { validateJsonSchema, formatSchemaErrors } from "../src/schema.mjs";
 import { SettingsError, SettingsStore } from "../src/data/settings.mjs";
 import { ModelError, ModelStore } from "../src/data/models.mjs";
 import { AuthService } from "../src/auth.mjs";
+import { StateStore } from "../src/data/state.mjs";
 import { AuditStore } from "../src/data/audit.mjs";
 import { stripJsonc, parseJsonc, loadConfig, ConfigError } from "../src/config.mjs";
 import { readRestartStatus, writeRestartStatus } from "../src/runtime-state.mjs";
@@ -317,8 +318,40 @@ test("login throttling isolates by address and username and exempts admins", () 
     auth.recordLoginFailure("10.0.0.10", "admin");
     auth.recordLoginFailure("10.0.0.10", "admin");
     assert.equal(auth.loginAllowed("10.0.0.10", "admin").allowed, false);
+    // Shared loopback addresses skip the IP-wide lock (portproxy/NAT), but the
+    // per-combination lock still applies.
+    for (let index = 0; index < 20; index += 1) auth.recordLoginFailure("127.0.0.1", `spray-${index}`);
+    auth.recordLoginFailure("127.0.0.1", "spray-0");
+    assert.equal(auth.loginAllowed("127.0.0.1", "loop-user").allowed, true);
+    assert.equal(auth.loginAllowed("127.0.0.1", "spray-0").allowed, false);
     auth.destroyAllSessions();
     auth.close();
+  } finally {
+    dir.cleanup();
+  }
+});
+
+test("state snapshots cap raw request bodies and message text", async () => {
+  const dir = tmp();
+  try {
+    const store = new StateStore({ file: dir.file("state.json"), backend: "json", logger: { log() {}, error() {} } }).init();
+    const ticket = {
+      id: "chatcmpl-cap",
+      protocol: "openai",
+      model: "human-1",
+      createdAt: Date.now(),
+      messages: [{ role: "user", content: "m".repeat(900 * 1024) }],
+      requestInspection: { raw: "r".repeat(900 * 1024), truncated: false, protocol: "openai" },
+      text: "",
+      state: "done",
+    };
+    store.snapshot([ticket], []);
+    const saved = store.tickets.find((item) => item.id === ticket.id);
+    assert.ok(saved);
+    assert.equal(saved.requestInspection.rawDropped, true);
+    assert.equal(saved.requestInspection.raw.length, 256 * 1024);
+    assert.ok(saved.messages[0].content.length <= 512 * 1024 + 32);
+    store.close?.();
   } finally {
     dir.cleanup();
   }

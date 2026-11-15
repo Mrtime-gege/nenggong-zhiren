@@ -13,7 +13,8 @@ test("safe fetch classifies private and public addresses", () => {
   for (const address of [
     "127.0.0.1", "10.1.2.3", "172.16.0.1", "172.31.255.255", "192.168.1.1",
     "169.254.169.254", "100.64.0.1", "0.0.0.0", "224.0.0.1", "255.255.255.255",
-    "::1", "::", "fe80::1", "fc00::1", "fd12::1", "::ffff:127.0.0.1", "::ffff:7f00:1",
+    "::1", "::", "fe80::1", "fe81::1", "febf::1", "fec0::1", "fc00::1", "fd12::1",
+    "::ffff:127.0.0.1", "::ffff:7f00:1", "::ffff:0:7f00:1", "64:ff9b::7f00:1", "2002:7f00:1::",
   ]) {
     assert.equal(isPrivateAddress(address), true, address);
   }
@@ -31,6 +32,12 @@ test("safe fetch rejects private hosts and non-http schemes", async () => {
   await assert.rejects(
     () => resolvePublicImageUrl("file:///etc/passwd"),
     (error) => error instanceof SafeFetchError && error.code === "invalid_image_scheme",
+  );
+  await assert.rejects(
+    () => resolvePublicImageUrl("https://example.com:8080/a.png", {
+      lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+    }),
+    (error) => error instanceof SafeFetchError && error.code === "image_port_not_allowed",
   );
   await assert.rejects(
     () => resolvePublicImageUrl("http://user:pass@example.com/a.png"),
@@ -102,6 +109,45 @@ test("safe image fetch enforces type, size and redirect rules", async () => {
       () => fetchRemoteImage(target("/missing")),
       (error) => error instanceof SafeFetchError && error.code === "image_upstream_status",
     );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("safe image fetch destroys rejected upstreams and enforces a total deadline", async () => {
+  let rejectedClosed = false;
+  const trickleStarted = Date.now();
+  const server = http.createServer((req, res) => {
+    if (req.url === "/endless") {
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      const timer = setInterval(() => res.write("x"), 10);
+      res.on("close", () => { rejectedClosed = true; clearInterval(timer); });
+    } else if (req.url === "/trickle") {
+      res.writeHead(200, { "Content-Type": "image/png" });
+      const timer = setInterval(() => res.write("x"), 100);
+      res.on("close", () => clearInterval(timer));
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = server.address().port;
+  const target = (pathname) => ({ url: new URL(`http://127.0.0.1:${port}${pathname}`), addresses: ["127.0.0.1"] });
+  try {
+    await assert.rejects(
+      () => fetchRemoteImage(target("/endless")),
+      (error) => error instanceof SafeFetchError && error.code === "image_unsupported_type",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(rejectedClosed, true, "rejected upstream socket should be destroyed");
+    const started = Date.now();
+    await assert.rejects(
+      () => fetchRemoteImage(target("/trickle"), { timeoutMs: 400 }),
+      (error) => error instanceof SafeFetchError && error.code === "image_timeout",
+    );
+    assert.ok(Date.now() - started < 2000, "absolute deadline should fire");
+    assert.ok(Date.now() - trickleStarted >= 0);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

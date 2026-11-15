@@ -354,6 +354,8 @@ test("login page and protected routes", async () => {
   const page = await fetch(`${BASE}/login`);
   assert.equal(page.status, 200);
   assert.match(page.headers.get("content-security-policy"), /frame-ancestors 'none'/);
+  assert.match(page.headers.get("content-security-policy"), /img-src 'self' data:;/);
+  assert.doesNotMatch(page.headers.get("content-security-policy"), /img-src[^;]*https?:/);
   assert.equal(page.headers.get("x-frame-options"), "DENY");
   assert.match(page.headers.get("x-request-id"), /^req_/);
   assert.match(await page.text(), /name="totp"/);
@@ -1294,18 +1296,49 @@ test("MFA enable, login enforcement and setup staging", async () => {
     assert.equal((await login(ADMIN, ADMIN_PASSWORD)).status, 401);
     const withTotp = await login(ADMIN, ADMIN_PASSWORD, { totp: totp(secret) });
     assert.equal(withTotp.status, 303);
+    // Replacing MFA requires the current TOTP, not just the password.
+    const restageWithoutTotp = await op(adminSession, "/op/api/mfa/setup", { method: "POST", body: { password: ADMIN_PASSWORD } });
+    assert.equal(restageWithoutTotp.status, 403);
+    const disableWithoutTotp = await op(adminSession, "/op/api/mfa/disable", { method: "POST", body: { password: ADMIN_PASSWORD } });
+    assert.equal(disableWithoutTotp.status, 403);
     // Re-running setup must not disable the active secret.
-    const restage = await op(adminSession, "/op/api/mfa/setup", { method: "POST", body: { password: ADMIN_PASSWORD } });
+    const restage = await op(adminSession, "/op/api/mfa/setup", { method: "POST", body: { password: ADMIN_PASSWORD, totp: totp(secret) } });
     assert.equal(restage.status, 200);
     assert.equal((await login(ADMIN, ADMIN_PASSWORD)).status, 401);
     assert.equal((await login(ADMIN, ADMIN_PASSWORD, { totp: totp(secret) })).status, 303);
   } finally {
-    const disabled = await op(adminSession, "/op/api/mfa/disable", { method: "POST", body: { password: ADMIN_PASSWORD } });
+    const disabled = await op(adminSession, "/op/api/mfa/disable", { method: "POST", body: { password: ADMIN_PASSWORD, totp: totp(secret) } });
     assert.equal(disabled.status, 200);
   }
   assert.equal((await login(ADMIN, ADMIN_PASSWORD)).status, 303);
   // New logins can evict the oldest concurrent session; refresh the shared one.
   adminSession = await session(ADMIN, ADMIN_PASSWORD);
+});
+
+test("self password change requires the current password", async () => {
+  const withoutCurrent = await op(adminSession, `/op/api/users/${ADMIN}`, {
+    method: "PATCH",
+    body: { password: "new-admin-password-1" },
+  });
+  assert.equal(withoutCurrent.status, 400);
+  assert.equal((await withoutCurrent.json()).error.code, "current_password_required");
+  const wrongCurrent = await op(adminSession, `/op/api/users/${ADMIN}`, {
+    method: "PATCH",
+    body: { password: "new-admin-password-1", currentPassword: "wrong-password" },
+  });
+  assert.equal(wrongCurrent.status, 403);
+  // Other admins can still reset an account without the target's password.
+  const other = await op(adminSession, "/op/api/users", {
+    method: "POST",
+    body: { username: "reset-target", password: "reset-password-1", role: "operator" },
+  });
+  assert.equal(other.status, 201);
+  const reset = await op(adminSession, "/op/api/users/reset-target", {
+    method: "PATCH",
+    body: { password: "reset-password-2" },
+  });
+  assert.equal(reset.status, 200);
+  await op(adminSession, "/op/api/users/reset-target", { method: "DELETE" });
 });
 
 test("managed models constrain API keys and can be deleted safely", async () => {
@@ -2215,7 +2248,7 @@ test("active queue survives restart and an idempotent caller can reconnect", asy
     await sleep(500);
     server.kill("SIGKILL");
     await sleep(350);
-    server = spawnServer(persistProject, persistPort);
+    server = spawnServer(persistProject, persistPort, (chunk) => { serverLog += chunk; });
     await waitForHealth(origin);
     loginResponse = await fetch(`${origin}/auth/login`, {
       method: "POST",
@@ -3243,6 +3276,11 @@ test("request inspection is dry-run and ticket snapshots keep the raw protocol b
   assert.equal(detail.ticket.requestInspection.truncated, false);
   assert.ok(detail.ticket.requestParameters.some((row) => row.path === "model"));
   assert.ok(Array.isArray(detail.ticket.requestParameterWarnings));
+  const listedTickets = await opJson(adminSession, "/op/api/tickets");
+  const listedTicket = listedTickets.tickets.find((item) => item.id === ticket.id);
+  assert.ok(listedTicket);
+  assert.equal("requestInspection" in listedTicket, false);
+  assert.equal("requestParameters" in listedTicket, false);
   const reportJson = await op(adminSession, `/op/api/tickets/${ticket.id}/report?format=json`);
   assert.equal(reportJson.status, 200);
   assert.match(reportJson.headers.get("content-disposition"), /ngzr-request-.*\.json/);
@@ -3259,6 +3297,28 @@ test("request inspection is dry-run and ticket snapshots keep the raw protocol b
   await claim(adminSession, ticket.id);
   await finishJson(adminSession, ticket.id, { text: "inspect ok", finishReason: "stop" });
   assert.equal((await pending).status, 200);
+});
+
+test("request inspection caps parameter rows and rejects oversized bodies", async () => {
+  const many = { model: "human-1", messages: [{ role: "user", content: "cap" }] };
+  for (let index = 0; index < 1_500; index += 1) many[`unknown_${index}`] = index;
+  const capped = await fetch(`${BASE}/v1/inspect/openai`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${CALLER_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify(many),
+  });
+  assert.equal(capped.status, 200);
+  const cappedBody = await capped.json();
+  assert.equal(cappedBody.parametersTruncated, true);
+  assert.ok(cappedBody.parameters.length <= 257);
+  assert.ok(cappedBody.warnings.length <= 64);
+  assert.equal(cappedBody.bodyLimitBytes, 256 * 1024);
+  const oversized = await fetch(`${BASE}/v1/inspect/openai`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${CALLER_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "human-1", messages: [{ role: "user", content: "x".repeat(300 * 1024) }] }),
+  });
+  assert.equal(oversized.status, 413);
 });
 
 test("ticket replay, compatibility report and snapshot-view audit", async () => {
@@ -3284,6 +3344,24 @@ test("ticket replay, compatibility report and snapshot-view audit", async () => 
   assert.ok(replayAudit.events.some((event) => event.target === ticket.id));
   await claim(adminSession, ticket.id);
   await finishJson(adminSession, ticket.id, { text: "replay ok", finishReason: "stop" });
+  assert.equal((await pending).status, 200);
+});
+
+test("markdown report escapes injected table cells", async () => {
+  const tag = marker("MDREPORT");
+  const trickyKey = "bad|key\n\n[click](https://evil.example)";
+  const body = { model: "human-1", messages: [{ role: "user", content: tag }] };
+  body[trickyKey] = 1;
+  const pending = startChat(body);
+  const ticket = await waitForTicket((item) => item.messages.some((message) => message.content.includes(tag)));
+  const report = await op(adminSession, `/op/api/tickets/${ticket.id}/report?format=md`);
+  assert.equal(report.status, 200);
+  const text = await report.text();
+  assert.match(text, /bad\\\|key/);
+  assert.doesNotMatch(text, /\n\[click\]\(https:\/\/evil\.example\)\n/);
+  assert.ok(text.includes("evil.example"));
+  await claim(adminSession, ticket.id);
+  await finishJson(adminSession, ticket.id, { text: "md ok", finishReason: "stop" });
   assert.equal((await pending).status, 200);
 });
 

@@ -176,7 +176,7 @@ export function loadConfig(file = CONFIG_FILE) {
   }
 
   const host = stringAt(server, "host", "server.host", "0.0.0.0");
-  const port = integerAt(server, "port", "server.port", { fallback: 7355, min: 0, max: 65535 });
+  const port = integerAt(server, "port", "server.port", { fallback: 7355, min: 1, max: 65535 });
   const cookieSecureRaw = server.cookieSecure ?? "auto";
   if (!["auto", true, false].includes(cookieSecureRaw)) {
     throw new ConfigError('server.cookieSecure must be "auto", true, or false.');

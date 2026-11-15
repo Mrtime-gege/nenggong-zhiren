@@ -23,6 +23,32 @@ const FILE_VERSION = 1;
 const MAX_TICKETS = 1000;
 const MAX_IDEMPOTENCY = 1000;
 const ACTIVE_STATES = new Set(["queued", "claimed", "streaming", "finishing"]);
+const MAX_SNAPSHOT_RAW_CHARS = 256 * 1024;
+const MAX_SNAPSHOT_MESSAGE_CHARS = 512 * 1024;
+
+function snapshotInspection(inspection) {
+  if (!inspection) return null;
+  const raw = typeof inspection.raw === "string" ? inspection.raw : "";
+  if (raw.length <= MAX_SNAPSHOT_RAW_CHARS) return inspection;
+  return {
+    ...inspection,
+    raw: raw.slice(0, MAX_SNAPSHOT_RAW_CHARS),
+    truncated: true,
+    rawDropped: true,
+  };
+}
+
+function snapshotMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+  let budget = MAX_SNAPSHOT_MESSAGE_CHARS;
+  return messages.map((message) => {
+    if (!message || typeof message.content !== "string") return message;
+    if (budget <= 0) return { ...message, content: "[快照已截断]" };
+    const take = Math.min(message.content.length, budget);
+    budget -= take;
+    return take < message.content.length ? { ...message, content: `${message.content.slice(0, take)}…[truncated]` } : message;
+  });
+}
 
 function ticketSnapshot(ticket) {
   return {
@@ -33,7 +59,7 @@ function ticketSnapshot(ticket) {
     includeUsage: Boolean(ticket.includeUsage),
     createdAt: Number(ticket.created) || 0,
     createdSec: Number(ticket.createdSec) || 0,
-    messages: ticket.messages || [],
+    messages: snapshotMessages(ticket.messages || []),
     attachments: ticket.attachments || [],
     callerKey: ticket.callerKey,
     callerLabel: ticket.callerLabel,
@@ -55,7 +81,7 @@ function ticketSnapshot(ticket) {
     priority: Number.isInteger(ticket.priority) ? ticket.priority : 1,
     notes: ticket.notes || [],
     aiCards: Array.isArray(ticket.aiCards) ? ticket.aiCards.slice(-20) : [],
-    requestInspection: ticket.requestInspection || null,
+    requestInspection: snapshotInspection(ticket.requestInspection),
     reasoning: ticket.reasoning || "",
     refusal: ticket.refusal || null,
     clientUser: ticket.clientUser,

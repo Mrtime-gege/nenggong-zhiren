@@ -726,8 +726,10 @@ async function setupMfa() {
     return;
   }
   try {
-    const data = await api("/op/api/mfa/setup", { method: "POST", body: { password } });
+    const totp = $("mfaSetupTotp")?.value.trim() || "";
+    const data = await api("/op/api/mfa/setup", { method: "POST", body: { password, totp } });
     $("mfaSetupPassword").value = "";
+    if ($("mfaSetupTotp")) $("mfaSetupTotp").value = "";
     $("mfaSecret").textContent = data.secret;
     $("mfaUri").textContent = data.otpauth;
     $("mfaSetupBox").classList.remove("hidden");
@@ -759,13 +761,14 @@ async function disableMfa(event) {
   setError("mfaError");
   $("mfaDisableBtn").disabled = true;
   try {
-    await api("/op/api/mfa/disable", { method: "POST", body: { password: $("mfaPassword").value } });
+    await api("/op/api/mfa/disable", { method: "POST", body: { password: $("mfaPassword").value, totp: $("mfaDisableTotp")?.value.trim() || "" } });
     flashSaved("MFA 已关闭");
     $("mfaDisableBox").classList.add("hidden");
     $("mfaSetupBox").classList.add("hidden");
     $("mfaStatus").textContent = "未启用";
     $("mfaSetupBtn").classList.remove("hidden");
     $("mfaPassword").value = "";
+    if ($("mfaDisableTotp")) $("mfaDisableTotp").value = "";
   } catch (error) { setError("mfaError", error.message); }
   finally { $("mfaDisableBtn").disabled = false; }
 }
