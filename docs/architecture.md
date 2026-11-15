@@ -51,12 +51,13 @@
 - `src/protocol/request-parameters.mjs`：请求参数说明表；把原始字段映射到含义、处理方式、归一化字段、状态和字段级 diff，供检查接口、报告导出和票据详情复用。
 - `src/net/safe-fetch.mjs`：外链图片安全代理；DNS 解析后拒绝私网地址，不跟随重定向，限制类型、大小和超时。
 - `src/runtime-state.mjs`：重启状态文件读写；记录请求时间、旧/新 PID 和健康检查结果。
+- 管理员操作接口：`POST /op/api/environment/install` 只接受 `pillow` / `pypdfium2`，固定执行 pip，要求 `confirm: "INSTALL"`，写 `environment.install` 审计。
 - `public/hub.html` + `navigation.js`：一级导航和概览/记录/管理 Hub；二级页面通过同源 iframe 复用。
 - `public/login.*`：双栏登录页；TOTP 输入过滤/进度、Caps Lock 提示、加载态、指针光晕和 `Ctrl/Cmd+Enter` 提交。
 - `public/settings.html`、`settings-operator.html`：设置页；快捷栏支持拖动手柄/方向键排序、新增项底部提示和恢复默认。
 - `public/status.html`、`environment.html`、`usage.html`、`history.html`、`audit.html`、`users.html`、`models.html`、`keys.html`：旧管理页面，保留为 Hub 的嵌入页面和兼容入口。
 - `scripts/user.mjs`：账号 CLI。
-- `src/environment.mjs`：管理员环境页的受限能力探测，只检查配置路径和已知 Python 模块。
+- `src/environment.mjs`：管理员环境页的受限能力探测，只检查配置路径和已知 Python 模块；同时返回 Pillow、pypdfium2 和 worker 脚本的安装地址与命令。
 - `test/provider.test.mjs`：服务端、票据、数据和 UI 静态回归。
 - `test/ai-relay.test.mjs`：AI relay、协议转发、流式、工具和诊断的纯单元测试。
 - `test/data-units.test.mjs`：API key、用量配额、设置、模型、审计、附件和 JSONC。

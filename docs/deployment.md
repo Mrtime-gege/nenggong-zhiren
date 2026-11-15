@@ -75,6 +75,18 @@ Restart-Service iphlpsvc
 - pypdfium2：<https://pypi.org/project/pypdfium2/>
 - worker 脚本：<https://github.com/Mrtime-gege/nenggong-zhiren/tree/main/scripts>
 
+页面上的「安装依赖」会以服务账号运行 `python -m pip install --user <包名>`；venv 不允许
+`--user` 时会回退到当前环境。systemd 的 `ProtectHome=true` 可能让 `--user` 安装结果不可读，
+此时建议：
+
+```bash
+python3 -m venv /opt/nenggong-zhiren/.venv
+/opt/nenggong-zhiren/.venv/bin/pip install Pillow pypdfium2
+```
+
+然后把 `workers.python` 改成 `/opt/nenggong-zhiren/.venv/bin/python`，或在 unit 中设置
+`PATH`/`PYTHONPATH`。安装来源遵循本机 pip 配置；生产环境应使用可信索引或离线镜像。
+
 ```jsonc
 "workers": {
   "python": "python3",
