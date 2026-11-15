@@ -168,3 +168,12 @@ test("example config has no removed AI usage file and package stays dependency-f
   assert.equal(pkg.dependencies, undefined);
   assert.equal(pkg.devDependencies, undefined);
 });
+
+test("API key form exposes file concurrency limits", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/keys.html"), "utf8");
+  const script = fs.readFileSync(path.join(ROOT, "public/admin-keys.js"), "utf8");
+  assert.match(html, /id="newKeyUploadConcurrency"/);
+  assert.match(html, /id="newKeyDownloadConcurrency"/);
+  assert.match(script, /maxUploadConcurrency/);
+  assert.match(script, /maxDownloadConcurrency/);
+});

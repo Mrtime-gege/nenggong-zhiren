@@ -2706,8 +2706,9 @@ async function handleFileUpload(req, res) {
     throw new ApiError(404, "Attachments are disabled.", "invalid_request_error", "attachments_disabled");
   }
   const caller = authenticateCaller(req);
+  const uploadPerKey = Math.min(4, Math.max(1, Number(caller.limits?.maxUploadConcurrency) || 2));
   const release = acquireKeyedSlot(uploadByKey, caller.key, {
-    perKey: 2,
+    perKey: uploadPerKey,
     globalMax: 4,
     current: () => uploadActive,
     bump: (delta) => { uploadActive = Math.max(0, uploadActive + delta); },
@@ -2842,8 +2843,9 @@ async function handleFileApi(req, res, url) {
     throw attachmentError(error);
   }
   if (match[2]) {
+    const downloadPerKey = Math.min(4, Math.max(1, Number(caller.limits?.maxDownloadConcurrency) || 2));
     const release = acquireKeyedSlot(downloadByKey, caller.key, {
-      perKey: 2,
+      perKey: downloadPerKey,
       globalMax: 4,
       current: () => downloadActive,
       bump: (delta) => { downloadActive = Math.max(0, downloadActive + delta); },

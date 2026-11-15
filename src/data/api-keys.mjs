@@ -51,6 +51,8 @@ function normalizeLimits(raw = {}) {
     requestsPerDay: normalizeLimit(raw.requestsPerDay ?? raw.perDay),
     requestsPerMonth: normalizeLimit(raw.requestsPerMonth ?? raw.perMonth),
     maxConcurrent: normalizeLimit(raw.maxConcurrent),
+    maxUploadConcurrency: normalizeLimit(raw.maxUploadConcurrency),
+    maxDownloadConcurrency: normalizeLimit(raw.maxDownloadConcurrency),
   };
 }
 

@@ -122,6 +122,7 @@ function quotaText(key) {
     `${Number(limits.requestsPerDay) || "不限"}/日`,
     `${Number(limits.requestsPerMonth) || "不限"}/月`,
     `并发 ${Number(limits.maxConcurrent) || "继承"}`,
+    `上传 ${Number(limits.maxUploadConcurrency) || "默认"}/下载 ${Number(limits.maxDownloadConcurrency) || "默认"}`,
   ].join(" · ");
 }
 
@@ -248,6 +249,8 @@ function fillForm(key) {
   $("newKeyPerDay").value = limits.requestsPerDay || 0;
   $("newKeyPerMonth").value = limits.requestsPerMonth || 0;
   $("newKeyConcurrent").value = limits.maxConcurrent || 0;
+  $("newKeyUploadConcurrency").value = limits.maxUploadConcurrency || 0;
+  $("newKeyDownloadConcurrency").value = limits.maxDownloadConcurrency || 0;
   const allowed = Array.isArray(key.allowedModels) ? key.allowedModels : [];
   selectedModels = new Set(allowed.filter((model) => availableModels.includes(model)));
   $("newKeyCustomModels").value = allowed.filter((model) => !availableModels.includes(model)).join(", ");
@@ -373,6 +376,8 @@ function limitsForm() {
     requestsPerDay: Number($("newKeyPerDay").value) || 0,
     requestsPerMonth: Number($("newKeyPerMonth").value) || 0,
     maxConcurrent: Number($("newKeyConcurrent").value) || 0,
+    maxUploadConcurrency: Number($("newKeyUploadConcurrency").value) || 0,
+    maxDownloadConcurrency: Number($("newKeyDownloadConcurrency").value) || 0,
   };
 }
 

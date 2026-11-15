@@ -259,7 +259,8 @@ node scripts/user.mjs remove alice
 - 不要使用示例 key、默认 key 或团队成员共用的 key 上生产。
 - 轮换：在网页「API 密钥」创建新密钥，通知调用方切换，再停用旧密钥。
 - key 会以掩码形式出现在启动日志，不会完整打印。
-- 每个 key 的并发上限是 `limits.maxConcurrentPerKey`，不是全局并发数。
+- 每个 key 的票据并发由密钥的 `limits.maxConcurrent` 指定，未设置时继承 `limits.maxConcurrentPerKey`；它不是全局并发数。
+- 每个 key 的上传/下载并发由 `limits.maxUploadConcurrency` / `limits.maxDownloadConcurrency` 指定，默认 2，单进程全局上限 4；上传前会按 `Content-Length` 预检每日配额。
 
 ## 5. DSH
 
@@ -332,20 +333,22 @@ journalctl -u nenggong-zhiren -f
 
 - 备份 `users.json`（密码哈希/角色/MFA 状态，按敏感文件处理）；
 - 备份 `api-keys.json`（密钥哈希、配额、过期时间）；
-- 备份 `state.db`（活动票据、认领、SSE 日志和幂等记录）、`history.db`（历史索引）、`usage.json`、`settings.json`、`models.json`、`templates.json`、`audit.log`；
+- 备份 `state.db`（活动票据、认领、SSE 日志和幂等记录；原始快照最多 256 KiB、消息正文最多 512 KiB）、`history.db`（历史索引）、`usage.json`、`settings.json`、`models.json`、`templates.json`、`audit.log`；
 - 备份 `attachments/`（原件和元数据；按敏感数据保护，权限 0700/0600）；
 - SQLite 可用时 `state.json` 只是旧版迁移来源；重启后活动队列从 `state.db` 恢复，调用方可凭 `Idempotency-Key` 重连；
 - 登录会话、CSRF token 和限速计数仍在内存，重启后需重新登录；
+- `restart-status.json` 只记录最近一次重启的请求/就绪/失败时间和 PID，可选备份；
 - 恢复账号/密钥文件后重启，或让用户文件热重载生效（会清空受影响账号的会话）。
 
 ## 8. 服务控制
 
 管理员可以在「设置 → 系统信息」查看 PID、运行时长、Node 版本、监听地址、内存和票据状态，并执行重启、结束服务和复制诊断信息。
 
-- 重启会启动一个延迟绑定的新进程，再退出旧进程；连接会短暂中断，适合重新加载代码和配置；
+- 重启会启动一个延迟绑定的新进程；旧进程按 TLS/host 和实际端口探测 `/healthz`，20 秒内未就绪会记录失败并回滚旧监听；连接会短暂中断；
 - 结束服务只停止当前进程，不会自动拉起；
 - 生产环境应由 systemd、Docker 或其他进程管理器托管，避免只依赖页面按钮；
-- 两种操作都需要管理员会话和 CSRF token，并写入审计日志。
+- 两种操作都需要管理员会话和 CSRF token，并写入审计日志；
+- 重启探针支持 HTTPS 和非回环绑定；失败时旧进程尝试重新监听，避免直接停机。
 
 ## 9. 端口与网络
 

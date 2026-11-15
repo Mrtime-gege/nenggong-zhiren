@@ -62,7 +62,7 @@
 - `test/data-units.test.mjs`：API key、用量配额、设置、模型、审计、附件和 JSONC。
 - `test/ai-helpers.test.mjs`、`test/attachment-branches.test.mjs`、`test/core-helpers.test.mjs`：上下文裁剪、附件分支、文本工具和状态快照。
 - `test/ai-errors.test.mjs`：AI 配置/上游/工具契约错误分支。
-- 两类测试共享 `npm test`，当前共 143 个用例。
+- 两类测试共享 `npm test`，当前共 144 个用例。
 
 ## 请求生命周期
 
@@ -96,6 +96,9 @@ queued ──claim──► claimed ──chunk/finish──► streaming ──
 ## 并发与资源
 
 - 每个调用方 key 最多 `limits.maxConcurrentPerKey` 个未完成票据。
+- 上传/下载并发按密钥配置：`limits.maxUploadConcurrency` / `limits.maxDownloadConcurrency`，未配置默认 2，单进程全局上限 4；上传在读取 body 前按 `Content-Length` 预检每日配额。
+- `/v1/inspect/*` 使用同一并发槽，请求体上限 256 KiB，参数行最多 256、警告最多 64；票据列表不返回原始快照。
+- 实时票据最多 1000 张，票据估算总量最多 256 MiB；状态快照中的原始请求最多保留 256 KiB、消息正文最多保留 512 KiB。
 - 等待超时来自 `config.jsonc` 的 `queue.waitTimeoutMs`；接单后超时来自 `queue.responseTimeoutMs`。
 - 每个票据的 SSE 发送串行化，避免并发写乱序。
 - 心跳每 15 秒，防止反代把长连接当空闲连接断开。
@@ -147,8 +150,8 @@ queued ──claim──► claimed ──chunk/finish──► streaming ──
 6. 会话右侧浮动滚动条不得覆盖消息操作按钮；上下文面板原生滚动条使用稳定 gutter；
 7. 可滚动会话的右侧缩略图保持显示，无可滚动内容时隐藏；
 8. 「记录 → 请求检查」可打开结构图、折叠 JSON、字段跳转、参数说明，并能从票据自动筛选同会话；
-9. 重启由旧进程做健康探针：新进程 20 秒内未通过 `/healthz` 时写入失败状态并退出，状态可在系统信息中查看；
-9. 「设置 → 系统信息」的刷新、诊断复制和重启/结束服务按钮可用，生命周期操作有确认和审计。
+9. 重启由旧进程按 TLS/host/实际端口探测 `/healthz` 并校验服务名；20 秒内未通过时写入 `restart-status.json` 并回滚旧监听；
+10. 「设置 → 系统信息」的刷新、诊断复制和重启/结束服务按钮可用，生命周期操作有确认和审计。
 
 自动化命令：
 

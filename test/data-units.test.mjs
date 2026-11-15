@@ -26,9 +26,11 @@ test("ApiKeyStore creates, authenticates, rotates and persists without plaintext
   let now = 1_700_000_000_000;
   const store = new ApiKeyStore({ file: file("keys.json"), now: () => now, usageFlushMs: 60_000, logger: { log() {}, error() {} } }).init();
   try {
-    const created = store.create({ name: "演示", limits: { requestsPerMinute: 2, maxConcurrent: 3 }, allowedModels: ["human-1"], expiresAt: now + 60_000 });
+    const created = store.create({ name: "演示", limits: { requestsPerMinute: 2, maxConcurrent: 3, maxUploadConcurrency: 3, maxDownloadConcurrency: 1 }, allowedModels: ["human-1"], expiresAt: now + 60_000 });
     assert.match(created.token, new RegExp(`^${KEY_PREFIX}`));
     assert.equal(created.record.hint.includes(created.token), false);
+    assert.equal(created.record.limits.maxUploadConcurrency, 3);
+    assert.equal(created.record.limits.maxDownloadConcurrency, 1);
     assert.equal(store.list().length, 1);
     assert.equal(JSON.stringify(store.list()).includes(created.token), false);
     assert.equal(fs.readFileSync(file("keys.json"), "utf8").includes(created.token), false);
@@ -50,6 +52,8 @@ test("ApiKeyStore creates, authenticates, rotates and persists without plaintext
     try {
       assert.equal(reloaded.list().length, 1);
       assert.equal(reloaded.authenticate(rotated.token).id, created.record.id);
+      assert.equal(reloaded.list()[0].limits.maxUploadConcurrency, 3);
+      assert.equal(reloaded.list()[0].limits.maxDownloadConcurrency, 1);
     } finally {
       reloaded.close();
     }

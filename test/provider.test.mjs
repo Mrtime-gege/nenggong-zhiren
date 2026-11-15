@@ -1642,12 +1642,14 @@ test("per-key RPM quota and model scope", async () => {
     method: "POST",
     body: {
       name: "限额测试",
-      limits: { requestsPerMinute: 2, requestsPerDay: 2, requestsPerMonth: 2, maxConcurrent: 1 },
+      limits: { requestsPerMinute: 2, requestsPerDay: 2, requestsPerMonth: 2, maxConcurrent: 1, maxUploadConcurrency: 1, maxDownloadConcurrency: 4 },
       allowedModels: ["human-1"],
     },
   });
   assert.equal(limitedResponse.status, 201);
   const limited = await limitedResponse.json();
+  assert.equal(limited.record.limits.maxUploadConcurrency, 1);
+  assert.equal(limited.record.limits.maxDownloadConcurrency, 4);
   const auth = { "x-api-key": limited.key };
   assert.equal(await fetch(`${BASE}/v1/models`, { headers: auth }).then((r) => r.status), 200);
   assert.equal(await fetch(`${BASE}/v1/models`, { headers: auth }).then((r) => r.status), 200);
