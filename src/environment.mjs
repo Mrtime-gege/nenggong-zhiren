@@ -45,6 +45,13 @@ function cleanMessage(value) {
     .slice(0, 240);
 }
 
+function probeError(error) {
+  const raw = String(error?.stderr || error?.message || "").trim();
+  const last = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).at(-1) || "";
+  if (/ModuleNotFoundError|No module named/i.test(last)) return "未安装";
+  return cleanMessage(last || "不可用").slice(0, 240);
+}
+
 async function runPython(python, args, timeoutMs) {
   try {
     const { stdout, stderr } = await execFileAsync(python, args, {
@@ -55,7 +62,7 @@ async function runPython(python, args, timeoutMs) {
     });
     return { ok: true, version: cleanMessage(`${stdout || ""} ${stderr || ""}`) };
   } catch (error) {
-    return { ok: false, version: "", error: cleanMessage(error.stderr || error.message) };
+    return { ok: false, version: "", error: probeError(error) };
   }
 }
 
@@ -78,7 +85,6 @@ function installInfo(python) {
     image: {
       package: "Pillow",
       command: `${python} -m venv .venv && ${venvPip} install Pillow`,
-      systemCommand: `${python} -m pip install --break-system-packages Pillow`,
       uninstallCommand: `${venvPip} uninstall -y Pillow`,
       pypi: "https://pypi.org/project/Pillow/",
       project: "https://github.com/python-pillow/Pillow",
@@ -88,7 +94,6 @@ function installInfo(python) {
     pdf: {
       package: "pypdfium2",
       command: `${python} -m venv .venv && ${venvPip} install pypdfium2`,
-      systemCommand: `${python} -m pip install --break-system-packages pypdfium2`,
       uninstallCommand: `${venvPip} uninstall -y pypdfium2`,
       pypi: "https://pypi.org/project/pypdfium2/",
       project: "https://github.com/pypdfium2-team/pypdfium2",
@@ -103,9 +108,12 @@ function installInfo(python) {
 }
 
 export async function probeEnvironment(config = {}) {
-  const python = String(config.python || "python3").trim() || "python3";
+  const python = String(config.python || "").trim();
+  const basePython = String(config.basePython || config.python || "python3").trim() || "python3";
   const timeoutMs = Math.max(250, Math.min(30_000, Number(config.probeTimeoutMs) || 2500));
-  const pythonInfo = await runPython(python, ["--version"], timeoutMs);
+  const pythonInfo = python
+    ? await runPython(python, ["--version"], timeoutMs)
+    : { ok: false, version: "", error: config.external ? "外部解释器未配置" : "未创建项目 .venv" };
   const sqlite = sqliteAvailable();
   const image = fileState(config.imageWorker);
   const pdf = fileState(config.pdfWorker);
@@ -113,10 +121,10 @@ export async function probeEnvironment(config = {}) {
   // still report and uninstall an installed-but-unused dependency.
   const pil = pythonInfo.ok
     ? await moduleProbe(python, "PIL", timeoutMs)
-    : { available: false, version: "", error: "python unavailable" };
+    : { available: false, version: "", error: pythonInfo.error || "未安装" };
   const pdfium = pythonInfo.ok
     ? await moduleProbe(python, "pypdfium2", timeoutMs)
-    : { available: false, version: "", error: "python unavailable" };
+    : { available: false, version: "", error: pythonInfo.error || "未安装" };
 
   return {
     ok: true,
@@ -129,8 +137,11 @@ export async function probeEnvironment(config = {}) {
     },
     workers: {
       python: {
-        configured: true,
+        configured: Boolean(python),
         executable: python,
+        base: basePython,
+        external: Boolean(config.external),
+        managed: !config.external,
         available: pythonInfo.ok,
         version: pythonInfo.version,
         error: pythonInfo.error || "",
@@ -157,6 +168,6 @@ export async function probeEnvironment(config = {}) {
       pdfPagePreview: Boolean(pythonInfo.ok && pdf.exists && pdfium.available),
       historyIndex: sqlite,
     },
-    install: installInfo(python),
+    install: installInfo(basePython),
   };
 }

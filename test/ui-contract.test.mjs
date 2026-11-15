@@ -189,4 +189,7 @@ test("environment page exposes optional dependency install controls", () => {
   assert.match(script, /卸载依赖/);
   assert.match(script, /pypi/);
   assert.match(script, /info\.project/);
+  assert.match(html, /id="externalPythonPath"/);
+  assert.match(html, /使用已有 Python 环境/);
+  assert.match(script, /environment\/external/);
 });

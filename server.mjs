@@ -137,6 +137,7 @@ const settingsStore = new SettingsStore({
       bodyLimitBytes: config.bodyLimitBytes,
     },
     features: { ...config.features },
+    workers: { externalPython: config.workers.externalPython || "" },
     aiAssist: {
       enabled: false,
       endpoint: "",
@@ -2779,14 +2780,15 @@ async function handleFileUploadInner(req, res, caller) {
     throw new ApiError(400, "A filename is required (X-Filename header or multipart filename).", "invalid_request_error", "missing_filename");
   }
   const ownerHash = createHash("sha256").update(caller.key).digest("hex");
+  const imagePython = resolvedWorkerPython();
   if (config.workers.imageWorker && existsSync(config.workers.imageWorker) &&
-      config.attachments.reencodeImages !== false && attachments.looksLikeImage(content) &&
+      imagePython && config.attachments.reencodeImages !== false && attachments.looksLikeImage(content) &&
       imageWorkerActive < 2) {
     imageWorkerActive += 1;
     try {
       const normalized = await normalizeImageBuffer(content, {
         script: config.workers.imageWorker,
-        python: resolvedWorkerPython(),
+        python: imagePython,
         maxBytes: config.attachments.maxBytes,
       });
       const stem = filename.replace(/\.[^.]+$/, "") || "image";
@@ -3280,13 +3282,26 @@ function workerVenvPip() {
 
 // Optional Python packages live in the project venv when it is ready; the
 // configured interpreter remains the base used to create/repair that venv.
+function externalWorkerPython() {
+  // live settings always start from config, so an explicit clear must stay cleared.
+  return String(live.workers?.externalPython || "").trim();
+}
+
 function resolvedWorkerPython() {
+  const external = externalWorkerPython();
+  if (external) return external;
   const venv = workerVenvPython();
-  return venv && workerVenvPip() ? venv : config.workers.python;
+  return venv && workerVenvPip() ? venv : "";
 }
 
 function workerRuntimeConfig() {
-  return { ...config.workers, python: resolvedWorkerPython() };
+  const external = externalWorkerPython();
+  return {
+    ...config.workers,
+    python: resolvedWorkerPython(),
+    basePython: config.workers.python,
+    external: Boolean(external),
+  };
 }
 
 function runCommand(command, args, { timeoutMs = 180_000 } = {}) {
@@ -3362,18 +3377,6 @@ function runPipUninstall(python, packageName, { timeoutMs = 120_000 } = {}) {
     child.on("error", (error) => { clearTimeout(timer); resolve({ code: 1, stdout, stderr: `${stderr}${error.message}`, timedOut }); });
     child.on("close", (code) => { clearTimeout(timer); resolve({ code: code ?? 1, stdout, stderr, timedOut }); });
   });
-}
-
-function runPipInstallSystem(python, packageName, options = {}) {
-  return runCommand(
-    python,
-    ["-m", "pip", "install", "--break-system-packages", "--disable-pip-version-check", packageName],
-    options,
-  );
-}
-
-function runPipUninstallSystem(python, packageName, options = {}) {
-  return runCommand(python, ["-m", "pip", "uninstall", "-y", "--break-system-packages", packageName], options);
 }
 
 function verifyAdminStepUp(session, req, password, { totp = "", requireMfa = false } = {}) {
@@ -3514,9 +3517,11 @@ async function handleOperator(req, res, url, session) {
       pdfRenderActive += 1;
       let rendered;
       try {
+        const pdfPython = resolvedWorkerPython();
+        if (!pdfPython) throw new Error("worker venv is not ready");
         rendered = await renderPdfPageBuffer(attachments.readBlob(fileId).buffer, page, {
           script: config.workers.pdfWorker,
-          python: resolvedWorkerPython(),
+          python: pdfPython,
         });
       } catch (error) {
         throw new ApiError(503, "PDF 页图预览不可用，请下载原文件或查看文字预览。", "server_error", "pdf_preview_unavailable");
@@ -4279,6 +4284,49 @@ async function handleOperator(req, res, url, session) {
     return sendJson(res, 200, await probeEnvironment(workerRuntimeConfig()));
   }
 
+  if (pathname === "/op/api/environment/external") {
+    requireAdmin(session);
+    if (req.method !== "POST") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
+    const requested = String(body.path || "").trim();
+    if (requested === "") {
+      if (body.confirm !== "CLEAR") {
+        throw new ApiError(400, "Type CLEAR to confirm this action.", "invalid_request_error", "confirmation_required");
+      }
+      settingsStore.update({ workers: { externalPython: "" } });
+      audit.append({ actor: session.username, action: "environment.external", target: "clear", ip: clientIp(req) });
+      return sendJson(res, 200, { ok: true, externalPython: "", probe: await probeEnvironment(workerRuntimeConfig()) });
+    }
+    if (body.confirm !== "USE") {
+      throw new ApiError(400, "Type USE to confirm this action.", "invalid_request_error", "confirmation_required");
+    }
+    let candidate = path.isAbsolute(requested) ? requested : path.resolve(ROOT, requested);
+    try {
+      if (fs.statSync(candidate).isDirectory()) {
+        const nested = process.platform === "win32"
+          ? path.join(candidate, "Scripts", "python.exe")
+          : path.join(candidate, "bin", "python");
+        candidate = nested;
+      }
+      if (!fs.statSync(candidate).isFile()) {
+        throw new Error("not a file");
+      }
+    } catch {
+      throw new ApiError(400, "指定的 Python 路径不存在或不是可执行文件。", "invalid_request_error", "invalid_python_path");
+    }
+    const probe = await probeEnvironment({
+      ...workerRuntimeConfig(),
+      python: candidate,
+      external: true,
+      basePython: config.workers.python,
+    });
+    if (!probe.workers.python.available) {
+      throw new ApiError(400, `无法执行指定的 Python：${probe.workers.python.error || candidate}`, "invalid_request_error", "invalid_python_path");
+    }
+    settingsStore.update({ workers: { externalPython: candidate } });
+    audit.append({ actor: session.username, action: "environment.external", target: candidate, ip: clientIp(req) });
+    return sendJson(res, 200, { ok: true, externalPython: candidate, probe });
+  }
+
   if (pathname === "/op/api/environment/install") {
     requireAdmin(session);
     if (req.method !== "POST") throw new ApiError(405, "Method not allowed.", "invalid_request_error", "method_not_allowed");
@@ -4290,51 +4338,45 @@ async function handleOperator(req, res, url, session) {
     if (!packageName) {
       throw new ApiError(400, "component must be pillow or pypdfium2.", "invalid_request_error", "invalid_component");
     }
-    const mode = body.mode === "system" ? "system" : "venv";
+    if (externalWorkerPython()) {
+      throw new ApiError(409, "当前使用用户指定的外部 Python 环境，请在该环境中手工安装。", "invalid_request_error", "external_python_configured");
+    }
     if (environmentInstallPending) {
       throw new ApiError(409, "Another optional dependency operation is already running.", "invalid_request_error", "install_pending");
     }
     environmentInstallPending = true;
     try {
-      const basePython = String(config.workers?.python || "python3").trim() || "python3";
-      let python = basePython;
-      let setup = null;
-      let result;
-      if (mode === "system") {
-        result = await runPipInstallSystem(basePython, packageName);
-      } else {
-        setup = await ensureWorkerVenv();
-        if (!setup.ok) {
-          audit.append({
-            actor: session.username,
-            action: "environment.install",
-            target: component,
-            ip: clientIp(req),
-            detail: "venv_failed",
-          });
-          const probe = await probeEnvironment(workerRuntimeConfig());
-          return sendJson(res, 200, {
-            ok: false,
-            stage: "venv",
-            component,
-            package: packageName,
-            mode,
-            exitCode: 1,
-            hint: setup.hint,
-            stdout: String(setup.stdout || "").slice(-8_000),
-            stderr: String(setup.stderr || "").slice(-8_000),
-            probe,
-          });
-        }
-        python = setup.python;
-        result = await runPipInstallWithoutUser(python, packageName);
+      const setup = await ensureWorkerVenv();
+      if (!setup.ok) {
+        audit.append({
+          actor: session.username,
+          action: "environment.install",
+          target: component,
+          ip: clientIp(req),
+          detail: "venv_failed",
+        });
+        const probe = await probeEnvironment(workerRuntimeConfig());
+        return sendJson(res, 200, {
+          ok: false,
+          stage: "venv",
+          component,
+          package: packageName,
+          mode: "venv",
+          exitCode: 1,
+          hint: setup.hint,
+          stdout: String(setup.stdout || "").slice(-8_000),
+          stderr: String(setup.stderr || "").slice(-8_000),
+          probe,
+        });
       }
+      const python = setup.python;
+      const result = await runPipInstallWithoutUser(python, packageName);
       audit.append({
         actor: session.username,
         action: "environment.install",
         target: component,
         ip: clientIp(req),
-        detail: `${mode} exit=${result.code}${result.timedOut ? " timeout" : ""}`,
+        detail: `venv exit=${result.code}${result.timedOut ? " timeout" : ""}`,
       });
       const probe = await probeEnvironment(workerRuntimeConfig());
       return sendJson(res, 200, {
@@ -4342,11 +4384,11 @@ async function handleOperator(req, res, url, session) {
         stage: "install",
         component,
         package: packageName,
-        mode,
+        mode: "venv",
         python,
         exitCode: result.code,
         timedOut: result.timedOut,
-        hint: result.code === 0 ? "" : "安装失败；可检查 pip 输出，或使用模式 system（--break-system-packages）。",
+        hint: result.code === 0 ? "" : "安装失败；请检查 pip 输出。",
         stdout: String(result.stdout || "").slice(-8_000),
         stderr: String(result.stderr || "").slice(-8_000),
         probe,
@@ -4367,25 +4409,25 @@ async function handleOperator(req, res, url, session) {
     if (!packageName) {
       throw new ApiError(400, "component must be pillow or pypdfium2.", "invalid_request_error", "invalid_component");
     }
+    if (externalWorkerPython()) {
+      throw new ApiError(409, "当前使用用户指定的外部 Python 环境，请在该环境中手工卸载。", "invalid_request_error", "external_python_configured");
+    }
     if (environmentInstallPending) {
       throw new ApiError(409, "Another optional dependency operation is already running.", "invalid_request_error", "install_pending");
     }
     environmentInstallPending = true;
     try {
-      const basePython = String(config.workers?.python || "python3").trim() || "python3";
-      const python = resolvedWorkerPython();
-      let mode = workerVenvPip() ? "venv" : "system";
-      let result = await runPipUninstall(python, packageName);
-      if (result.code !== 0 && /externally-managed-environment/i.test(result.stderr)) {
-        result = await runPipUninstallSystem(python, packageName);
-        mode = "system";
+      if (!workerVenvPip()) {
+        throw new ApiError(409, "项目虚拟环境尚未创建；请先安装依赖或配置外部 Python 环境。", "invalid_request_error", "venv_not_ready");
       }
+      const python = workerVenvPython();
+      const result = await runPipUninstall(python, packageName);
       audit.append({
         actor: session.username,
         action: "environment.uninstall",
         target: component,
         ip: clientIp(req),
-        detail: `${mode} exit=${result.code}${result.timedOut ? " timeout" : ""}`,
+        detail: `venv exit=${result.code}${result.timedOut ? " timeout" : ""}`,
       });
       const probe = await probeEnvironment(workerRuntimeConfig());
       return sendJson(res, 200, {
@@ -4393,7 +4435,7 @@ async function handleOperator(req, res, url, session) {
         stage: "uninstall",
         component,
         package: packageName,
-        mode,
+        mode: "venv",
         python,
         exitCode: result.code,
         timedOut: result.timedOut,

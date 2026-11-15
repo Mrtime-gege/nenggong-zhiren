@@ -181,6 +181,9 @@ test("SettingsStore validates, serializes and drops legacy AI limit fields", () 
   const store = new SettingsStore({ file: file("settings.json"), defaults, logger: { error() {} } }).init();
   try {
     assert.equal(store.get().aiAssist.enabled, false);
+    assert.equal(store.get().workers.externalPython, "");
+    store.update({ workers: { externalPython: "/opt/example/python" } });
+    assert.equal(store.get().workers.externalPython, "/opt/example/python");
     const updated = store.update({ aiAssist: { enabled: true, maxConcurrent: 3 }, features: { publicGuide: false } });
     assert.equal(updated.aiAssist.enabled, true);
     assert.equal(updated.aiAssist.maxConcurrent, 3);

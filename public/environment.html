@@ -38,6 +38,18 @@
         <div class="admin-card-title">可选功能 <span id="optionalSummary" class="admin-hint">探测中…</span></div>
         <p class="admin-card-desc">图片重编码和 PDF 页图需要 Python 依赖与 worker 脚本；历史索引使用 Node 内置 SQLite。安装/卸载以服务账号执行，并写入审计。</p>
         <div id="optionalGrid" class="optional-grid"></div>
+        <div class="optional-external">
+          <div class="optional-external-copy">
+            <strong>使用已有 Python 环境</strong>
+            <span id="externalState" class="admin-hint">当前：项目 .venv</span>
+          </div>
+          <div class="optional-external-form">
+            <input id="externalPythonPath" type="text" spellcheck="false" placeholder="/path/to/venv/bin/python 或环境目录" />
+            <button id="useExternalPython" class="btn" type="button">检测并使用</button>
+            <button id="clearExternalPython" class="btn ghost" type="button">恢复项目 .venv</button>
+          </div>
+          <p class="admin-card-desc">默认只读取项目 <code>.venv</code>；只有在这里手动指定并检测通过后，才会使用外部 Python 环境，且安装/卸载仍只作用于项目 <code>.venv</code>。</p>
+        </div>
         <div class="optional-console">
           <div class="optional-console-head">
             <span>安装输出</span>

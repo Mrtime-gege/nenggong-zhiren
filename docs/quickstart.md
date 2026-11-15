@@ -108,8 +108,8 @@ npm start
   pypdfium2 <https://pypi.org/project/pypdfium2/>（原项目 <https://github.com/pypdfium2-team/pypdfium2>）、
   worker 脚本 <https://github.com/Mrtime-gege/nenggong-zhiren/tree/main/scripts>；
   页面安装优先创建项目 `.venv`（需要 `python3-venv`，Kali/Debian 可执行 `sudo apt install python3-venv`），
-  不会直接修改系统 Python；venv 无法创建时会询问是否改用 `--break-system-packages`；
-  同一页面也可以卸载依赖；
+  不会直接修改系统 Python，也不会自动回退到系统 pip；同一页面也可以卸载依赖；
+  如已有隔离环境，可在「使用已有 Python 环境」填入解释器或目录，检测通过后使用；
 - 修改后重启服务，然后在管理员「环境」页查看探测结果。
 
 这两个 Python 脚本不随服务自带，如要从其他目录使用，手动配置绝对路径即可。

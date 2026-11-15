@@ -198,7 +198,10 @@
     // 默认值指向项目内的 scripts/ 目录。发布包默认不包含这两个脚本；
     // 缺少脚本时会自动跳过图片重编码，PDF 页图预览显示不可用。
     // 也可以改成外部绝对路径，或在环境页查看实际探测结果。
+    // 可选依赖只安装到项目 .venv；python 仅作为创建/修复 venv 的基础解释器。
+    // 如果已有隔离环境，可填 Python 可执行文件或环境目录；环境页也可手动选择。
     "python": "python3",
+    "externalPython": "",
     "imageWorker": "scripts/normalize-image.py",
     "pdfWorker": "scripts/render-pdf-page.py",
     // 探测子进程的最长等待时间，单位毫秒。

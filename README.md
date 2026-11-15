@@ -17,7 +17,7 @@
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-9ad7b4" /></a>
   <a href="https://nodejs.org/"><img alt="node" src="https://img.shields.io/badge/node-%3E%3D20-5fa04e" /></a>
   <img alt="dependencies" src="https://img.shields.io/badge/runtime_dependencies-0-c28a5a" />
-  <img alt="tests" src="https://img.shields.io/badge/tests-145%20passing-b084f0" />
+  <img alt="tests" src="https://img.shields.io/badge/tests-145%20cases-b084f0" />
 </p>
 
 <p align="center">
@@ -239,7 +239,7 @@ npm start             # 启动服务
 
 ## 可选外部依赖
 
-图片重编码和 PDF 页图会用到两个可选 Python 库；它们不随发布包提供，由管理员在「环境检查 → 可选功能」中按需安装到项目 `.venv`：
+图片重编码和 PDF 页图会用到两个可选 Python 库；它们不随发布包提供，由管理员在「环境检查 → 可选功能」中按需安装到项目 `.venv`。默认不读取系统 Python；如已有隔离环境，可手动指定解释器或环境目录，检测通过后使用：
 
 | 依赖 | 用途 | 原项目 | PyPI |
 | --- | --- | --- | --- |

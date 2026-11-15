@@ -37,7 +37,7 @@
 - `src/protocol/`：OpenAI / Anthropic 请求归一化、响应与流式增量。
 - `src/data/`：模型、密钥、用量、状态、设置、审计、附件、模板和历史存储。
 - `src/ai/`：旧 suggest/native 路径和当前 relay；relay 是工作台主路径。旧 `/ai/suggest` 仅保留兼容，并返回废弃提示头，新集成必须使用 `/ai/relay`；后续版本可能移除 suggest/native。AI 卡片持久化由 `src/ai/cards.mjs` 提供。
-- `src/media/`：隔离的图片重编码和 PDF 页渲染 worker 适配；可选依赖安装在项目 `.venv`，worker 优先使用该解释器。
+- `src/media/`：隔离的图片重编码和 PDF 页渲染 worker 适配；可选依赖只安装在项目 `.venv`，worker 优先使用该解释器；管理员显式指定 `workers.externalPython` 时才读取外部环境。
 - `public/console.js`：网页工作台核心状态、操作和编辑流程（无构建步骤的原生 JavaScript）。
 - `public/console-utils.js`：控制台纯展示格式化工具（短 ID、耗时、JSON、预览文本）。
 - `public/console-ai-cards.js`：控制台 AI 卡片状态、服务端卡片合并和选中逻辑。
@@ -51,7 +51,7 @@
 - `src/protocol/request-parameters.mjs`：请求参数说明表；把原始字段映射到含义、处理方式、归一化字段、状态和字段级 diff，供检查接口、报告导出和票据详情复用。
 - `src/net/safe-fetch.mjs`：外链图片安全代理；DNS 解析后拒绝私网地址，不跟随重定向，限制类型、大小和超时。
 - `src/runtime-state.mjs`：重启状态文件读写；记录请求时间、旧/新 PID 和健康检查结果。
-- 管理员操作接口：`POST /op/api/environment/install` 只接受 `pillow` / `pypdfium2`，固定执行 pip，要求 `confirm: "INSTALL"`，写 `environment.install` 审计；`/environment/uninstall` 使用固定包名和 `confirm: "UNINSTALL"`，写 `environment.uninstall` 审计。
+- 管理员操作接口：`POST /op/api/environment/install` 只接受 `pillow` / `pypdfium2`，固定写入项目 `.venv`，要求 `confirm: "INSTALL"`；`/environment/uninstall` 只从 `.venv` 卸载，要求 `confirm: "UNINSTALL"`；`/environment/external` 校验并保存管理员指定的外部解释器。三者分别写审计。
 - `public/hub.html` + `navigation.js`：一级导航和概览/记录/管理 Hub；二级页面通过同源 iframe 复用。
 - `public/login.*`：双栏登录页；TOTP 输入过滤/进度、Caps Lock 提示、加载态、指针光晕和 `Ctrl/Cmd+Enter` 提交。
 - `public/settings.html`、`settings-operator.html`：设置页；快捷栏支持拖动手柄/方向键排序、新增项底部提示和恢复默认。

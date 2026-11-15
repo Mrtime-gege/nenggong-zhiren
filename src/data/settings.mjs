@@ -59,6 +59,7 @@ export class SettingsStore {
       }
       this.values = this.merge(parsed.values);
     } else {
+      this.values = this.merge(this.values);
       this.persist();
     }
     return this;
@@ -82,6 +83,13 @@ export class SettingsStore {
         usageDashboard: bool(raw.features?.usageDashboard ?? defaults.features.usageDashboard, "features.usageDashboard"),
         publicGuide: bool(raw.features?.publicGuide ?? defaults.features.publicGuide, "features.publicGuide"),
       },
+      workers: {
+        externalPython: text(
+          raw.workers?.externalPython ?? defaults.workers?.externalPython ?? "",
+          "workers.externalPython",
+          { max: 1_000 },
+        ),
+      },
       aiAssist: {
         enabled: bool(raw.aiAssist?.enabled ?? defaults.aiAssist.enabled, "aiAssist.enabled"),
         endpoint: text(raw.aiAssist?.endpoint ?? defaults.aiAssist.endpoint, "aiAssist.endpoint", { max: 500 }),
@@ -101,7 +109,7 @@ export class SettingsStore {
     if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
       throw new SettingsError("settings payload must be an object.");
     }
-    for (const section of ["queue", "limits", "features", "aiAssist"]) {
+    for (const section of ["queue", "limits", "features", "workers", "aiAssist"]) {
       if (patch[section] !== undefined && (!patch[section] || typeof patch[section] !== "object" || Array.isArray(patch[section]))) {
         throw new SettingsError(`settings.${section} must be an object.`);
       }
@@ -110,12 +118,14 @@ export class SettingsStore {
       queue: { ...this.values.queue, ...(patch.queue || {}) },
       limits: { ...this.values.limits, ...(patch.limits || {}) },
       features: { ...this.values.features, ...(patch.features || {}) },
+      workers: { ...this.values.workers, ...(patch.workers || {}) },
       aiAssist: { ...this.values.aiAssist, ...(patch.aiAssist || {}) },
     };
     const next = this.merge(merged);
     this.values.queue = next.queue;
     this.values.limits = next.limits;
     this.values.features = next.features;
+    this.values.workers = next.workers;
     this.values.aiAssist = next.aiAssist;
     this.persist();
     return this.get();

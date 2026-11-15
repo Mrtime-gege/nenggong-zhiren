@@ -79,7 +79,8 @@ function badge(tone, label) {
 }
 
 function capabilityState(worker, featureAvailable, python) {
-  if (!python.available) return { tone: "error", label: "Python 不可用" };
+  if (python.external && !python.available) return { tone: "error", label: "外部环境不可用" };
+  if (!python.external && !python.available) return { tone: "warn", label: "虚拟环境未创建" };
   if (!worker.configured) return { tone: "muted", label: "未配置脚本" };
   if (!worker.exists) return { tone: "warn", label: "脚本不存在" };
   if (!worker.dependencyAvailable) return { tone: "warn", label: `缺少 ${worker.dependency}` };
@@ -121,26 +122,33 @@ function capabilityCard({ title, description, component, info, worker, featureAv
   );
   card.append(details);
 
-  if (worker.error || (python.error && !python.available)) {
-    card.append(el("p", "optional-error", worker.error || python.error));
+  const workerError = worker.error && worker.error !== "未安装" ? worker.error : "";
+  if (workerError || (python.error && !python.available)) {
+    card.append(el("p", "optional-error", workerError || python.error));
   }
 
   if (info && component) {
-    card.append(commandLine("安装", info.command || "", copyText));
-    card.append(commandLine("卸载", info.uninstallCommand || "", copyText));
+    if (!python.external) {
+      card.append(commandLine("安装", info.command || "", copyText));
+      card.append(commandLine("卸载", info.uninstallCommand || "", copyText));
+    }
 
     const actions = el("div", "optional-actions");
-    const install = el("button", "btn", worker.dependencyAvailable ? "依赖已安装" : "安装依赖");
-    install.type = "button";
-    install.disabled = busy || !python.available || worker.dependencyAvailable;
-    install.title = worker.dependencyAvailable ? "当前 Python 环境已能导入该依赖" : "";
-    install.addEventListener("click", () => runPip("install", component, title));
-    const uninstall = el("button", "btn ghost", "卸载依赖");
-    uninstall.type = "button";
-    uninstall.disabled = busy || !worker.dependencyAvailable;
-    uninstall.title = worker.dependencyAvailable ? `卸载 ${dependency}` : "当前环境未检测到该依赖";
-    uninstall.addEventListener("click", () => runPip("uninstall", component, title));
-    actions.append(install, uninstall);
+    if (!python.external) {
+      const install = el("button", "btn", worker.dependencyAvailable ? "依赖已安装" : "安装依赖");
+      install.type = "button";
+      install.disabled = busy || worker.dependencyAvailable;
+      install.title = worker.dependencyAvailable ? "当前 Python 环境已能导入该依赖" : "";
+      install.addEventListener("click", () => runPip("install", component, title));
+      const uninstall = el("button", "btn ghost", "卸载依赖");
+      uninstall.type = "button";
+      uninstall.disabled = busy || !worker.dependencyAvailable;
+      uninstall.title = worker.dependencyAvailable ? `卸载 ${dependency}` : "当前环境未检测到该依赖";
+      uninstall.addEventListener("click", () => runPip("uninstall", component, title));
+      actions.append(install, uninstall);
+    } else {
+      actions.append(el("span", "admin-hint", "外部环境由用户管理，安装/卸载请在该环境中手工执行。"));
+    }
     if (info.pypi) actions.append(link("PyPI 页面", info.pypi));
     if (info.project) actions.append(link("原项目", info.project));
     if (info.script) actions.append(link("worker 脚本", info.script));
@@ -174,9 +182,16 @@ function renderOptional(data) {
   const image = workers.image || {};
   const pdf = workers.pdf || {};
   const availableCount = [features.imageNormalization, features.pdfPagePreview, features.historyIndex].filter(Boolean).length;
+  const source = python.external
+    ? `外部环境 · ${python.executable || "未配置"}`
+    : (python.available ? "项目 .venv" : "项目 .venv 未创建");
   const summary = $("optionalSummary");
-  summary.textContent = `${availableCount}/3 可用${python.available ? ` · ${python.executable || "python"}` : " · Python 不可用"}`;
+  summary.textContent = `${availableCount}/3 可用 · ${source}`;
   summary.classList.toggle("err", availableCount === 0);
+  $("externalState").textContent = `当前：${source}`;
+  $("externalPythonPath").value = python.external ? (python.executable || "") : "";
+  $("clearExternalPython").disabled = busy || !python.external;
+  $("useExternalPython").disabled = busy;
 
   $("optionalGrid").replaceChildren(
     capabilityCard({
@@ -215,45 +230,25 @@ function renderOptional(data) {
 
 async function runPip(action, component, label) {
   if (busy) return;
+  if (probe?.workers?.python?.external) {
+    setOutput("当前使用用户指定的外部 Python 环境；请在该环境中手工安装/卸载，或先恢复项目 .venv。");
+    return;
+  }
   const info = probe?.install?.[component === "pillow" ? "image" : "pdf"] || {};
   const verb = action === "install" ? "安装" : "卸载";
   const warning = action === "install"
-    ? `安装 ${label} 的可选依赖？会优先创建项目 .venv 并在其中运行 pip。`
-    : `从服务账号的 Python 环境卸载 ${label}？其他依赖它的程序可能受影响。`;
+    ? `安装 ${label} 的可选依赖？只会写入项目 .venv。`
+    : `从项目 .venv 卸载 ${label}？不会操作系统 Python。`;
   if (!window.confirm(warning)) return;
   busy = true;
   setStatus(`${verb}中…`);
-  let mode = action === "install" ? "venv" : undefined;
-  let data = null;
-  let command = "";
+  const command = action === "install" ? info.command : info.uninstallCommand;
+  setOutput(`$ ${command || ""}\n\n正在${verb} ${label}…`);
   try {
-    for (;;) {
-      command = action === "install"
-        ? (mode === "system" ? info.systemCommand : info.command)
-        : info.uninstallCommand;
-      setOutput(`$ ${command || ""}\n\n正在${verb} ${label}…`);
-      data = await api(`/op/api/environment/${action}`, {
-        method: "POST",
-        body: {
-          component,
-          confirm: action === "install" ? "INSTALL" : "UNINSTALL",
-          ...(mode ? { mode } : {}),
-        },
-      });
-      if (action === "install" && data.stage === "venv" && mode === "venv") {
-        setOutput([
-          data.hint || "创建项目 .venv 失败。",
-          "",
-          data.stdout || "",
-          data.stderr || "",
-        ].join("\n").trim());
-        const force = window.confirm(`${data.hint || "项目 .venv 不可用"}\n\n是否改用 --break-system-packages 安装到系统 Python？这会修改系统环境。`);
-        if (!force) break;
-        mode = "system";
-        continue;
-      }
-      break;
-    }
+    const data = await api(`/op/api/environment/${action}`, {
+      method: "POST",
+      body: { component, confirm: action === "install" ? "INSTALL" : "UNINSTALL" },
+    });
     setOutput([
       data.ok ? `${verb}完成` : `${verb}失败（退出码 ${data.exitCode}）`,
       "",
@@ -268,6 +263,35 @@ async function runPip(action, component, label) {
   } catch (error) {
     setOutput(`${verb}失败：${error.message}`);
     setStatus(`${verb}失败`, true);
+  } finally {
+    busy = false;
+  }
+}
+
+async function applyExternal(pathValue, clear = false) {
+  if (busy) return;
+  const path = String(pathValue || "").trim();
+  if (!clear && !path) {
+    setOutput("请输入 Python 可执行文件或环境目录路径。");
+    return;
+  }
+  if (!window.confirm(clear ? "恢复使用项目 .venv？" : "检测并使用指定的 Python 环境？")) return;
+  busy = true;
+  setStatus(clear ? "恢复中…" : "检测中…");
+  try {
+    const data = await api("/op/api/environment/external", {
+      method: "POST",
+      body: clear ? { path: "", confirm: "CLEAR" } : { path, confirm: "USE" },
+    });
+    setOutput(clear
+      ? "已恢复项目 .venv。"
+      : `已切换到外部 Python：${data.externalPython}\n\n安装/卸载已禁用，请在该环境中自行管理依赖。`);
+    busy = false;
+    await load();
+    setStatus("已同步");
+  } catch (error) {
+    setOutput(`外部环境检测失败：${error.message}`);
+    setStatus("检测失败", true);
   } finally {
     busy = false;
   }
@@ -314,6 +338,8 @@ async function load() {
 
 $("refresh").addEventListener("click", load);
 $("clearOutput").addEventListener("click", clearOutput);
+$("useExternalPython").addEventListener("click", () => applyExternal($("externalPythonPath").value));
+$("clearExternalPython").addEventListener("click", () => applyExternal("", true));
 $("logout").addEventListener("click", async () => {
   try {
     await fetch("/auth/logout", {

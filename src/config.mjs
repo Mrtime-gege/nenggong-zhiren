@@ -268,6 +268,8 @@ export function loadConfig(file = CONFIG_FILE) {
     throw new ConfigError("workers must be an object.");
   }
   const workerPython = stringAt(workersRaw, "python", "workers.python", "python3");
+  const externalPythonValue = stringAt(workersRaw, "externalPython", "workers.externalPython", "", { allowEmpty: true });
+  const externalPython = externalPythonValue ? resolvePath(externalPythonValue) : "";
   const imageWorkerValue = stringAt(workersRaw, "imageWorker", "workers.imageWorker", "scripts/normalize-image.py", { allowEmpty: true });
   const pdfWorkerValue = stringAt(workersRaw, "pdfWorker", "workers.pdfWorker", "scripts/render-pdf-page.py", { allowEmpty: true });
   const imageWorker = imageWorkerValue ? resolvePath(imageWorkerValue) : "";
@@ -375,7 +377,7 @@ export function loadConfig(file = CONFIG_FILE) {
       catalog: Object.freeze(catalog.map((model) => Object.freeze(model))),
     }),
     tls: Object.freeze({ enabled: tlsEnabled, certFile, keyFile }),
-    workers: Object.freeze({ python: workerPython, imageWorker, pdfWorker, probeTimeoutMs: workerProbeTimeoutMs }),
+    workers: Object.freeze({ python: workerPython, externalPython, imageWorker, pdfWorker, probeTimeoutMs: workerProbeTimeoutMs }),
     logging: Object.freeze({ content: booleanAt(logging, "content", "logging.content", false) }),
     attachments: Object.freeze({
       enabled: booleanAt(attachments, "enabled", "attachments.enabled", true),

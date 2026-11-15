@@ -92,8 +92,19 @@ python3 -m venv .venv
 worker 会自动使用 `.venv/bin/python`，不需要修改 `workers.python`；该配置仍作为创建/修复
 venv 的基础解释器。安装来源遵循本机 pip 配置；生产环境应使用可信索引或离线镜像。
 
-如果宿主机无法创建 venv（例如缺少 `python3-venv`），页面会提示是否改用
-`--break-system-packages` 安装到系统 Python。这会修改系统环境，优先修复 venv，不建议在生产使用。
+如果宿主机无法创建 venv（例如缺少 `python3-venv`），页面会提示安装 venv 模块；不会自动改用系统 Python。
+如已有独立的 Python 环境，可在「可选功能」页的「使用已有 Python 环境」填入解释器或环境目录，
+检测通过后 worker 只读取该环境；安装/卸载仍只作用于项目 `.venv`，外部环境由用户自行管理。
+也可以写入配置：
+
+```jsonc
+"workers": {
+  "python": "python3",
+  "externalPython": "/opt/my-python/bin/python",
+  "imageWorker": "scripts/normalize-image.py",
+  "pdfWorker": "scripts/render-pdf-page.py"
+}
+```
 
 需要移除可选能力时，可以在环境页点「卸载依赖」，或手工执行：
 
@@ -103,10 +114,12 @@ venv 的基础解释器。安装来源遵循本机 pip 配置；生产环境应�
 ```
 
 卸载会影响使用同一 Python 环境的其他程序；生产环境优先使用专用 venv，避免影响系统包。
+卸载成功后卡片会显示「缺少依赖 / 不可用」，这是预期状态，不是卸载失败；页面不会再展示 Python 的完整 traceback。
 
 ```jsonc
 "workers": {
   "python": "python3",
+  "externalPython": "",
   "imageWorker": "scripts/normalize-image.py",
   "pdfWorker": "scripts/render-pdf-page.py",
   "probeTimeoutMs": 2500

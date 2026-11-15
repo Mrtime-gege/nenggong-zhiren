@@ -3354,3 +3354,56 @@ body[data-page="settings"] .settings-content > .admin-only {
 @media (max-width: 760px) {
   .optional-grid { grid-template-columns: 1fr; }
 }
+
+/* Explicit external Python environment override. */
+.optional-external {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.016);
+}
+
+.optional-external-copy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 7px;
+  color: var(--text-dim);
+  font-size: 9px;
+}
+
+.optional-external-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.optional-external-form input {
+  min-width: 220px;
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.optional-external-form input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.optional-external-form .btn {
+  padding: 4px 9px;
+  font-size: 9px;
+}
+
+.optional-external .admin-card-desc {
+  margin: 7px 0 0;
+  font-size: 8px;
+}

@@ -391,6 +391,8 @@ test("environment page and capability probe are served to admins", async () => {
   assert.match(probe.install.pdf.project, /github\.com\/pypdfium2-team\/pypdfium2/);
   assert.match(probe.install.image.uninstallCommand, /pip uninstall -y Pillow/);
   assert.match(probe.install.image.command, /\.venv/);
+  assert.equal(probe.workers.python.external, false);
+  assert.equal(probe.workers.python.managed, true);
   assert.match(probe.install.pdf.pypi, /pypi\.org\/project\/pypdfium2/);
   assert.match(probe.install.workers.scripts, /github\.com\/Mrtime-gege\/nenggong-zhiren/);
   const badComponent = await op(adminSession, "/op/api/environment/install", {
@@ -423,6 +425,21 @@ test("environment page and capability probe are served to admins", async () => {
     body: { component: "pillow", confirm: "UNINSTALL" },
   });
   assert.equal(uninstallForbidden.status, 403);
+  const badPath = await op(adminSession, "/op/api/environment/external", {
+    method: "POST",
+    body: { path: "/nonexistent/ngzr-python", confirm: "USE" },
+  });
+  assert.equal(badPath.status, 400);
+  const noExternalConfirm = await op(adminSession, "/op/api/environment/external", {
+    method: "POST",
+    body: { path: "/usr/bin/python3" },
+  });
+  assert.equal(noExternalConfirm.status, 400);
+  const externalForbidden = await op(aliceSession, "/op/api/environment/external", {
+    method: "POST",
+    body: { path: "/usr/bin/python3", confirm: "USE" },
+  });
+  assert.equal(externalForbidden.status, 403);
 });
 
 test("only embedded console pages allow same-origin framing", async () => {
