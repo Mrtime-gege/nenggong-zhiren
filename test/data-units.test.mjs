@@ -10,6 +10,7 @@ import { parseCsv, cleanFilename, detectImage, extractPdfText, AttachmentError, 
 import { validateJsonSchema, formatSchemaErrors } from "../src/schema.mjs";
 import { SettingsError, SettingsStore } from "../src/data/settings.mjs";
 import { ModelError, ModelStore } from "../src/data/models.mjs";
+import { AuthService } from "../src/auth.mjs";
 import { AuditStore } from "../src/data/audit.mjs";
 import { stripJsonc, parseJsonc, loadConfig, ConfigError } from "../src/config.mjs";
 import { readRestartStatus, writeRestartStatus } from "../src/runtime-state.mjs";
@@ -278,6 +279,46 @@ test("restart status file merges patches atomically", () => {
     writeRestartStatus(file, { failedAt: "2026-01-01T00:00:05.000Z", error: "timeout" });
     assert.equal(readRestartStatus(file).readyAt, "2026-01-01T00:00:02.000Z");
     assert.equal(readRestartStatus(file).error, "timeout");
+  } finally {
+    dir.cleanup();
+  }
+});
+
+test("login throttling isolates by address and username and exempts admins", () => {
+  const dir = tmp();
+  try {
+    const auth = new AuthService({
+      dataDir: dir.dir,
+      loginRateWindowMs: 60_000,
+      loginIpMaxFailures: 10,
+      loginUserMaxFailures: 3,
+      loginComboMaxFailures: 2,
+      logger: { log() {}, error() {} },
+    }).init();
+    auth.addUser("admin", "admin-password-1", "admin");
+    auth.addUser("operator", "operator-password-1", "operator");
+    // Combo failures only lock the same address + username pair.
+    auth.recordLoginFailure("10.0.0.1", "operator");
+    auth.recordLoginFailure("10.0.0.1", "operator");
+    assert.equal(auth.loginAllowed("10.0.0.1", "operator").allowed, false);
+    assert.equal(auth.loginAllowed("10.0.0.2", "operator").allowed, true);
+    auth.clearLoginFailures("10.0.0.1", "operator");
+    assert.equal(auth.loginAllowed("10.0.0.1", "operator").allowed, true);
+    // Username-wide lock still applies to operators from other addresses.
+    auth.recordLoginFailure("10.0.0.3", "operator");
+    auth.recordLoginFailure("10.0.0.4", "operator");
+    auth.recordLoginFailure("10.0.0.5", "operator");
+    assert.equal(auth.loginAllowed("10.0.0.6", "operator").allowed, false);
+    // Admins are exempt from the username-wide lock but not the combo lock.
+    auth.recordLoginFailure("10.0.0.7", "admin");
+    auth.recordLoginFailure("10.0.0.8", "admin");
+    auth.recordLoginFailure("10.0.0.9", "admin");
+    assert.equal(auth.loginAllowed("10.0.0.10", "admin").allowed, true);
+    auth.recordLoginFailure("10.0.0.10", "admin");
+    auth.recordLoginFailure("10.0.0.10", "admin");
+    assert.equal(auth.loginAllowed("10.0.0.10", "admin").allowed, false);
+    auth.destroyAllSessions();
+    auth.close();
   } finally {
     dir.cleanup();
   }

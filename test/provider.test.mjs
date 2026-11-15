@@ -885,6 +885,30 @@ test("Idempotency-Key replays completed requests, joins active ones and rejects 
   assert.equal((await a.json()).id, (await b.json()).id);
 });
 
+test("ticket text is capped at the hard character limit", async () => {
+  const tag = marker("TEXTCAP");
+  const pending = startChat({ model: "human-1", messages: [{ role: "user", content: tag }] });
+  const ticket = await waitForTicket((item) => item.messages.some((message) => message.content.includes(tag)));
+  await claim(adminSession, ticket.id);
+  let forced = null;
+  for (let index = 0; index < 21; index += 1) {
+    const response = await op(adminSession, `/op/api/tickets/${ticket.id}/chunk`, {
+      method: "POST",
+      body: { text: "z".repeat(50_000) },
+    });
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    if (payload.forcedFinishReason) { forced = payload; break; }
+  }
+  assert.ok(forced, "expected the hard cap to close the ticket");
+  assert.equal(forced.textLength, 1_000_000);
+  const detail = await opJson(adminSession, `/op/api/tickets/${ticket.id}`);
+  assert.equal(detail.ticket.text.length, 1_000_000);
+  assert.equal(detail.ticket.finishReason, "length");
+  const response = await pending;
+  assert.equal(response.status, 200);
+});
+
 test("slow SSE consumer does not receive duplicated text", async () => {
   const tag = marker("SLOWSTREAM");
   const body = JSON.stringify({
@@ -2740,6 +2764,33 @@ test("ticket routing metadata and internal notes are operator-visible", async ()
   assert.equal((await pending).status, 200);
 });
 
+test("queued cancel and non-owner notes are restricted", async () => {
+  const tag = marker("PERMS");
+  const pending = startChat({ model: "human-1", messages: [{ role: "user", content: tag }] });
+  const ticket = await waitForTicket((item) => item.messages.some((message) => message.content.includes(tag)));
+  assert.equal((await op(aliceSession, `/op/api/tickets/${ticket.id}/cancel`, { method: "POST", body: {} })).status, 403);
+  assert.equal((await op(aliceSession, `/op/api/tickets/${ticket.id}/notes`, { method: "POST", body: { text: "nope" } })).status, 403);
+  assert.equal((await op(aliceSession, `/op/api/tickets/${ticket.id}/meta`, { method: "PATCH", body: { tags: ["nope"] } })).status, 403);
+  await claim(bobSession, ticket.id);
+  assert.equal((await op(aliceSession, `/op/api/tickets/${ticket.id}/cancel`, { method: "POST", body: {} })).status, 403);
+  assert.equal((await op(aliceSession, `/op/api/tickets/${ticket.id}/notes`, { method: "POST", body: { text: "nope" } })).status, 403);
+  assert.equal((await op(aliceSession, `/op/api/tickets/${ticket.id}/meta`, { method: "PATCH", body: { priority: 3 } })).status, 403);
+  assert.equal((await op(bobSession, `/op/api/tickets/${ticket.id}/notes`, { method: "POST", body: { text: "owner note" } })).status, 201);
+  assert.equal((await op(bobSession, `/op/api/tickets/${ticket.id}/meta`, { method: "PATCH", body: { tags: ["owner"], priority: 2 } })).status, 200);
+  await finishJson(bobSession, ticket.id, { text: "allowed", finishReason: "stop" });
+  assert.equal((await pending).status, 200);
+
+  const queuedTag = marker("ADMIN-CANCEL");
+  const queuedPending = startChat({ model: "human-1", messages: [{ role: "user", content: queuedTag }] });
+  const queued = await waitForTicket((item) => item.messages.some((message) => message.content.includes(queuedTag)));
+  const cancel = await op(adminSession, `/op/api/tickets/${queued.id}/cancel`, { method: "POST", body: { reason: "duplicate test request" } });
+  assert.equal(cancel.status, 200);
+  assert.equal((await cancel.json()).state, "failed");
+  await queuedPending;
+  const audit = await opJson(adminSession, "/op/api/audit?action=ticket.cancel");
+  assert.ok(audit.events.some((event) => event.target === queued.id && /duplicate test request/.test(event.detail || "")));
+});
+
 test("AI assist respects user feature flags, settings and secret handling", async () => {
   const requests = [];
   const mockProvider = http.createServer((req, res) => {
@@ -3168,6 +3219,15 @@ test("request inspection is dry-run and ticket snapshots keep the raw protocol b
   assert.equal(after.tickets.length, before.tickets.length, "inspect must not create a ticket");
   const unauthorized = await fetch(`${BASE}/v1/inspect/openai`, { method: "POST", body: "{}" });
   assert.equal(unauthorized.status, 401);
+  const rejected = await fetch(`${BASE}/v1/inspect/openai`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${CALLER_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "human-1", messages: [{ role: "user", content: "n2" }], n: 2 }),
+  });
+  assert.equal(rejected.status, 400);
+  const rejectedBody = await rejected.json();
+  assert.equal(rejectedBody.error.param, "n");
+  assert.equal(rejectedBody.error.code, "unsupported_n");
   const page = await fetch(`${BASE}/console/requests`, { headers: { Cookie: adminSession.cookie } });
   assert.equal(page.status, 200);
   assert.match(await page.text(), /id="requestFilters"/);
